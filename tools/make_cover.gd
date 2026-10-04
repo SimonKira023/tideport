@@ -1,76 +1,76 @@
 extends SceneTree
 # 封面生成器（纯 GDScript，系统无 Python 时替代 _make_cover.py）：重生成封面三件套
-#   e39: 封面重画 —— **不画任何文字**；允许非方格/有机构图；上方留大片留白
-#   构图: 左上淡青晨空(留白) + 一轮淡金晨阳 + 三抹薄云 + 远处岛影
-#         右下角一座海港小镇(珊瑚屋顶/白灯塔/木栈桥) + 左下角一艘小帆船
+#   e39+: 封面完全重画 —— **不画任何文字**；清新明亮向
+#   构图: 上方 6 成留白(浅天蓝→奶白晨空) + 一轮柔阳 + 多抹薄云 + 海鸥
+#         左侧远处岛影 + 右下嫩绿岬角小镇(白墙/珊瑚顶/白灯塔/木栈桥) + 左下小帆船
 #   笔触: SubViewport 里用多边形/圆/线自由摆放(不是 8px 方格块), 硬边不加抗锯齿
 # 产物: outputs/cover_preview.png + 根目录 icon_256.png + icon.ico（多尺寸）
 # 运行（SubViewport 取图要真实渲染设备，不能 --headless）:
 #   Godot_console.exe --path <项目> -s res://tools/make_cover.gd
 
 const S := 512
-const HORIZON := 332
+const HORIZON := 300
 
-# ---------- 调色（清新向：淡青 / 薄荷 / 米黄 / 珊瑚） ----------
-const SKY_TOP := Vector3i(146, 197, 209)
-const SKY_MID := Vector3i(196, 226, 224)
-const SKY_LOW := Vector3i(238, 240, 226)
-const SKY_HOT := Vector3i(250, 231, 202)
-const SEA_TOP := Vector3i(180, 220, 214)
-const SEA_MID := Vector3i(88, 158, 164)
-const SEA_DEEP := Vector3i(38, 96, 112)
+# ---------- 调色（清新向：浅天蓝 / 奶白 / 嫩绿 / 浅松石，整体提亮） ----------
+const SKY_TOP := Vector3i(170, 217, 235)
+const SKY_MID := Vector3i(210, 237, 241)
+const SKY_LOW := Vector3i(246, 249, 238)
+const SKY_HOT := Vector3i(255, 246, 218)
+const SEA_TOP := Vector3i(172, 226, 218)
+const SEA_MID := Vector3i(112, 190, 184)
+const SEA_DEEP := Vector3i(66, 142, 148)
 
-const SUN_CORE := Vector3i(255, 240, 188)
-const SUN_RIM := Vector3i(255, 222, 166)
-const CLOUD := Vector3i(255, 252, 245)
-const GULL := Vector3i(88, 122, 132)
-const ISLAND := Vector3i(158, 196, 198)
-const GLITTER := Vector3i(255, 240, 208)
-const FOAM := Vector3i(240, 246, 242)
-const DEPTH := Vector3i(22, 62, 78)
+const SUN_CORE := Vector3i(255, 244, 200)
+const SUN_RIM := Vector3i(255, 230, 180)
+const CLOUD := Vector3i(255, 253, 248)
+const GULL := Vector3i(96, 132, 140)
+const ISLAND := Vector3i(178, 212, 210)
+const GLITTER := Vector3i(255, 244, 214)
+const FOAM := Vector3i(248, 252, 250)
+const DEPTH := Vector3i(58, 122, 130)
 
-const GRASS := Vector3i(132, 176, 128)
-const GRASS_DIM := Vector3i(104, 148, 112)
-const GRASS_LIT := Vector3i(158, 198, 138)
-const SAND := Vector3i(238, 224, 194)
-const SAND_WET := Vector3i(212, 194, 164)
-const TREE := Vector3i(66, 116, 92)
-const TREE_LIT := Vector3i(92, 146, 108)
-const TRUNK := Vector3i(112, 84, 60)
-const WALL := Vector3i(250, 242, 224)
-const WALL_DIM := Vector3i(216, 204, 184)
-const ROOF := Vector3i(204, 112, 92)
-const ROOF_DIM := Vector3i(168, 84, 68)
-const BRICK := Vector3i(178, 118, 96)
-const BRICK_DIM := Vector3i(146, 92, 74)
-const WINDOW := Vector3i(58, 92, 106)
-const WOOD := Vector3i(176, 140, 106)
-const WOOD_DIM := Vector3i(138, 104, 76)
-const POST := Vector3i(120, 90, 66)
-const HULL := Vector3i(216, 124, 96)
-const HULL_DIM := Vector3i(170, 92, 72)
-const SAIL := Vector3i(252, 248, 238)
-const SAIL_DIM := Vector3i(230, 222, 204)
-const MAST := Vector3i(150, 112, 78)
-const TOWER := Vector3i(250, 244, 230)
-const TOWER_BAND := Vector3i(206, 122, 100)
-const LAMP := Vector3i(255, 226, 158)
-const DARK := Vector3i(58, 84, 96)
+const GRASS := Vector3i(152, 198, 134)
+const GRASS_DIM := Vector3i(120, 166, 118)
+const GRASS_LIT := Vector3i(178, 216, 144)
+const SAND := Vector3i(244, 233, 203)
+const SAND_WET := Vector3i(216, 200, 172)
+const TREE := Vector3i(88, 140, 102)
+const TREE_LIT := Vector3i(114, 166, 118)
+const TRUNK := Vector3i(118, 88, 62)
+const WALL := Vector3i(252, 246, 232)
+const WALL_DIM := Vector3i(222, 210, 190)
+const ROOF := Vector3i(224, 126, 106)
+const ROOF_DIM := Vector3i(188, 98, 82)
+const BRICK := Vector3i(190, 128, 104)
+const BRICK_DIM := Vector3i(156, 100, 80)
+const WINDOW := Vector3i(96, 140, 152)
+const WOOD := Vector3i(190, 154, 118)
+const WOOD_DIM := Vector3i(150, 114, 84)
+const POST := Vector3i(130, 98, 70)
+const HULL := Vector3i(230, 140, 110)
+const HULL_DIM := Vector3i(184, 100, 78)
+const SAIL := Vector3i(254, 250, 242)
+const SAIL_DIM := Vector3i(234, 226, 208)
+const MAST := Vector3i(158, 118, 82)
+const TOWER := Vector3i(252, 246, 232)
+const TOWER_BAND := Vector3i(228, 134, 112)
+const LAMP := Vector3i(255, 232, 168)
+const DARK := Vector3i(88, 122, 130)
 
 # 岬角外轮廓（顺时针）：左上角是尖角，右下贴着海面，底边是岸线
 var LAND := PackedVector2Array([
-	Vector2(512, 322), Vector2(478, 314), Vector2(444, 308), Vector2(408, 309),
-	Vector2(370, 318), Vector2(332, 334), Vector2(298, 356), Vector2(268, 378),
-	Vector2(246, 400), Vector2(266, 418), Vector2(300, 430), Vector2(348, 440),
-	Vector2(400, 444), Vector2(452, 440), Vector2(498, 432), Vector2(512, 428)])
+	Vector2(512, 290), Vector2(478, 284), Vector2(444, 280), Vector2(408, 282),
+	Vector2(370, 292), Vector2(332, 308), Vector2(298, 330), Vector2(268, 350),
+	Vector2(246, 368), Vector2(266, 386), Vector2(300, 396), Vector2(348, 404),
+	Vector2(400, 408), Vector2(452, 404), Vector2(498, 396), Vector2(512, 392)])
 # 山脊线（上边缘）/ 岸线（下边缘），都从右往左逐点
 var RIDGE := PackedVector2Array([
-	Vector2(512, 322), Vector2(478, 314), Vector2(444, 308), Vector2(408, 309),
-	Vector2(370, 318), Vector2(332, 334), Vector2(298, 356), Vector2(268, 378),
-	Vector2(246, 400)])
+	Vector2(512, 290), Vector2(478, 284), Vector2(444, 280), Vector2(408, 282),
+	Vector2(370, 292), Vector2(332, 308), Vector2(298, 330), Vector2(268, 350),
+	Vector2(246, 368)])
 var SHORE := PackedVector2Array([
-	Vector2(246, 400), Vector2(266, 418), Vector2(300, 430), Vector2(348, 440),
-	Vector2(400, 444), Vector2(452, 440), Vector2(498, 432), Vector2(512, 428)])
+	Vector2(246, 368), Vector2(266, 386), Vector2(300, 396), Vector2(348, 404),
+	Vector2(400, 408), Vector2(452, 404), Vector2(498, 396), Vector2(512, 392)])
 
 var img: Image
 
@@ -97,7 +97,7 @@ func _initialize() -> void:
 	i256.resize(256, 256, Image.INTERPOLATE_LANCZOS)
 	i256.save_png(ProjectSettings.globalize_path("res://icon_256.png"))
 	_write_ico(shot, [16, 24, 32, 48, 64, 128, 256], ProjectSettings.globalize_path("res://icon.ico"))
-	print("[封面] 已重生成 cover_preview.png / icon_256.png / icon.ico （无文字·非方格·上方留白）")
+	print("[封面] 已重生成 cover_preview.png / icon_256.png / icon.ico （无文字·清新明亮·上方留白）")
 	quit(0)
 
 
@@ -106,20 +106,20 @@ func _paint_base() -> void:
 	for y in range(HORIZON):
 		var t: float = y / float(HORIZON - 1)
 		var c: Vector3i
-		if t < 0.58:
-			c = lerp3(SKY_TOP, SKY_MID, t / 0.58)
-		elif t < 0.86:
-			c = lerp3(SKY_MID, SKY_LOW, (t - 0.58) / 0.28)
+		if t < 0.55:
+			c = lerp3(SKY_TOP, SKY_MID, t / 0.55)
+		elif t < 0.85:
+			c = lerp3(SKY_MID, SKY_LOW, (t - 0.55) / 0.30)
 		else:
-			c = lerp3(SKY_LOW, SKY_HOT, (t - 0.86) / 0.14)
+			c = lerp3(SKY_LOW, SKY_HOT, (t - 0.85) / 0.15)
 		img.fill_rect(Rect2i(0, y, S, 1), col(c))
 	for y in range(HORIZON, S):
 		var t2: float = (y - HORIZON) / float(S - HORIZON - 1)
 		var c2: Vector3i
-		if t2 < 0.42:
-			c2 = lerp3(SEA_TOP, SEA_MID, t2 / 0.42)
+		if t2 < 0.40:
+			c2 = lerp3(SEA_TOP, SEA_MID, t2 / 0.40)
 		else:
-			c2 = lerp3(SEA_MID, SEA_DEEP, (t2 - 0.42) / 0.58)
+			c2 = lerp3(SEA_MID, SEA_DEEP, (t2 - 0.40) / 0.60)
 		img.fill_rect(Rect2i(0, y, S, 1), col(c2))
 
 
@@ -145,33 +145,34 @@ func draw_art(ci: CanvasItem) -> void:
 	_lighthouse(ci)
 	_pier(ci)
 	_sailboat(ci)
-	_vignette(ci)
 
 
-# ---------------- 天空：晨阳 / 薄云 / 海鸥 / 水面反光柱 ----------------
+# ---------------- 天空：柔阳 / 薄云 / 海鸥 / 水面反光柱 ----------------
 func _sky_accents(ci: CanvasItem) -> void:
-	var sx := 120.0
-	var sy := 108.0
-	ci.draw_circle(Vector2(sx, sy), 70.0, col(SUN_RIM, 9), true, -1.0, true)
-	ci.draw_circle(Vector2(sx, sy), 56.0, col(SUN_RIM, 18), true, -1.0, true)
-	ci.draw_circle(Vector2(sx, sy), 44.0, col(SUN_RIM, 34), true, -1.0, true)
-	ci.draw_circle(Vector2(sx, sy), 33.0, col(SUN_RIM, 90), true, -1.0, true)
-	ci.draw_circle(Vector2(sx, sy), 30.0, col(SUN_CORE), true, -1.0, true)
+	var sx := 126.0
+	var sy := 96.0
+	ci.draw_circle(Vector2(sx, sy), 62.0, col(SUN_RIM, 10), true, -1.0, true)
+	ci.draw_circle(Vector2(sx, sy), 50.0, col(SUN_RIM, 20), true, -1.0, true)
+	ci.draw_circle(Vector2(sx, sy), 39.0, col(SUN_RIM, 36), true, -1.0, true)
+	ci.draw_circle(Vector2(sx, sy), 29.0, col(SUN_RIM, 90), true, -1.0, true)
+	ci.draw_circle(Vector2(sx, sy), 26.0, col(SUN_CORE), true, -1.0, true)
 
-	_cloud(ci, 40.0, 196.0, 128.0, 132)
-	_cloud(ci, 150.0, 246.0, 102.0, 108)
-	_cloud(ci, 244.0, 286.0, 86.0, 84)
+	_cloud(ci, 34.0, 172.0, 122.0, 150)
+	_cloud(ci, 158.0, 214.0, 100.0, 126)
+	_cloud(ci, 252.0, 148.0, 84.0, 100)
+	_cloud(ci, 296.0, 236.0, 64.0, 92)
+	_cloud(ci, 400.0, 176.0, 58.0, 84)
 
-	_gull(ci, 170.0, 148.0, 11.0)
-	_gull(ci, 214.0, 130.0, 9.0)
-	_gull(ci, 256.0, 166.0, 7.0)
+	_gull(ci, 182.0, 132.0, 10.0)
+	_gull(ci, 224.0, 114.0, 8.0)
+	_gull(ci, 262.0, 150.0, 6.0)
 
-	# 晨阳在水面的反光柱（越往下越散）
-	var gl := [[340, 18], [348, 15], [358, 13], [370, 11], [384, 9], [400, 8], [420, 7], [442, 6]]
+	# 柔阳在水面的反光柱（越往下越散）
+	var gl := [[308, 16], [316, 14], [326, 12], [338, 10], [352, 9], [368, 8], [388, 7], [410, 6], [436, 5]]
 	for g in gl:
 		var gy: int = g[0]
 		var gw: int = g[1]
-		ci.draw_rect(Rect2(sx - gw * 0.5, float(gy), float(gw), 2.0), col(GLITTER, 72))
+		ci.draw_rect(Rect2(sx - gw * 0.5, float(gy), float(gw), 2.0), col(GLITTER, 80))
 
 
 func _cloud(ci: CanvasItem, x: float, y: float, w: float, a: int) -> void:
@@ -182,27 +183,27 @@ func _cloud(ci: CanvasItem, x: float, y: float, w: float, a: int) -> void:
 
 
 func _gull(ci: CanvasItem, x: float, y: float, r: float) -> void:
-	var c := col(GULL, 205)
+	var c := col(GULL, 190)
 	ci.draw_line(Vector2(x - r, y + r * 0.45), Vector2(x, y - r * 0.30), c, 2.0, true)
 	ci.draw_line(Vector2(x, y - r * 0.30), Vector2(x + r, y + r * 0.45), c, 2.0, true)
 
 
 func _islands(ci: CanvasItem) -> void:
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(0, 334), Vector2(0, 331), Vector2(26, 320), Vector2(54, 326),
-		Vector2(82, 317), Vector2(112, 325), Vector2(140, 331), Vector2(140, 334)]),
-		col(ISLAND, 150))
+		Vector2(0, 306), Vector2(0, 303), Vector2(26, 292), Vector2(54, 298),
+		Vector2(82, 289), Vector2(112, 297), Vector2(140, 303), Vector2(140, 306)]),
+		col(ISLAND, 140))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(158, 334), Vector2(158, 330), Vector2(176, 323), Vector2(196, 328),
-		Vector2(208, 332), Vector2(208, 334)]),
-		col(ISLAND, 120))
+		Vector2(158, 306), Vector2(158, 302), Vector2(176, 295), Vector2(196, 300),
+		Vector2(208, 304), Vector2(208, 306)]),
+		col(ISLAND, 110))
 
 
 # ---------------- 海面浪花（避开陆地） ----------------
 func _waves(ci: CanvasItem) -> void:
-	var rows := [[344, 6, 20, 70], [356, 8, 26, 78], [370, 10, 32, 84],
-			[386, 12, 38, 92], [404, 14, 44, 100], [424, 16, 50, 105],
-			[448, 18, 58, 108], [476, 20, 66, 108], [502, 24, 74, 108]]
+	var rows := [[314, 6, 22, 80], [326, 8, 28, 88], [340, 10, 34, 94],
+			[356, 12, 40, 102], [374, 14, 46, 108], [394, 16, 52, 112],
+			[418, 18, 60, 114], [446, 20, 68, 114], [478, 24, 78, 114]]
 	for r in rows:
 		var y: int = r[0]
 		var w: int = r[1]
@@ -212,9 +213,9 @@ func _waves(ci: CanvasItem) -> void:
 		while x < float(S):
 			if not _in_land(x + w * 0.5, float(y)):
 				ci.draw_rect(Rect2(x, float(y), float(w), 2.0), col(FOAM, a))
-				if y >= 420:
+				if y >= 400:
 					ci.draw_rect(Rect2(x + 2.0, float(y + 2), float(maxi(2, w - 4)), 2.0),
-							col(DEPTH, 40))
+							col(DEPTH, 36))
 			x += float(step)
 
 
@@ -235,16 +236,18 @@ func _land(ci: CanvasItem) -> void:
 		wet.append(p + Vector2(0, 7))
 	ci.draw_polyline(wet, col(SAND_WET), 2.0, false)
 	# 草地上零星几笔亮色，破一破大片平色
-	for d in [[330, 356], [356, 348], [392, 336], [420, 334], [300, 392],
-			[368, 372], [440, 358], [478, 350], [268, 402], [410, 404]]:
-		ci.draw_rect(Rect2(float(d[0]), float(d[1]), 6.0, 3.0), col(GRASS_LIT, 90))
+	for d in [[318, 330], [348, 320], [384, 308], [414, 306], [292, 366],
+			[360, 348], [436, 334], [474, 324], [262, 376], [404, 380],
+			[330, 384], [470, 372]]:
+		ci.draw_rect(Rect2(float(d[0]), float(d[1]), 6.0, 3.0), col(GRASS_LIT, 100))
 
 
 # ---------------- 山坡上的柏树 ----------------
 func _trees(ci: CanvasItem) -> void:
-	_tree(ci, 276.0, 386.0, 28.0)
-	_tree(ci, 292.0, 372.0, 24.0)
-	_tree(ci, 496.0, 434.0, 20.0)
+	_tree(ci, 274.0, 358.0, 26.0)
+	_tree(ci, 290.0, 344.0, 22.0)
+	_tree(ci, 316.0, 322.0, 20.0)
+	_tree(ci, 496.0, 404.0, 18.0)
 
 
 func _tree(ci: CanvasItem, x: float, ground: float, h: float) -> void:
@@ -259,9 +262,9 @@ func _tree(ci: CanvasItem, x: float, ground: float, h: float) -> void:
 
 # ---------------- 镇上的三间小屋（沿山脊排开） ----------------
 func _houses(ci: CanvasItem) -> void:
-	_house(ci, 306.0, 346.0, _ridge_y(326.0) + 13.0, 0)
-	_house(ci, 356.0, 392.0, _ridge_y(374.0) + 13.0, 1)
-	_house(ci, 408.0, 440.0, _ridge_y(424.0) + 12.0, 2)
+	_house(ci, 306.0, 348.0, _ridge_y(328.0) + 13.0, 0)
+	_house(ci, 356.0, 394.0, _ridge_y(376.0) + 13.0, 1)
+	_house(ci, 406.0, 442.0, _ridge_y(424.0) + 12.0, 2)
 
 
 func _house(ci: CanvasItem, x0: float, x1: float, ground: float, tag: int) -> void:
@@ -286,42 +289,42 @@ func _house(ci: CanvasItem, x0: float, x1: float, ground: float, tag: int) -> vo
 	ci.draw_rect(Rect2(cx - 1.0, roof_y - 16.0, 8.0, 3.0), col(BRICK_DIM))
 
 
-# ---------------- 灯塔（右边的地标，白塔 + 两道珊瑚环 + 暗色顶） ----------------
+# ---------------- 灯塔（右边的地标，白塔 + 两道珊瑚环 + 亮灯室） ----------------
 func _lighthouse(ci: CanvasItem) -> void:
-	var cx := 477.0
+	var cx := 474.0
 	var base_y := _ridge_y(cx) + 13.0
-	var top_y := base_y - 96.0
-	ci.draw_circle(Vector2(cx, top_y - 8.0), 34.0, col(LAMP, 22), true, -1.0, true)
-	ci.draw_circle(Vector2(cx, top_y - 8.0), 25.0, col(LAMP, 32), true, -1.0, true)
+	var top_y := base_y - 92.0
+	ci.draw_circle(Vector2(cx, top_y - 8.0), 32.0, col(LAMP, 24), true, -1.0, true)
+	ci.draw_circle(Vector2(cx, top_y - 8.0), 23.0, col(LAMP, 36), true, -1.0, true)
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(cx - 16.0, base_y), Vector2(cx - 11.0, top_y),
-		Vector2(cx + 11.0, top_y), Vector2(cx + 16.0, base_y)]), col(TOWER))
+		Vector2(cx - 15.0, base_y), Vector2(cx - 10.0, top_y),
+		Vector2(cx + 10.0, top_y), Vector2(cx + 15.0, base_y)]), col(TOWER))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(cx + 8.0, base_y), Vector2(cx + 6.0, top_y),
-		Vector2(cx + 11.0, top_y), Vector2(cx + 16.0, base_y)]), col(WALL_DIM))
+		Vector2(cx + 7.0, base_y), Vector2(cx + 5.0, top_y),
+		Vector2(cx + 10.0, top_y), Vector2(cx + 15.0, base_y)]), col(WALL_DIM))
 	# 两道珊瑚色环（按塔身梯形缩进）
-	for band_y in [base_y - 34.0, base_y - 66.0]:
-		var t: float = (base_y - band_y) / 96.0
-		var hw: float = 16.0 - 5.0 * t
+	for band_y in [base_y - 32.0, base_y - 63.0]:
+		var t: float = (base_y - band_y) / 92.0
+		var hw: float = 15.0 - 5.0 * t
 		ci.draw_rect(Rect2(cx - hw, band_y, hw * 2.0, 9.0), col(TOWER_BAND))
 	ci.draw_rect(Rect2(cx - 5.0, base_y - 11.0, 10.0, 11.0), col(DARK))
 	# 观景台 + 灯室 + 顶盖
-	ci.draw_rect(Rect2(cx - 19.0, top_y - 5.0, 38.0, 6.0), col(DARK))
-	ci.draw_rect(Rect2(cx - 12.0, top_y - 24.0, 24.0, 19.0), col(DARK))
-	ci.draw_rect(Rect2(cx - 8.0, top_y - 21.0, 16.0, 14.0), col(LAMP))
-	ci.draw_rect(Rect2(cx - 1.0, top_y - 21.0, 2.0, 14.0), col(DARK))
+	ci.draw_rect(Rect2(cx - 18.0, top_y - 5.0, 36.0, 6.0), col(DARK))
+	ci.draw_rect(Rect2(cx - 11.0, top_y - 23.0, 22.0, 18.0), col(DARK))
+	ci.draw_rect(Rect2(cx - 7.0, top_y - 20.0, 14.0, 13.0), col(LAMP))
+	ci.draw_rect(Rect2(cx - 1.0, top_y - 20.0, 2.0, 13.0), col(DARK))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(cx - 15.0, top_y - 24.0), Vector2(cx + 15.0, top_y - 24.0),
-		Vector2(cx, top_y - 40.0)]), col(DARK))
-	ci.draw_rect(Rect2(cx - 2.0, top_y - 45.0, 4.0, 5.0), col(DARK))
+		Vector2(cx - 14.0, top_y - 23.0), Vector2(cx + 14.0, top_y - 23.0),
+		Vector2(cx, top_y - 38.0)]), col(DARK))
+	ci.draw_rect(Rect2(cx - 2.0, top_y - 42.0, 4.0, 5.0), col(DARK))
 
 
 # ---------------- 木栈桥（从岬角尖伸进水里） ----------------
 func _pier(ci: CanvasItem) -> void:
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(248, 392), Vector2(172, 406), Vector2(172, 414), Vector2(248, 400)]), col(WOOD))
+		Vector2(248, 360), Vector2(172, 374), Vector2(172, 382), Vector2(248, 368)]), col(WOOD))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(172, 410), Vector2(248, 396), Vector2(248, 400), Vector2(172, 414)]), col(WOOD_DIM))
+		Vector2(172, 378), Vector2(248, 364), Vector2(248, 368), Vector2(172, 382)]), col(WOOD_DIM))
 	for i in 6:
 		var px := 178.0 + float(i) * 12.0
 		var pt := _pier_top_y(px)
@@ -330,39 +333,34 @@ func _pier(ci: CanvasItem) -> void:
 	for px in [186.0, 212.0, 238.0]:
 		var pt2 := _pier_top_y(px)
 		ci.draw_rect(Rect2(px, pt2 + 8.0, 4.0, 16.0), col(POST))
-		ci.draw_rect(Rect2(px - 3.0, pt2 + 22.0, 10.0, 2.0), col(FOAM, 110))
+		ci.draw_rect(Rect2(px - 3.0, pt2 + 22.0, 10.0, 2.0), col(FOAM, 120))
 	ci.draw_rect(Rect2(174.0, _pier_top_y(174.0) - 12.0, 4.0, 24.0), col(POST))
 
 
 func _pier_top_y(x: float) -> float:
-	return 392.0 + (248.0 - x) / 76.0 * 14.0
+	return 360.0 + (248.0 - x) / 76.0 * 14.0
 
 
 # ---------------- 小帆船（左下角，主体之外的那点人气） ----------------
 func _sailboat(ci: CanvasItem) -> void:
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(78, 398), Vector2(140, 398), Vector2(130, 410), Vector2(90, 410)]), col(HULL))
+		Vector2(70, 372), Vector2(134, 372), Vector2(124, 384), Vector2(82, 384)]), col(HULL))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(90, 410), Vector2(130, 410), Vector2(126, 414), Vector2(96, 414)]), col(HULL_DIM))
-	ci.draw_rect(Rect2(78, 395, 62, 3), col(WALL))
-	ci.draw_rect(Rect2(107, 342, 3, 56), col(MAST))
+		Vector2(82, 384), Vector2(124, 384), Vector2(120, 388), Vector2(88, 388)]), col(HULL_DIM))
+	ci.draw_rect(Rect2(70, 369, 64, 3), col(WALL))
+	ci.draw_rect(Rect2(101, 314, 3, 58), col(MAST))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(112, 346), Vector2(112, 394), Vector2(152, 394)]), col(SAIL))
+		Vector2(106, 318), Vector2(106, 368), Vector2(148, 368)]), col(SAIL))
 	ci.draw_polyline(PackedVector2Array([
-		Vector2(112, 394), Vector2(152, 394)]), col(SAIL_DIM), 3.0, false)
+		Vector2(106, 368), Vector2(148, 368)]), col(SAIL_DIM), 3.0, false)
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(104, 356), Vector2(104, 394), Vector2(76, 394)]), col(SAIL_DIM))
+		Vector2(98, 330), Vector2(98, 368), Vector2(66, 368)]), col(SAIL_DIM))
 	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(110, 340), Vector2(128, 345), Vector2(110, 350)]), col(ROOF))
-	ci.draw_rect(Rect2(78, 408, 52, 2), col(FOAM, 130))
-	for d in [[86, 418, 46, 60], [94, 424, 30, 45], [102, 430, 16, 30]]:
+		Vector2(104, 312), Vector2(124, 317), Vector2(104, 322)]), col(ROOF))
+	ci.draw_rect(Rect2(70, 382, 54, 2), col(FOAM, 140))
+	for d in [[78, 392, 48, 64], [86, 398, 32, 48], [94, 404, 18, 32]]:
 		ci.draw_rect(Rect2(float(d[0]), float(d[1]), float(d[2]), 2.0),
 				col(DEPTH, int(d[3])))
-
-
-func _vignette(ci: CanvasItem) -> void:
-	for i in 30:
-		ci.draw_rect(Rect2(0, 482 + i, S, 1), col(DEPTH, int(28.0 * float(i) / 29.0)))
 
 
 # ---------------- 工具 ----------------
