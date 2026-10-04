@@ -22,11 +22,12 @@ func _initialize() -> void:
 	save_wav("res://resources/audio/sfx/thunder.wav")
 	quit()
 
-# 雨：白噪声过两段低通（细密沙沙）+ 慢起伏包络（风向摆动）。
-# 包络周期取整倍数 + 尾巴折回头部交叉淡化，循环接缝无痕。
+# 雨：白噪声过两段低通（细密沙沙）+ 浅随机漫步包络（自然起伏，无固定节律）。
+# 旧版用整数周期正弦做包络，节律太规整，双层错调播放后拍出 ~0.5 秒一圈的"摩擦"感——已弃。
+# 随机漫步首尾同值 + 尾巴折回交叉淡化，循环接缝无痕。
 func make_rain() -> void:
-	var dur := 6.0
-	var xf := int(0.25 * SR)
+	var dur := 12.0
+	var xf := int(0.5 * SR)
 	var n := int(dur * SR)
 	var total := n + xf
 	buf.resize(total)
@@ -39,16 +40,27 @@ func make_rain() -> void:
 		lp1 += 0.34 * (x - lp1)      # 第一段低通：保留中高频的沙沙质感
 		lp2 += 0.06 * (lp1 - lp2)    # 第二段低通：掉掉刺耳的高频
 		buf[i] = lp2 * 2.6
-	# 慢起伏：两个整周期正弦（首尾同相位，循环才不掉底）
+	# 随机漫步包络：每 ~2.1 秒一个控制点，余弦平滑插值，首尾同值接缝无痕。
+	# 起伏压浅（0.86~1.0）：宏观动感交给播放层的双层错调漂移，样本本身不带节律。
+	rng.seed = 20260919
+	var seg := 2.1
+	var kn := int(ceil(dur / seg)) + 1
+	var knots := PackedFloat32Array()
+	knots.resize(kn)
+	for k in kn:
+		knots[k] = rng.randf_range(0.86, 1.0)
+	knots[0] = 0.95
+	knots[kn - 1] = knots[0]
 	for i in total:
 		var t := i / float(SR)
-		var env := 0.72 + 0.18 * sin(TAU * 2.0 * t / dur) \
-			+ 0.10 * sin(TAU * 5.0 * t / dur + 1.3)
-		buf[i] *= env
+		var u := fposmod(t, seg) / seg
+		var k := mini(int(t / seg), kn - 2)
+		var sm := 0.5 - 0.5 * cos(PI * u)      # 余弦平滑：每个节点处斜率为零
+		buf[i] *= lerpf(knots[k], knots[k + 1], sm)
 	# 尾巴 xf 长度折回头部交叉淡化：buf[0] ≈ 自然接在 buf[n-1] 后面的那一下
 	for i in xf:
-		var k := i / float(xf)
-		buf[i] = buf[i] * k + buf[n + i] * (1.0 - k)
+		var k2 := i / float(xf)
+		buf[i] = buf[i] * k2 + buf[n + i] * (1.0 - k2)
 	buf.resize(n)
 
 # 雷：低频噪声过重低通 + 指数衰减，主雷 + 0.55 秒后一记更远的回声雷，

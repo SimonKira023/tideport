@@ -24,17 +24,17 @@ func _ready() -> void:
 	Slaves.expedition = [0, 1, 2]
 	# ===== 伙伴卡数值 =====
 	var c0 := CD.partner_card(0)
-	chk(int(c0["cost"]) == 4 and int(c0["atk"]) == 5 and int(c0["hp"]) == 5,
-		"重骑兵卡 费4攻5血5 (1+档3 / 1+职业3+好感1 / 2+档3)")
+	chk(int(c0["cost"]) == 4 and int(c0["atk"]) == 6 and int(c0["hp"]) == 6,
+		"重骑兵卡 费4攻6血6 (1+档3 / 2+职业3+好感1 / 3+档3)")
 	chk(bool(c0["gold"]) and String(c0["kw"]) == "cav", "重骑兵卡 金卡 + 骑兵")
 	var c1 := CD.partner_card(1)
 	chk(String(c1["kw"]) == "ranged" and not bool(c1["gold"]), "弓手卡 后排可射 + 非金")
 	var c2 := CD.partner_card(2)
-	chk(int(c2["cost"]) == 1 and int(c2["atk"]) == 1 and int(c2["hp"]) == 2, "新兵卡 费1攻1血2")
-	# ===== 牌库构成: 主角 1 + 出征伙伴 3 + 基础牌 9, 不再拿民兵补位 =====
+	chk(int(c2["cost"]) == 1 and int(c2["atk"]) == 2 and int(c2["hp"]) == 3, "新兵卡 费1攻2血3")
+	# ===== 牌库构成: 主角 1 + 基础牌 9; 新卡组系统同伴/法术要自己编进卡组 =====
 	var deck := CD.player_deck(20260930)
-	var expect_deck := 1 + 3 + CD.BASICS.size() * CD.BASIC_COPIES
-	chk(deck.size() == expect_deck, "牌库 = 主角 1 + 伙伴 3 + 基础牌 9 = %d 张" % expect_deck)
+	var expect_deck := 1 + CD.BASICS.size() * CD.BASIC_COPIES
+	chk(deck.size() == expect_deck, "牌库 = 主角 1 + 基础牌 9 = %d 张 (卡组空, 同伴自己编)" % expect_deck)
 	var hero_cnt := 0
 	var basic_cnt := {}
 	for k in CD.BASICS.keys():
@@ -47,16 +47,17 @@ func _ready() -> void:
 	chk(hero_cnt == 1, "主角金卡就一张, 永远在卡组")
 	for k in basic_cnt:
 		chk(int(basic_cnt[k]) == CD.BASIC_COPIES, "基础牌 %s 固定带 %d 张" % [k, CD.BASIC_COPIES])
-	# ===== 行政支援卡进卡组 =====
-	Research.slots = ["drill", "scout", "armory", "mobilize", "baojia"]
+	# ===== 法术卡进牌库: 研究(科技/行政)给的 m_ 卡, 编进卡组才进牌库 =====
+	Research.deck = ["m_admin_drill", "m_admin_hu", "m_fert"]
 	var deck2 := CD.player_deck(7)
 	var spell_names := {}
 	for c in deck2:
 		if String(c["type"]) == "spell":
 			spell_names[String(c["key"])] = true
-	chk(spell_names.has("drill") and spell_names.has("scout") and spell_names.has("baojia"),
-		"生效行政卡 操练/游哨/同袍 变法术进卡组")
+	chk(spell_names.has("m_admin_drill") and spell_names.has("m_admin_hu") and spell_names.has("m_fert"),
+		"编进卡组的法术 (行政 严明操练/编户齐民 + 科技 沃土) 进牌库")
 	chk(not spell_names.has("horns") and not spell_names.has("fire"), "敌方法术不会混进玩家卡组")
+	Research.deck = []                   # 测完清掉, 别污染后面的断言
 	# ===== 敌方四流派 =====
 	for arch in ["rush", "swarm", "burn", "army"]:
 		var party := {"type": "海寇", "size": 3}
@@ -89,8 +90,8 @@ func _ready() -> void:
 	chk(hp_small == CD.CAMP_HP and hp_big > hp_small, "大营血 15 起步, 兵多加血 (%d -> %d)" % [hp_small, hp_big])
 	# ===== 图标 / 卡面立绘 =====
 	chk(CD.icon_of(c0) != null, "伙伴卡有职业图标")
-	var sp := CD.support_card("drill")
-	chk(CD.icon_of(sp) != null, "支援卡有行政图标")
+	var sp := CD.spell_card_of("m_admin_drill")
+	chk(CD.icon_of(sp) != null, "法术卡有行政图标")
 	var fs := CD.foe_spell_card("fire")
 	fs["name"] = "火油罐"
 	chk(CD.icon_of(fs) != null, "敌方法术也有图标")

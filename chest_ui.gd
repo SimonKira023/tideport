@@ -208,8 +208,14 @@ func _refresh() -> void:
 			count.text = ""
 			panel.tooltip_text = ""
 	# 左：箱里的东西
+	# ❗必须 queue_free: 点箱子行取东西时, gui_input 信号链里就会走到这
+	#   （_take -> Inventory.add_item -> inventory_changed -> 本函数）,
+	#   正在发信号的那一行还在栈上 —— 立即 free 等于把发射者拆了, 信号返回
+	#   就是 use-after-free 真机闪退（「箱子取东西崩」的根源）。
+	#   queue_free 拖到帧末, 信号链安全走完（bin_ui 的行是纯展示没挂信号,
+	#   那边 free 没事, 这边的行是可以点的, 不一样）。
 	for c in _list_box.get_children():
-		c.free()     # 不在行自己的信号里, 直接 free 干净
+		c.queue_free()
 	var items := Structures.chest_items(_cell)
 	for idx in items.size():
 		var e: Dictionary = items[idx]

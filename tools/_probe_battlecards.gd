@@ -40,13 +40,17 @@ func _run() -> void:
 	Slaves.slaves.append({"name": "阿二", "troop": "弓手", "labor": "帮工", "hp": 30, "max_hp": 30, "affection": 10})
 	Slaves.expedition = [0, 1]
 
-	# ===== 开局: 我方先手抽 3 + 回合开始抽 1, 敌方后手抽 4 + 自己回合抽 1 =====
+	# ===== 开局: 我方先手抽 3 + 回合开始抽 1, 敌方后手抽 3 (d1 削弱) + 自己回合抽 1 =====
 	var b := new_battle("海寇", 3)
 	chk(b._my_hand.size() == 4, "我方开局手牌 4 (先手 3 + 回合抽 1)")
-	chk(b._foe_hand.size() == 4, "敌方开局手牌 4 (后手 4, 第 5 张在它自己回合抽)")
-	var expect_deck := 1 + 2 + CD.BASICS.size() * CD.BASIC_COPIES
-	chk(b._my_deck.size() == expect_deck and b._foe_deck.size() == 20,
-		"我方牌库 %d (主角 + 2 伙伴 + 基础牌) / 敌方牌库 20" % expect_deck)
+	chk(b._foe_hand.size() == 3, "敌方开局手牌 3 (后手 3, d1 削弱; 第 4 张在它自己回合抽)")
+	# 新卡组系统: 同伴不自动进牌库, 底子 = 主角 1 + 基础牌 3x3; 同伴/法术要自己编进卡组
+	var expect_deck := 1 + CD.BASICS.size() * CD.BASIC_COPIES
+	chk(b._my_deck.size() + b._my_hand.size() == expect_deck
+			and b._foe_deck.size() + b._foe_hand.size() == 20,
+		"我方牌库+手牌 = %d+%d (期望 %d: 主角 + 基础牌, 同伴自己编) / 敌方 %d+%d (期望 20)"
+			% [b._my_deck.size(), b._my_hand.size(), expect_deck,
+				b._foe_deck.size(), b._foe_hand.size()])
 	chk(b._my_camp == 15 and b._foe_camp == 15, "双方大营 15 (规模 3 不加成)")
 	chk(b._cost == 2 and b._cost_max == 2, "第 1 回合 2 费 (首回合能打出 1-2 费牌)")
 	chk(b._whose == "my" and b._turn_no == 1, "开局是我的第 1 回合")
@@ -129,36 +133,36 @@ func _run() -> void:
 	chk(b._front[0] != null, "骑兵下场不立刻打 (冲锋已移除, 敌兵还在)")
 	chk(b._my_support[0] != null and String(b._my_support[0]["card"]["kw"]) == "cav", "骑兵兵留在支援线")
 
-	# ===== 法术: 游哨抽 2 / 征发加费 / 同袍回血 =====
-	b._my_hand = [CD.support_card("scout")]
+	# ===== 法术: 驿马传令抽 2 / 互市加费 / 引水回血 =====
+	b._my_hand = [CD.spell_card_of("m_admin_road")]
 	b._cost = 9
 	var h0: int = b._my_hand.size()
 	b._on_hand(0)
-	chk(b._my_hand.size() == h0 - 1 + 2, "游哨: 打出后净 +1 张 (抽 2)")
-	b._my_hand = [CD.support_card("mobilize")]
+	chk(b._my_hand.size() == h0 - 1 + 2, "驿马传令: 打出后净 +1 张 (抽 2)")
+	b._my_hand = [CD.spell_card_of("m_admin_trade")]
 	b._cost = 2
 	b._on_hand(0)
-	chk(b._cost == 3, "征发: 花 1 得 2 -> 净 +1 费")
+	chk(b._cost == 3, "互市获利: 花 1 得 2 -> 净 +1 费")
 	b._my_camp = 5
-	b._my_hand = [CD.support_card("baojia")]
+	b._my_hand = [CD.spell_card_of("m_ditch")]
 	b._cost = 9
 	b._on_hand(0)
-	chk(b._my_camp == 9, "同袍: 大营 +4")
+	chk(b._my_camp == 10, "引水: 大营 +5")
 	b._my_camp = 15
-	b._my_hand = [CD.support_card("baojia")]
+	b._my_hand = [CD.spell_card_of("m_ditch")]
 	b._cost = 9
 	b._on_hand(0)
-	chk(b._my_camp == 15, "同袍: 大营回满不再溢出")
+	chk(b._my_camp == 15, "引水: 大营回满不再溢出")
 
-	# ===== 指定目标法术: 操练点自己人 +1攻 +1血 =====
+	# ===== 指定目标法术: 沃土点自己人 +1攻 +1血 =====
 	b._front = [mk(b, "靶子", 2, 3, ""), null, null, null]
 	b._my_support = [null, null, null, null]
-	b._my_hand = [CD.support_card("drill")]
+	b._my_hand = [CD.spell_card_of("m_fert")]
 	b._cost = 9
 	b._on_hand(0)
-	chk(not b._pending.is_empty() and String(b._pending["target"]) == "ally", "操练进入选目标模式")
+	chk(not b._pending.is_empty() and String(b._pending["target"]) == "ally", "沃土进入选目标模式")
 	b._on_slot("my", "front", 0)
-	chk(int(b._front[0]["atk"]) == 3 and int(b._front[0]["hp"]) == 4, "操练生效 +1攻 +1血")
+	chk(int(b._front[0]["atk"]) == 3 and int(b._front[0]["hp"]) == 4, "沃土生效 +1攻 +1血")
 	chk(b._pending.is_empty() and b._my_hand.is_empty(), "选完目标退出选目标模式")
 
 	# ===== 敌方法术: 火油罐直伤 / 飞斧点单位 / 增援铺场 =====
@@ -257,7 +261,13 @@ func _run() -> void:
 	chk(ba._ai_score(CD.foe_spell_card("axe")) > 0.0, "飞斧: 有人可打就出")
 	for i in 4:
 		ba._foe_support[i] = mk(ba, "占位%d" % i, 1, 1, "")
-	chk(ba._ai_score(CD.unit_card("民夫", 1, 1, 2, "")) < -100.0, "支援线满: 不再评分出单位")
+	chk(ba._ai_score(CD.unit_card("民夫", 1, 1, 2, "")) > 0.0,
+		"支援线满但前线有空位: 还能下单位 (直接进前线)")
+	for i in ba._front.size():
+		if ba._front[i] == null:
+			ba._front[i] = mk(ba, "前占%d" % i, 1, 1, "")
+	chk(ba._ai_score(CD.unit_card("民夫", 1, 1, 2, "")) < -100.0,
+		"支援线+前线都满: 不再评分出单位")
 
 	# ===== 推进闸门: 人海/海寇先把牌打完 =====
 	var bp := new_battle("山贼", 3)

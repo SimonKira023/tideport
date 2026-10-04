@@ -17,10 +17,17 @@ uniform float mood : hint_range(-1.0, 1.0) = 0.0;
 uniform float wet : hint_range(0.0, 1.0) = 0.0;
 // 胶片颗粒：暗部更显的细腻噪点，压住色带(banding)并给雨夜铺一层胶片感
 uniform float grain : hint_range(0.0, 0.2) = 0.0;
+// 色差：径向 RGB 微散，越靠画面边缘越散（夜/雨由 game.gd 调大，镜头质感）
+uniform float ca : hint_range(0.0, 1.0) = 0.0;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 
 void fragment() {
-	vec3 src = texture(screen_tex, SCREEN_UV).rgb;
+	// ---- 色差：R 向外散、B 向内收，中心不动——夜雨里灯牌才有"镜头"味
+	vec2 cd = (SCREEN_UV - vec2(0.5)) * ca * 0.0035;
+	vec3 src = vec3(
+			texture(screen_tex, SCREEN_UV + cd).r,
+			texture(screen_tex, SCREEN_UV).g,
+			texture(screen_tex, SCREEN_UV - cd).b);
 	vec3 col = src;
 
 	// ---- 泛光：只晕亮部，暗处保持干净（夜里更浓：光源在黑底上最抢眼）
@@ -37,17 +44,26 @@ void fragment() {
 	float bl = dot(blur, vec3(0.299, 0.587, 0.114));
 	col += blur * smoothstep(0.52, 0.95, bl) * (0.5 + night * 0.2);
 
-	// ---- 雨夜湿地反光：向上采 6 点找亮源，亮度够的往下淌一条渐弱的湿润光带
+	// ---- 雨夜湿地反光 v2：向上采 10 点找亮源，把"源的颜色"往下淌出更长的湿润光带
+	// （v1 是固定蓝白；v2 带源色——暖灯淌暖光、青窗淌青光，更像真积水映灯）
 	if (wet > 0.003) {
-		float acc = 0.0;
-		for (float f = 1.0; f <= 6.0; f += 1.0) {
-			vec2 ruv = SCREEN_UV - vec2(0.0, SCREEN_PIXEL_SIZE.y * (2.0 + f * f * 2.6));
-			float b = dot(texture(screen_tex, ruv).rgb, vec3(0.299, 0.587, 0.114));
-			acc += smoothstep(0.55, 1.0, b) / f;   // 越远的亮源贡献越淡
+		vec3 acc = vec3(0.0);
+		for (float f = 1.0; f <= 10.0; f += 1.0) {
+			vec2 ruv = SCREEN_UV - vec2(0.0, SCREEN_PIXEL_SIZE.y * (2.0 + f * f * 3.2));
+			vec3 rc = texture(screen_tex, ruv).rgb;
+			float b = dot(rc, vec3(0.299, 0.587, 0.114));
+			acc += rc * smoothstep(0.55, 1.0, b) / f;   // 越远的亮源贡献越淡
 		}
 		float flow = 0.72 + 0.28 * sin(TIME * 1.9 + SCREEN_UV.y * 22.0 + SCREEN_UV.x * 7.0);
 		float gnd = smoothstep(0.18, 0.72, SCREEN_UV.y);  // 只落下半屏（地面才积水）
-		col += vec3(0.82, 0.88, 1.0) * acc * gnd * flow * wet * 0.16;
+		col += acc * gnd * flow * wet * 0.22;
+	}
+
+	// ---- 夜对比：夜里轻拉 S 曲线，黑更沉、灯更挺（高对比雨夜的胶片感）
+	// 超亮部分（泛光加出来的）不参与回压，保住 bloom 的光晕
+	if (night > 0.003) {
+		vec3 sc = clamp(col, 0.0, 1.0);
+		col = mix(col, sc * sc * (3.0 - 2.0 * sc), night * 0.28);
 	}
 
 	// ---- 色温分离：高光镀金、阴影浸青 + 晨雾感

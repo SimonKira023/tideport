@@ -6,14 +6,14 @@
 # e30r 版面（从上到下）：
 #   标题 + 信息行
 #   中排：左边一张大地图（涂色派浇水）+ 右边一列功能键（含图例）
-#   底部：六大板块条 —— 照料作物 / 采集矿石 / 远航出征 / 工地建造 / 冶炼锻造 / 科研行政
+#   底部：六大板块条 —— 照料作物 / 采集矿石 / 远征编队 / 工地建造 / 冶炼锻造 / 科研行政
 #
 # 六大板块怎么用：
 #   · 每格瓦片 = 一个伙伴，瓦片上写着「名字 + 劳动职业」
 #   · 把瓦片拖到别的板块 = 改派；也可以「点一下拿起，再点目标板块标题放下」
 #   · 照料作物 = 默认池：没被别的活占住的人都在这里，白天在地图上浇水
 #   · 采集矿石：点瓦片循环 采石 → 采铁 → 收工；劳动力越多采矿效率越高
-#   · 远航出征：点瓦片循环换编队 1/2/3（战斗里按数字指挥）
+#   · 远征编队：全员自动出海（不占当天劳动）；点瓦片循环换编队 1/2/3
 #   · 工地建造 / 冶炼锻造：只有工地或铁匠铺在忙时才亮，点瓦片没反应，拖出去才算撤
 #   · 科研行政：全体名单，每人一行 [科]/[行] 两个小键
 #
@@ -42,7 +42,7 @@ const TILE_H := 48 # 瓦片高度（三行字：名字 / 劳动职业 / 三项�
 # 六个板块的键
 const B_CROP := "crop"           # 照料作物（默认池）
 const B_MINE := "mine"           # 采集矿石
-const B_EXP := "exp"             # 远航出征
+const B_EXP := "exp"             # 远征编队（全员自动出海, 点瓦片换编队）
 const B_DOCK := "dock"           # 工地建造
 const B_SMITH := "smith"         # 冶炼锻造
 const B_RESEARCH := "research"   # 科研行政
@@ -50,7 +50,7 @@ const BOARD_KEYS := [B_CROP, B_MINE, B_EXP, B_DOCK, B_SMITH, B_RESEARCH]
 const BOARD_NAMES := {
 	B_CROP: "照料作物",
 	B_MINE: "采集矿石",
-	B_EXP: "远航出征",
+	B_EXP: "远征编队",
 	B_DOCK: "工地建造",
 	B_SMITH: "冶炼锻造",
 	B_RESEARCH: "科研行政",
@@ -66,7 +66,7 @@ const BOARD_HINTS := {
 const BOARD_NEEDS := {
 	B_CROP: "所需: 劳动 (浇水与派格)",
 	B_MINE: "所需: 劳动 (采矿产量)",
-	B_EXP: "看战力, 不吃出工属性",
+	B_EXP: "全员自动出海 (不占劳动)",
 	B_DOCK: "所需: 建造 (施工速度)",
 	B_SMITH: "所需: 建造 (打铁速度)",
 	B_RESEARCH: "所需: 知识 (研究速度)",
@@ -350,8 +350,6 @@ func _build_side_buttons() -> void:
 # ---------------- 六大板块：谁归哪块 ----------------
 # 一个人同时只占一个岗位（数据层 toggle 之间互斥），所以归属是唯一的。
 func _board_of(i: int) -> String:
-	if Slaves.is_expedition(i):
-		return B_EXP
 	if Slaves.is_research(i, "tech") or Slaves.is_research(i, "admin"):
 		return B_RESEARCH
 	if Slaves.is_dock(i):
@@ -373,6 +371,8 @@ func _board_live(key: String) -> bool:
 			return true
 
 func _board_count(key: String) -> int:
+	if key == B_EXP:
+		return Slaves.count            # 远征编队板：全员展示
 	if key == B_RESEARCH:
 		return Slaves.research_heads("tech") + Slaves.research_heads("admin")
 	var n := 0
@@ -407,6 +407,9 @@ func _rebuild_boards() -> void:
 		var key := _board_of(i)
 		if key != B_RESEARCH:
 			_add_tile(key, i)
+	# 远征编队板 = 全体名单（出海已全自动, 瓦片只用来点着换编队）
+	for i in Slaves.slaves.size():
+		_add_tile(B_EXP, i)
 	# 科研行政 = 全体名单（不是只有正在研究的那些人）
 	for i in Slaves.slaves.size():
 		_research_row(i)
@@ -476,7 +479,7 @@ func _fill_tile(t: Button, key: String, i: int) -> void:
 			t.modulate = Color(1, 1, 1)
 
 func _refresh_notes() -> void:
-	# 远航出征：船够不够（四态文案原样保留）
+	# 远征编队：全员自动出海, 不占当天劳动；顺带报一下船位够不够
 	var t := ""
 	var c := Color(0.62, 0.58, 0.5)
 	if not Voyage.dock_ready():
@@ -484,11 +487,11 @@ func _refresh_notes() -> void:
 	elif Voyage.boat_count <= 0:
 		t = "码头还没船 (去码头按 F 造)"
 	elif Voyage.boats_enough():
-		t = "船 %d 艘 - 能载 %d 人 - 出海 %d 人" % [
+		t = "全员自动出海, 不占劳动\n船 %d 艘 - 能载 %d 人 - 出海 %d 人" % [
 			Voyage.boat_count, Voyage.seats(), Voyage.party_size()]
 		c = Color(0.62, 0.80, 0.55)
 	else:
-		t = "船不足, 无法派遣! %d 人要 %d 艘, 只有 %d 艘" % [
+		t = "船不足, 无法出海! %d 人要 %d 艘, 只有 %d 艘\n快去码头按 F 造船" % [
 			Voyage.party_size(), Voyage.boats_needed(), Voyage.boat_count]
 		c = Color(1, 0.55, 0.5)
 	_set_note(B_EXP, t, c)
@@ -564,13 +567,8 @@ func _refresh_research_states() -> void:
 		var idx: int = int(b.get_meta("idx"))
 		var tr := str(b.get_meta("tree"))
 		var on := Slaves.is_research(idx, tr)
-		var busy := Slaves.is_expedition(idx)   # 出海的人不能同时搞研究
 		b.button_pressed = on
-		b.disabled = busy
-		if busy:
-			b.modulate = Color(0.5, 0.47, 0.44)
-		else:
-			b.modulate = Color(1, 1, 1) if on else Color(0.72, 0.7, 0.66)
+		b.modulate = Color(1, 1, 1) if on else Color(0.72, 0.7, 0.66)
 
 # ---------------- 拖放 ----------------
 func _drag_from(i: int) -> Variant:
@@ -594,8 +592,10 @@ func _can_drop_board(key: String, data: Variant) -> bool:
 	var i := int(d["idx"])
 	if i < 0 or i >= Slaves.slaves.size():
 		return false
+	if key == B_EXP:
+		return false                   # 编队板只看不拖：出海全自动, 不用人搬
 	if key == _board_of(i):
-		return false                        # 拖回原板块 = 白拖
+		return false                   # 拖回原板块 = 白拖
 	return _board_live(key)
 
 func _drop_board(key: String, data: Variant) -> void:
@@ -628,12 +628,6 @@ func _move_to(i: int, key: String) -> void:
 			_unassign(i)
 		B_MINE:
 			Slaves.toggle_mine(i, "stone")
-		B_EXP:
-			# 一船两人：坐不下就不许派（跟以前勾选时的判断一致）
-			if not _expedition_has_room():
-				Audio.play_sfx("error", -8.0)
-				return
-			Slaves.toggle_expedition(i)
 		B_DOCK:
 			Slaves.toggle_dock(i)
 		B_SMITH:
@@ -643,9 +637,7 @@ func _move_to(i: int, key: String) -> void:
 
 # 收工回「照料作物」默认池：看他现在占的是哪个岗位，撤掉那一个
 func _unassign(i: int) -> void:
-	if Slaves.is_expedition(i):
-		Slaves.toggle_expedition(i)
-	elif Slaves.is_research(i, "tech"):
+	if Slaves.is_research(i, "tech"):
 		Slaves.set_research(i, "tech")
 	elif Slaves.is_research(i, "admin"):
 		Slaves.set_research(i, "admin")
@@ -673,6 +665,7 @@ func _on_tile_pressed(i: int, key: String) -> void:
 				Slaves.toggle_mine(i, next)
 			Audio.play_sfx("ui_click", -10.0)
 		B_EXP:
+			# 远征编队板：点瓦片循环换编队 1/2/3（出海已全自动, 这里只管编队）
 			Slaves.set_squad(i, Slaves.squad_of(i) % Slaves.SQUAD_MAX + 1)
 			Audio.play_sfx("ui_click", -10.0)
 		B_CROP:
@@ -682,13 +675,6 @@ func _on_tile_pressed(i: int, key: String) -> void:
 			# 工地建造 / 冶炼锻造：点瓦片没反应，要撤只能拖回照料作物
 			return
 	_refresh()
-
-# ---------------- 船位（一船两人） ----------------
-# 再派一个人还坐不坐得下？坐不下就不许派 —— 派出去也上不了船。
-func _expedition_has_room() -> bool:
-	if not Voyage.dock_ready():
-		return false
-	return Voyage.party_size() + 1 <= Voyage.seats()
 
 # ---------------- 地图固定尺寸 ----------------
 # 按视口算一次，减去右边功能键那一列（含纵向滚动条的位置）和上下那些文字占的地方。
@@ -793,8 +779,6 @@ func _update_info() -> void:
 	parts.append("伙伴 %d 人" % Slaves.count)
 	parts.append("干活 %d 人 - 可派 %d 格 (每人 %d 格)"
 		% [Slaves.working_count(), Slaves.budget(), Slaves.cells_per_slave()])
-	if not Slaves.expedition.is_empty():
-		parts.append("出海 %d 人" % Slaves.expedition.size())
 	if Slaves.mine_heads() > 0:
 		parts.append("下井 %d 人" % Slaves.mine_heads())
 	var rn := Slaves.research_heads("tech") + Slaves.research_heads("admin")

@@ -24,6 +24,7 @@ var _crop_textures: Dictionary = {}   # {作物名: Array[Texture2D x5]}
 var _sprites: Dictionary = {}         # {Vector2i: Sprite2D}
 var _base_x: Dictionary = {}          # d5: 摆动基准 x（摆动只拨 x，别把定位冲掉）
 var _phase: Dictionary = {}           # d5: 每株相位（按格子错开，别齐刷刷摇头）
+var _stage: Dictionary = {}           # 每株当前贴图档（0=种子: 种子埋在土里不参与风摆）
 var _sway_t := 0.0
 
 func _ready() -> void:
@@ -64,6 +65,7 @@ func _on_crop_removed(pos: Vector2i) -> void:
 		_sprites.erase(pos)
 		_base_x.erase(pos)
 		_phase.erase(pos)
+		_stage.erase(pos)
 
 func _update_sprite(pos: Vector2i, crop_name: String, stage: int, grow_days: int, dead: bool = false) -> void:
 	if not _crop_textures.has(crop_name):
@@ -92,9 +94,11 @@ func _update_sprite(pos: Vector2i, crop_name: String, stage: int, grow_days: int
 	# d5: 记下摆动基准与相位（跟树一样按格子错开）
 	_base_x[pos] = spr.position.x
 	_phase[pos] = float(absi(pos.x * 73 + pos.y * 151) % 628) * 0.01
+	_stage[pos] = idx
 
 # ---------------- d5: 风摆 + 收割叶屑 ----------------
-# 田里的作物也跟树梢一起晃（雨天/风暴摆得更凶）；收割/清枯那一刻原地崩几片绿叶。
+# 田里的作物也跟树梢一起晃（雨天/风暴摆得更凶）；种子那一档(贴图 00)还埋在土里, 不晃；
+# 收割/清枯那一刻原地崩几片绿叶。
 func _process(delta: float) -> void:
 	if _sprites.is_empty():
 		return
@@ -103,6 +107,8 @@ func _process(delta: float) -> void:
 	for pos in _sprites:
 		var spr: Sprite2D = _sprites[pos]
 		if not is_instance_valid(spr):
+			continue
+		if int(_stage.get(pos, 0)) == 0:   # 种子阶段: 静止
 			continue
 		spr.position.x = float(_base_x.get(pos, spr.position.x)) \
 			+ sin(_sway_t * 1.7 + float(_phase.get(pos, 0.0))) * amp

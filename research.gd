@@ -204,7 +204,7 @@ var techs := {}                  # 科技id -> true（已研究）
 var admins := {}                 # 行政id -> true（已研究）
 var slots := []                  # 生效卡槽：每个槽存卡 id 或 ""（空槽），长度 = 卡槽数
 var pending := []                # 准备槽：挂上还没生效的卡 id（为下一周的政策作准备）
-var deck: Array = []             # 出征编组：编进战斗卡组的解锁牌 id（同名牌可重复, 受携带上限管）
+var deck: Array = []             # 战斗卡组：编进去的卡 id（p_同伴/m_法术/u_部队, 同名牌可重复, 受上限管）
 var last_promoted: Array = []    # 今早刚生效的卡名（给晨间播报用，一天内有效）
 # 伙伴那边派了谁去研究，唯一真相源在 Slaves（research_tech / research_admin），
 # 这里不再存一份 —— 少一份状态就少一类「两边不一致」的 bug。
@@ -482,16 +482,23 @@ func unslot_card(id: String) -> bool:
 func is_active(id: String) -> bool:
 	return card_slotted(id)
 
-# ---------------- 出征编组（解锁牌编进战斗卡组） ----------------
+# ---------------- 出征编组（ESC 战斗页把卡编进战斗卡组） ----------------
+# 卡组条目三类: p_<序号> 同伴卡 / m_<科技或行政id> 法术卡 / u_<模板id> 解锁部队牌。
 # 编组即时生效（战斗开打时 player_deck 现拉这份名单），不走「隔周生效」——
 # 政策卡隔周是仪式感, 自己带什么牌上场是纯粹的个人偏好, 没必要等。
+# 总量上限 CardsData.DECK_CAP（主角卡 + 基础牌固定在场, 不占名额）。
 func deck_count(id: String) -> int:
 	return deck.count(id)
 
+func deck_total() -> int:
+	return deck.size()
+
 func deck_add(id: String) -> bool:
-	if not CardsData.deck_unlocked(id):
+	if not CardsData.deck_entry_unlocked(id):
 		return false
-	if deck_count(id) >= CardsData.deck_max_of(id):
+	if deck_count(id) >= CardsData.deck_entry_max(id):
+		return false
+	if deck.size() >= CardsData.DECK_CAP:
 		return false
 	deck.append(id)
 	changed.emit()
@@ -504,19 +511,21 @@ func deck_del(id: String) -> bool:
 	changed.emit()
 	return true
 
-# 脏编组清理：表里没有的 id / 条件已不满足的 / 超上限的, 全部踢掉
+# 脏编组清理：条件已不满足的 / 超同名上限的 / 超总量上限的, 从头踢掉
 func _normalize_deck() -> void:
 	var keep: Array = []
 	var seen := {}
 	for id in deck:
 		var cid := String(id)
-		if not CardsData.UNLOCK.has(cid) or not CardsData.deck_unlocked(cid):
+		if not CardsData.deck_entry_unlocked(cid):
 			continue
 		seen[cid] = int(seen.get(cid, 0)) + 1
-		if int(seen[cid]) > CardsData.deck_max_of(cid):
+		if int(seen[cid]) > CardsData.deck_entry_max(cid):
 			continue
 		keep.append(cid)
 	deck = keep
+	if deck.size() > CardsData.DECK_CAP:
+		deck = keep.slice(0, CardsData.DECK_CAP)
 
 # 已解锁的卡 id 列表（按 CARDS 声明顺序，UI 直接遍历用）
 func unlocked_cards() -> Array:

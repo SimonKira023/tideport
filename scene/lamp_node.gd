@@ -27,15 +27,19 @@ var _art: Sprite2D = null
 var _light: PointLight2D = null
 var _glow: Sprite2D = null
 var _lit := false
+var _gap := 0.0                 # 素材底部透明留白（贴地修正, 见 SoftRes.bottom_gap）
+var _flick_t := 0.0             # 灯焰抖动时钟（点亮那刻随机相位, 多盏灯错开）
+const LIGHT_ENERGY := 1.15      # e36e 定的光斑亮度, 抖动围绕这个值呼吸
 
 func _ready() -> void:
 	_art = Sprite2D.new()
 	_art.centered = false
-	# 图集里灯是"左上角为原点"画的：往左上挪半个宽、整条高，灯座就落在原点上
-	_art.position = Vector2(-IMG_W / 2.0, -IMG_H)
 	# 第三方素材不入库(见 README), 缺失时留空不崩
 	# （仍要建 AtlasTexture: _sync_lamp 每次取 _art.texture 改 region, 不能是 null）
 	var lamp_base := SoftRes.tex(TEX)
+	# 素材帧底部有透明留白（实测 Street Lamp.png 灯座偏上），按非透明像素底边下移贴地
+	_gap = float(SoftRes.bottom_gap(lamp_base, RECT_OFF))
+	_art.position = Vector2(-IMG_W / 2.0, -IMG_H + _gap)
 	var at := AtlasTexture.new()
 	at.atlas = lamp_base      # 缺失时为 null, 灯留空但昼夜切换照常
 	at.region = RECT_OFF
@@ -86,6 +90,8 @@ func _sync_lamp(force: bool) -> void:
 		at.region = RECT_LIT if want else RECT_OFF
 	if _light != null:
 		_light.enabled = want
+		if want:
+			_flick_t = randf() * 10.0   # 点亮那刻随机相位, 一排灯不会齐刷刷同呼吸
 	if _glow != null:
 		_glow.visible = want
 
@@ -94,10 +100,17 @@ func _process(_delta: float) -> void:
 	if is_ghost:
 		return
 	_sync_lamp(false)
+	# 灯焰抖动（参照篝火）: 两个不可通约的正弦叠出无规律的小幅呼吸, 熄灯不抖
+	if _lit and _light != null:
+		_flick_t += _delta
+		var f := 1.0 + 0.05 * sin(_flick_t * 7.3) + 0.035 * sin(_flick_t * 13.1 + 1.7)
+		_light.energy = LIGHT_ENERGY * f
+		if _glow != null:
+			_glow.modulate.a = f
 
 # 镐子/鼠标命中的矩形（世界坐标）：game.pick_station_cell 用
 func hit_rect() -> Rect2:
-	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H - 2.0), Vector2(IMG_W, IMG_H + 4.0))
+	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H + _gap - 2.0), Vector2(IMG_W, IMG_H + 4.0))
 
 # 被镐子拆掉：小跳 + 淡出（材料返还由 game 那边办）
 func play_removed() -> void:

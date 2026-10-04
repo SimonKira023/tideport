@@ -23,12 +23,16 @@ var is_ghost := false       # 建造模式的半透明预览：不建碰撞、�
 
 var _spr: Sprite2D = null
 var _hint: Node2D = null
+var _gap := 0.0             # 素材底部透明留白（贴地修正, 见 SoftRes.bottom_gap）
 
 func _ready() -> void:
 	_spr = Sprite2D.new()
 	_spr.centered = false
-	_spr.position = Vector2(-IMG_W / 2.0, -IMG_H)
-	_spr.texture = _frame_tex(0)
+	var at := _frame_tex(0)
+	# 素材帧底部可能有透明留白, 按非透明像素底边下移贴地（见 SoftRes.bottom_gap）
+	_gap = float(SoftRes.bottom_gap(at.atlas, at.region))
+	_spr.position = Vector2(-IMG_W / 2.0, -IMG_H + _gap)
+	_spr.texture = at
 	add_child(_spr)
 
 	if is_ghost:
@@ -114,7 +118,7 @@ func _on_reach(b: Node2D, on: bool) -> void:
 
 # 镐子/鼠标命中的矩形（世界坐标）：game.pick_station_cell 用
 func hit_rect() -> Rect2:
-	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H - 2.0), Vector2(IMG_W, IMG_H + 4.0))
+	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H + _gap - 2.0), Vector2(IMG_W, IMG_H + 4.0))
 
 # 按 F 可交互的矩形（世界坐标）：game._try_station_interact 用它判断玩家贴没贴边
 func interact_rect() -> Rect2:

@@ -21,7 +21,7 @@
 #   · 士气与溃逃 —— 阵亡、挨刀、血薄都掉士气, 士气见底当场溃逃退场; 一边崩了就是输
 #   · 兵力对比条 —— 屏幕顶上一条, 左蓝右红, 还剩几成一眼看得见
 #
-# 出战名单 = 派活面板里勾了「明天出行」的伙伴（弓手会放箭，见 troop.gd）。
+# 出战名单 = 全体伙伴（全员自动出海，不占当天劳动；弓手会放箭，见 troop.gd）。
 # 打赢：敌人给经验/金币（跟岛上同一套 Legion/Wallet）；打输：回家躺门口。
 # e25: 胜负分出先弹**结算页**（主角/伙伴血量条 + 百分比 + 金币/声望/经验收获，
 #      配 settle 曲池的 BGM），点了「继续」才回海图/回岛；撤退不走结算页。
@@ -790,16 +790,7 @@ func _build_hud() -> void:
 	_slow_label.visible = false
 	hud.add_child(_slow_label)
 	Voyage.selection_changed.connect(_refresh_slow_label)
-	if Slaves.expedition.is_empty():
-		var tip := Label.new()
-		tip.text = "(这次单枪匹马 - 在派活面板勾选 明天出行 能带伙伴)"
-		tip.add_theme_font_override("font", FONT_PIX)
-		tip.add_theme_font_size_override("font_size", 11)
-		tip.add_theme_color_override("font_color", Color(0.85, 0.85, 0.75))
-		tip.add_theme_constant_override("outline_size", 4)
-		tip.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
-		tip.position = Vector2(12, 88)
-		hud.add_child(tip)
+	# 出海已全自动：全员跟主角出海，不再需要「勾选 明天出行」的提示
 	_build_cmd_bar(hud)
 	_build_tally(hud)
 	# 相机跟主角

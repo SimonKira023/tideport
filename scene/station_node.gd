@@ -17,6 +17,7 @@ var kind := "workbench"         # Structures.KIND_*
 
 var _spr: Sprite2D = null
 var _anim_t := 0.0
+var _gap := 0.0                 # 素材帧底部透明留白（贴地修正, 见 SoftRes.bottom_gap）
 
 func _ready() -> void:
 	_spr = Sprite2D.new()
@@ -52,6 +53,10 @@ func apply_look() -> void:
 	at.region = Rect2(0, 0, FRAME_W, FRAME_H)
 	_spr.texture = at
 	_spr.modulate = Color.WHITE
+	# 素材帧底部常有透明留白（实测 Workbench.png 内容偏上），按非透明像素
+	# 的底边把贴图往下挪, 内容才踩在原点上不悬空。熔炉 5 帧同图集对齐, 取第 0 帧即可。
+	_gap = float(SoftRes.bottom_gap(at.atlas, at.region))
+	_spr.position = Vector2(-FRAME_W / 2.0, -BASE_Y + _gap)
 
 func _process(delta: float) -> void:
 	if _spr == null:
@@ -80,7 +85,8 @@ func _set_frame(f: int) -> void:
 
 # 镐子/鼠标命中的矩形（世界坐标）：game.pick_station_cell 用
 func hit_rect() -> Rect2:
-	return Rect2(global_position + Vector2(-FRAME_W / 2.0, -BASE_Y - 2.0), Vector2(FRAME_W, BASE_Y + 4.0))
+	return Rect2(global_position + Vector2(-FRAME_W / 2.0, -BASE_Y + _gap - 2.0),
+		Vector2(FRAME_W, BASE_Y + 4.0))
 
 # 被镐子拆掉：小跳 + 淡出（物品返还由 game 那边办）
 func play_removed() -> void:

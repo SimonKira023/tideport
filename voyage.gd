@@ -7,8 +7,7 @@
 #   · 码头修好后才能在那儿**造船**（一船两人）；船造好就固定停在码头
 #   · 走到码头按 F 出海 → 进入大地图旅行模式（骑砍式：只显示主角头像在海图上移动，
 #     在水上时头像下面垫一条船）
-#   · 带谁出海：夜里/白天按 T 的派活面板里勾「明天出行」——
-#     勾中的人明天不干活（劳动力按人数扣），出海时跟着上船
+#   · 出海：全员自动跟主角出海（不用勾选），出海不占当天劳动
 #   · 大地图：主角岛在东南，大陆在西北；图上逛着海寇/山贼小股敌人，
 #     撞上就进预设战役地图开打
 #   · 战斗指挥（简化版骑砍，**全鼠标**，没有键盘指令）：
@@ -66,7 +65,7 @@ const DOCK_WORK := 10           # 修码头要的人·天（1 人干 10 天，�
 const BOAT_SEATS := 2           # 一船两人
 const BOAT_MONEY := 300         # 造一条船：钱
 const BOAT_WOOD := 12           # 造一条船：木材
-const BOAT_MAX := 6             # 码头最多停几条船
+const BOAT_MAX := 12            # 码头最多停几条船
 
 var dock_state := DOCK_RUIN
 var dock_work := 0              # 已经投入的人·天
@@ -91,9 +90,9 @@ func reset_for_new_game() -> void:
 	set_battle_slow(false)
 	dock_changed.emit()
 
-# 出海总人数：主角自己 + 派活面板里勾了「明天出行」的伙伴
+# 出海总人数：主角自己 + 全体伙伴（已取消勾选，全员自动出海）
 func party_size() -> int:
-	return 1 + Slaves.expedition.size()
+	return 1 + Slaves.count
 
 # 这么多人出海要几条船（一船两人，多出一个人也要再占一条）
 func boats_needed() -> int:

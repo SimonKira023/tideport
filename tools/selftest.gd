@@ -1954,14 +1954,16 @@ func _ready() -> void:
 			chk(tile23.text.contains(Slaves.attrs_short_text(Slaves.slave_at(idx23))),
 				"瓦片底下写着三项属性（%s）" % tile23.text)
 			var need23: Dictionary = (ap23.get_script() as Script).get_script_constant_map()["BOARD_NEEDS"]
+			# exp 板块后来改成「远征编队: 全员自动出海」——出海不吃属性,
+			# 唯一要求是别误标成吃劳动（否则误导玩家去凑劳动值）
 			chk(need23.size() == 6
 					and String(need23["crop"]).contains("劳动")
 					and String(need23["mine"]).contains("劳动")
 					and String(need23["dock"]).contains("建造")
 					and String(need23["smith"]).contains("建造")
 					and String(need23["research"]).contains("知识")
-					and String(need23["exp"]).contains("战力"),
-				"六个板块都标了所需属性（劳动/建造/知识/战力）")
+					and String(need23["exp"]).contains("不占劳动"),
+				"五个板块标了所需属性, 出海板块标了不占劳动")
 			chk(ap23._tiles["mine"].get_child_count() == 0,
 				"人撤走后矿井板块的瓦片也空了（%d 块）" % ap23._tiles["mine"].get_child_count())
 		ap23._dismiss()
@@ -3354,11 +3356,11 @@ func _ready() -> void:
 	chk(Voyage.dock_work == Voyage.DOCK_WORK - 1, "施工进度记对了")
 	chk(Voyage.add_dock_work(1), "再补一天: 码头修好了")
 	chk(Voyage.dock_state == Voyage.DOCK_BUILT and Voyage.dock_ready(), "码头建成")
-	# 37.1b 修码头的人力：跟出海 / 研究互斥
+	# 37.1b 修码头的人力：跟研究互斥（出海已全自动, 不再算一个岗位）
 	if Slaves.count > 0:
 		chk(Slaves.toggle_dock(0), "派伙伴 0 去修码头")
 		chk(Slaves.is_dock(0) and Slaves.dock_heads() >= 1, "修码头名单生效")
-		chk(not Slaves.is_expedition(0), "去修码头了就不在出海名单里")
+		chk(Slaves.expedition.has(0), "出海名单自动含全员(修码头的也照样出海)")
 		Slaves.toggle_dock(0)
 		chk(not Slaves.is_dock(0), "再点一次撤回来")
 	# 37.1c 造船：建成才能造，一船两人
@@ -3368,7 +3370,7 @@ func _ready() -> void:
 	Inventory.add_item(Voyage.WOOD_ITEM, Voyage.BOAT_WOOD + 5)
 	chk(Voyage.can_build_boat() and Voyage.build_boat(), "造了第一条船")
 	chk(Voyage.boat_count == 1 and Voyage.seats() == Voyage.BOAT_SEATS, "一条船坐 2 人")
-	chk(Voyage.party_size() == 1 + Slaves.expedition.size(), "出海人数 = 自己 + 勾的人")
+	chk(Voyage.party_size() == 1 + Slaves.count, "出海人数 = 自己 + 全体伙伴")
 	chk(Voyage.boats_needed() == ceili(float(Voyage.party_size()) / float(Voyage.BOAT_SEATS)),
 		"要几条船由人数算出来")
 	var need_boats: int = Voyage.boats_needed()
@@ -3398,16 +3400,13 @@ func _ready() -> void:
 	Voyage.dock_state = old_dock
 	Voyage.dock_work = old_work
 	Voyage.boat_count = old_boats
-	# 37.2 出海名单：勾选 + 劳动力扣减
+	# 37.2 出海名单：全员自动出海 + 不占当天劳动（手动勾选已取消）
 	var old_exp: Array = Slaves.expedition.duplicate()
 	if Slaves.count > 0:
 		var b0: int = Slaves.budget()
-		chk(Slaves.toggle_expedition(0), "勾伙伴 0 出行")
-		chk(Slaves.is_expedition(0), "出行名单生效")
-		chk(Slaves.budget() == b0 - Slaves.CELLS_PER_SLAVE,
-			"劳动力扣了一人份 (%d -> %d)" % [b0, Slaves.budget()])
-		chk(Slaves.toggle_expedition(0), "再点一次取消出行")
-		chk(not Slaves.is_expedition(0) and Slaves.budget() == b0, "取消后劳动力恢复")
+		chk(Slaves.expedition.has(0) and Slaves.expedition.size() == Slaves.count,
+			"全员自动出海 (%d/%d)" % [Slaves.expedition.size(), Slaves.count])
+		chk(Slaves.budget() == b0, "出海不占当天劳动 (%d)" % Slaves.budget())
 	else:
 		chk(true, "(没有伙伴, 跳过名单测试)")
 	# 37.3 战斗指挥口令（F1 移动 / F2 跟随 / F3 冲锋 / F4 驻守）
@@ -3627,10 +3626,10 @@ func _ready() -> void:
 		chk(Slaves.budget() < b1, "研究占人: 派活额度变小 (%d -> %d)" % [b1, Slaves.budget()])
 		chk(Research.day_gain("tech") == Research.POINTS_PER_HEAD,
 			"每天产点跟着人手涨 (+%d)" % Research.day_gain("tech"))
-		Slaves.toggle_expedition(0)
-		chk(not Slaves.is_research(0, "tech") and Slaves.is_expedition(0),
-			"出海把研究撤了 (一个人只干一件事)")
-		Slaves.toggle_expedition(0)
+		Slaves.toggle_dock(0)
+		chk(not Slaves.is_research(0, "tech") and Slaves.is_dock(0),
+			"改派修码头把研究撤了 (一个人只干一件事)")
+		Slaves.toggle_dock(0)
 		chk(Slaves.set_research(0, "admin"), "伙伴 0 改派行政")
 		chk(Slaves.is_research(0, "admin") and not Slaves.is_research(0, "tech"),
 			"改派: 从科技转到行政")
@@ -9813,6 +9812,23 @@ func _ready() -> void:
 	g.chest_panel.call("_take", 0, true)
 	chk(Inventory.count_item(wood98) > before_take98, "面板右键整格取回 (取回 %d 件)"
 		% (Inventory.count_item(wood98) - before_take98))
+	# 98h 真实点击链回归（真机「箱子取东西闪退」修复）: 玩家取东西走的是箱子行的
+	# gui_input 信号, 信号链里 _take -> inventory_changed -> _refresh 会重建行 ——
+	# 旧行若被立即 free 就是 use-after-free 闪退。这里 emit 信号把真实链路走一遍。
+	Structures.chest_deposit(c98, wood98, 3)
+	g.chest_panel.call("_refresh")
+	await get_tree().process_frame      # queue_free 的旧行到帧末才消失, 等一帧再数
+	var box98: VBoxContainer = g.chest_panel.get("_list_box")
+	chk(box98 != null and box98.get_child_count() == 1, "箱里重建出一行 (可点)")
+	var row98: PanelContainer = box98.get_child(0)
+	var ev98t := InputEventMouseButton.new()
+	ev98t.button_index = MOUSE_BUTTON_LEFT
+	ev98t.pressed = true
+	var take_before98 := Inventory.count_item(wood98)
+	row98.emit_signal("gui_input", ev98t)
+	chk(Structures.chest_count(c98) == 2 and Inventory.count_item(wood98) == take_before98 + 1,
+		"点行左键取 1 个 (gui_input 信号链内刷新不闪退)")
+	await get_tree().process_frame      # 链里 queue_free 的行收尾, 给后面留干净状态
 	g.chest_panel.close_panel()
 	chk(not g.chest_panel.is_open(), "面板关得上 (时间也跟着恢复)")
 	# 98g 拆箱子不吞货 (源码护栏) + 干净收尾
@@ -11034,7 +11050,7 @@ func _ready() -> void:
 	# i3-A: 卡池/词条/剧本/兵种/英雄文案禁全角标点（IPix 缺字形会渲成方块）
 	var bad_punct_i := "（）：，。！？；、“”‘’《》【】「」…—～"
 	var card_texts: Array[String] = []
-	for v_i in CARDSD.SUPPORT.values() + CARDSD.FOE_SPELLS.values() + CARDSD.SCENARIOS.values():
+	for v_i in CARDSD.SPELLS.values() + CARDSD.FOE_SPELLS.values() + CARDSD.SCENARIOS.values():
 		card_texts.append(str(v_i.get("name", "")))
 		card_texts.append(str(v_i.get("desc", "")))
 	for v_i in CARDSD.UNLOCK.values() + CARDSD.BASICS.values():

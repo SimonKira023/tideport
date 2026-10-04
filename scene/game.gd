@@ -321,6 +321,9 @@ func _ready() -> void:
 	# 4.65) 岸边白浪（贴陆水格上一条会呼吸、往复推进的浪线 + 泡沫点）
 	_build_waves()
 
+	# 4.651) 水面粼光：深水区碎光呼吸（参照海图 Sparkles, 白天金夜里冷白）
+	_build_sparkles()
+
 	# 4.655) 唯美氛围：全屏后处理滤镜（色彩分级+晕影+天光）+ 漂浮光尘
 	_build_fx()
 
@@ -523,6 +526,7 @@ func _tick_camera_shake(delta: float) -> void:
 func _process(delta: float) -> void:
 	_sync_post(delta)
 	_tick_water_ripple(delta)      # e33b 水面微澜：波纹分桶轮换
+	_tick_sparkles()               # 粼光昼夜变色：白天碎金夜里冷白
 	_tick_camera_shake(delta)      # e33d 相机震屏：衰减抖动
 	# 建造模式的 ghost：贴着鼠标格走，绿 = 能放 / 红 = 不能放
 	if _move_mode:
@@ -550,6 +554,8 @@ func _sync_post(delta: float) -> void:
 	_post_mat.set_shader_parameter("wet", _post_wet)
 	# 胶片颗粒：基础一点 + 夜里加重（暗部颗粒最出质感）+ 湿地再加一点
 	_post_mat.set_shader_parameter("grain", 0.026 + _post_night * 0.02 + _post_wet * 0.012)
+	# 色差：夜里镜头感更重，湿地再添一点（径向 RGB 微散，边缘才看得见）
+	_post_mat.set_shader_parameter("ca", clampf(_post_night * 0.7 + _post_wet * 0.4, 0.0, 1.0))
 
 # 夜度曲线：8~17 点纯白天；17~21 点天在暗；21~5 点最暗；5~8 点天在亮
 func _night_at(h: float) -> float:
@@ -866,7 +872,7 @@ func _crew_sheet(k: int) -> String:
 	return "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/%s/Idle.png" \
 		% SLAVE_SCRIPT.model_for(idx)
 
-# 出海前那一小段：把勾了「明天出行」的伙伴叫到码头边，看他们走上船。
+# 出海前那一小段：把全体伙伴叫到码头边（全员自动出海），看他们走上船。
 # ❗不能一按出海就直接切场景 —— 那时候整个岛立刻被藏起来，上船这一幕就看不见了。
 func _board_expedition() -> void:
 	var party: Array = Slaves.expedition
@@ -1185,6 +1191,7 @@ func _align_pond() -> void:
 #   · 桥 = 横跨河面的素材精灵，两端是陆地当桥头
 var _pond_cells: Array = []    # _align_pond 后保留下来作为池塘原状的格子
 var _water_set := {}           # 所有水格（海洋 + 河 + 池塘），Vector2i -> true
+var _spark_holder: Node2D      # 水面粼光层（白天太阳碎金 / 夜里冷白月色倒影）
 var _land_set := {}            # 所有陆地格
 var _forced := {}              # 被强制指定水/陆的格子（平滑时不去动它）
 var _sand_set := {}            # 沙滩格（左岛西北岸那片）：不可耕、不长树/石
@@ -2052,6 +2059,60 @@ func _build_waves() -> void:
 	waves.name = "WavesLayer"
 	add_child(waves)
 	waves.setup(self)
+
+# 水面粼光：深水区撒一把会呼吸的碎光（跟海图一个做法）。
+# 白天是太阳碎金, 夜里整层转冷白 = 月光星光落在水面的倒影（见 _tick_sparkles）。
+func _build_sparkles() -> void:
+	if _water_set.is_empty():
+		return
+	var depth := _water_depth_map()
+	var cands: Array = []
+	for c in _water_set.keys():
+		# 只撒在离岸 3 格开外的深水; 码头栈桥/桥面底下不闪
+		if int(depth.get(c, 1)) >= 3 and not is_deck_cell(c) and not is_bridge_cell(c):
+			cands.append(c)
+	if cands.is_empty():
+		return
+	_spark_holder = Node2D.new()
+	_spark_holder.name = "Sparkles"
+	add_child(_spark_holder)
+	var rnd := RandomNumberGenerator.new()
+	rnd.seed = COAST_SEED + 5150
+	for i in range(cands.size() - 1, 0, -1):   # 种子随机打散, 取前 N 颗
+		var j := rnd.randi_range(0, i)
+		var tmp = cands[i]
+		cands[i] = cands[j]
+		cands[j] = tmp
+	var dot := _spark_tex()
+	for i in mini(40, cands.size()):
+		var c: Vector2i = cands[i]
+		var s := Sprite2D.new()
+		s.texture = dot
+		s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		s.position = grid_layer.position + Vector2(c.x * 16 + 8, c.y * 16 + 8) \
+			+ Vector2(rnd.randf_range(-6.0, 6.0), rnd.randf_range(-6.0, 6.0))
+		_spark_holder.add_child(s)
+		var dur := rnd.randf_range(1.6, 3.2)   # 各自呼吸, 亮度/周期错开相位
+		var tw := create_tween().set_loops()
+		tw.tween_property(s, "modulate:a", 0.55, dur * 0.5).from(0.0).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(s, "modulate:a", 0.0, dur * 0.5).set_trans(Tween.TRANS_SINE)
+
+# 一颗粼光: 3x3 亮心 + 四邻淡边
+func _spark_tex() -> ImageTexture:
+	var img := Image.create_empty(3, 3, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	img.set_pixel(1, 1, Color(1, 1, 0.95))
+	for p in [Vector2i(0, 1), Vector2i(2, 1), Vector2i(1, 0), Vector2i(1, 2)]:
+		img.set_pixel(p.x, p.y, Color(1, 1, 0.95, 0.4))
+	return ImageTexture.create_from_image(img)
+
+# 粼光昼夜变色: 白天太阳碎金, 夜里冷白月光（过渡时段跟昼夜后处理同款曲线）
+func _tick_sparkles() -> void:
+	if _spark_holder == null:
+		return
+	var t := TimeManager.hour + TimeManager.minute / 60.0
+	var nf := clampf(maxf((5.2 - t) / 1.6, (t - 19.8) / 1.6), 0.0, 1.0)
+	_spark_holder.modulate = Color(1.0, 0.92, 0.62).lerp(Color(0.72, 0.85, 1.15), nf)
 
 # 唯美氛围（王国新大陆观感）：全屏后处理滤镜。萤火虫/光尘粒子层已整体删除
 # （多次调渐隐玩家仍见白点，直接消去）。滤镜垫在 HUD 第 0 位 —— 只调世界画面，

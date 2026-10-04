@@ -9,7 +9,8 @@
 #       同伴比敌军同级兵硬一截 —— 他们是花钱花料养出来的, 该有排面
 #       关键词: 骑兵系=低油(高级行动免费) / 弓手系=后排可射(支援线也参战)
 #               步兵系=守护(左右相邻友军免受攻击伤害)
-#   · 支援卡 —— 已生效的行政卡变身法术牌（同 Research.CARDS 一一对应）
+#   · 法术卡 —— 每研究一个科技/行政解锁一张（键 = m_<id>, 越后期越强力）
+#       卡池在 ESC 战斗页编组, 编入卡组才随军出征
 #   · 敌方令牌 —— 敌方「增援」法术召出的 1/1 民夫（非卡组牌, 只进战场）
 #   · 行动费 act —— 部队「前进 / 进攻」要付的点数: 卡费 1-2 的兵 1 点, 3 费往上 2 点
 #       (骑兵低油: 普通骑兵 1 点, 高级骑兵行动免费)
@@ -41,14 +42,37 @@ static func act_cost(card_cost: int, kw := "") -> int:
 		return 0 if card_cost >= 3 else 1
 	return 1 if card_cost <= 2 else 2
 
-# ---------------- 玩家支援卡（行政卡生效才进卡组, 键 = Research.CARDS 的 id） ----------------
-const SUPPORT := {
-	"drill":    {"name": "操练", "cost": 1, "spell": "buff", "desc": "一个友军 +1攻 +1血", "target": "ally"},
-	"armory":   {"name": "甲胄", "cost": 2, "spell": "hp_all", "desc": "全体友军 +1血"},
-	"mobilize": {"name": "征发", "cost": 1, "spell": "coin2", "desc": "本回合费用 +2"},
-	"scout":    {"name": "游哨", "cost": 2, "spell": "draw2", "desc": "抽 2 张牌"},
-	"baojia":   {"name": "同袍", "cost": 2, "spell": "heal", "desc": "大营回 4 血"},
+# ---------------- 法术卡（每研究一个科技/行政解锁一张, 越后期越强力） ----------------
+# 键 = "m_" + 科技/行政 id（Research.TECHS / Research.ADMINS）, 研究完成即进卡池
+#   n   = 数值参数: buff/hp_all/atk_all 的加成, coin2 的费用, draw2 的抽牌数, heal 的回血
+#   dmg = 直伤数值: unit_dmg / camp_dmg（同敌方法术的 dmg 约定）
+const SPELLS := {
+	# —— 科技线（12 张, tier1 单点小利 → tier3 战略级） ——
+	"m_fert":      {"name": "沃土",     "cost": 1, "spell": "buff",     "target": "ally", "n": 1, "desc": "一个友军 +1攻 +1血"},
+	"m_axe":       {"name": "飞斧",     "cost": 1, "spell": "unit_dmg", "target": "foe", "dmg": 2, "desc": "一个敌军 -2"},
+	"m_mill":      {"name": "磨坊号子", "cost": 1, "spell": "coin2",    "n": 1, "desc": "本回合费用 +1"},
+	"m_well":      {"name": "甘泉",     "cost": 1, "spell": "heal",     "n": 3, "desc": "大营回 3 血"},
+	"m_plow":      {"name": "深耕",     "cost": 2, "spell": "buff",     "target": "ally", "n": 2, "desc": "一个友军 +2攻 +2血"},
+	"m_cellar":    {"name": "屯粮",     "cost": 2, "spell": "hp_all",   "n": 1, "desc": "全体友军 +1血"},
+	"m_sawmill":   {"name": "征召木匠", "cost": 2, "spell": "summon2",  "desc": "召出两个 1/1 民夫"},
+	"m_ditch":     {"name": "引水",     "cost": 2, "spell": "heal",     "n": 5, "desc": "大营回 5 血"},
+	"m_steel":     {"name": "淬火",     "cost": 2, "spell": "unit_dmg", "target": "foe", "dmg": 4, "desc": "一个敌军 -4"},
+	"m_steam":     {"name": "蒸汽重锤", "cost": 4, "spell": "camp_dmg", "dmg": 6, "desc": "敌方大营 -6"},
+	"m_ledger":    {"name": "钱庄票号", "cost": 2, "spell": "coin2",    "n": 3, "desc": "本回合费用 +3"},
+	"m_telegraph": {"name": "飞鸽传书", "cost": 3, "spell": "draw2",    "n": 3, "desc": "抽 3 张牌"},
+	# —— 行政线（7 张, 从保甲征召到枢密院的战时动员） ——
+	"m_admin_hu":      {"name": "编户齐民", "cost": 1, "spell": "summon2", "desc": "召出两个 1/1 民夫"},
+	"m_admin_trade":   {"name": "互市获利", "cost": 1, "spell": "coin2",   "n": 2, "desc": "本回合费用 +2"},
+	"m_admin_militia": {"name": "乡勇出击", "cost": 2, "spell": "atk_all", "n": 1, "desc": "全体友军 +1攻"},
+	"m_admin_road":    {"name": "驿马传令", "cost": 2, "spell": "draw2",   "n": 2, "desc": "抽 2 张牌"},
+	"m_admin_navy":    {"name": "火攻",     "cost": 3, "spell": "camp_dmg", "dmg": 4, "desc": "敌方大营 -4"},
+	"m_admin_drill":   {"name": "严明操练", "cost": 3, "spell": "buff",    "target": "ally", "n": 3, "desc": "一个友军 +3攻 +3血"},
+	"m_admin_cabinet": {"name": "枢密令",   "cost": 5, "spell": "atk_all", "n": 2, "desc": "全体友军 +2攻"},
 }
+
+# 出征卡组上限: 主角卡 + 基础牌固定在场之外, 玩家最多再编入多少张
+# （同伴卡 / 法术卡各算 1 张, 解锁部队牌按 DECK_MAX 的同名上限算张数）
+const DECK_CAP := 12
 
 # ---------------- 出征卡组：基础牌（人人在手, 不靠解锁） ----------------
 # 全 1 费 —— 首回合 2 费时手里保证有牌可打（原来开局摸一手 2 费民兵,
@@ -106,24 +130,26 @@ const FOE_LISTS := {
 }
 
 # ---------------- 玩家卡组 ----------------
-# 编成: 主角一张 + 出征伙伴一人一张 + 已生效行政卡变法术 + 编组的解锁牌 + 基础牌各 3;
-# 不再拿民兵补位 —— 牌库就是这支队伍（e53 民兵方案A「队伍即牌库」）,
-# 伙伴少时卡组小、摸牌转得快, 伙伴多时自然厚实。
+# 编成: 主角一张 + 基础牌各 3 固定在场; 其余按 ESC 战斗页编组的卡组（Research.deck）来:
+#   p_<序号> 同伴卡 / m_<科技或行政id> 法术卡 / u_<模板id> 解锁部队牌
+# 上限 DECK_CAP（编组时把关）, 不再拿民兵补位 —— 牌库就是这支队伍。
 # 固定种子洗牌（selftest 可复现）
 static func player_deck(seed_val: int) -> Array:
 	var deck: Array = []
 	deck.append(hero_card())              # 主角亲征: 永远在卡组里
-	for idx in Slaves.expedition:
-		var s: Dictionary = Slaves.slave_at(int(idx))
-		if s.is_empty():
-			continue
-		deck.append(partner_card(int(idx)))
-	for id in SUPPORT.keys():
-		if Research.is_active(String(id)):
-			deck.append(support_card(String(id)))
-	for id in Research.deck:          # 出征编组: 研究解锁的牌（上限在编组时已把关）
-		if UNLOCK.has(String(id)):
-			deck.append(unlock_card(String(id)))
+	for id_v in Research.deck:            # 编组卡组: 同伴 / 法术 / 解锁牌
+		var id := String(id_v)
+		if id.begins_with("p_"):
+			var idx := int(id.substr(2))
+			if Slaves.slave_at(idx).is_empty():
+				continue
+			deck.append(partner_card(idx))
+		elif id.begins_with("m_"):
+			if SPELLS.has(id):
+				deck.append(spell_card_of(id))
+		elif UNLOCK.has(id):
+			if deck_unlocked(id):
+				deck.append(unlock_card(id))
 	for key in BASICS.keys():
 		for i in BASIC_COPIES:
 			deck.append(basic_card(String(key)))
@@ -141,6 +167,22 @@ static func deck_unlocked(id: String) -> bool:
 # 同名牌携带上限: 强力卡 4 张 / 精英卡 2 张
 static func deck_max_of(id: String) -> int:
 	return int(DECK_MAX.get(String(UNLOCK.get(id, {}).get("rarity", "strong")), 1))
+
+# 编组条目是否可用: p_ 伙伴还在队里 / m_ 对应科技或行政已研究 / u_ 解锁牌查 req
+static func deck_entry_unlocked(id: String) -> bool:
+	var s := String(id)
+	if s.begins_with("p_"):
+		return not Slaves.slave_at(int(s.substr(2))).is_empty()
+	if s.begins_with("m_"):
+		var rid := s.substr(2)
+		return Research.has_tech(rid) or Research.has_admin(rid)
+	return deck_unlocked(s)
+
+# 编组条目的同名牌上限: p_/m_ 各 1 张, u_ 按稀有度（强力 4 / 精英 2）
+static func deck_entry_max(id: String) -> int:
+	if String(id).begins_with("u_"):
+		return deck_max_of(String(id))
+	return 1
 
 # 伙伴卡：职业即兵种, 数值由档位/职业/好感推导
 static func partner_card(idx: int) -> Dictionary:
@@ -192,16 +234,25 @@ static func unlock_card(id: String) -> Dictionary:
 	c["cls"] = String(t["cls"])
 	return c
 
-static func support_card(id: String) -> Dictionary:
-	var t: Dictionary = SUPPORT[id]
-	return spell_card(String(t["name"]), int(t["cost"]), String(t["spell"]),
+# 法术卡: 从 SPELLS 表造牌, n / dmg 数值一并带进卡字典（执行端按它结算）
+static func spell_card_of(id: String) -> Dictionary:
+	var t: Dictionary = SPELLS[id]
+	var c := spell_card(String(t["name"]), int(t["cost"]), String(t["spell"]),
 		String(t.get("target", "")), String(t["desc"]), id)
+	if t.has("n"):
+		c["n"] = int(t["n"])
+	if t.has("dmg"):
+		c["dmg"] = int(t["dmg"])
+	return c
 
 # 敌方法术牌（键 = FOE_SPELLS 的 id）
 static func foe_spell_card(id: String) -> Dictionary:
 	var t: Dictionary = FOE_SPELLS[id]
-	return spell_card(String(t["name"]), int(t["cost"]), String(t["spell"]),
+	var c := spell_card(String(t["name"]), int(t["cost"]), String(t["spell"]),
 		String(t.get("target", "")), String(t["desc"]), id)
+	if t.has("dmg"):
+		c["dmg"] = int(t["dmg"])
+	return c
 
 # 法术牌公共骨架（玩家支援卡 / 敌方法术共用）
 static func spell_card(cname: String, cost: int, sp: String, target: String, desc: String, key: String) -> Dictionary:
@@ -356,6 +407,8 @@ static func icon_of(card: Dictionary, side := "") -> Texture2D:
 		return a
 	if String(card.get("type", "unit")) == "spell":
 		var id := String(card.get("key", ""))
+		if id.begins_with("m_"):        # 法术卡键 = m_<科技/行政id>, 图标复用它的
+			id = id.substr(2)
 		if Research.ICONS.has(id):
 			return Research.icon_for(id)
 		return null

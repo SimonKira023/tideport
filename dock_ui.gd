@@ -160,9 +160,9 @@ func _build_built() -> void:
 	_body.add_child(_hwrap(b))
 
 	_body.add_child(_label(
-		"船 %d 艘 - 能载 %d 人\n出海 %d 人 (你 + %d 个伙伴) - 要 %d 艘" % [
+		"船 %d 艘 - 能载 %d 人\n出海 %d 人 (你 + %d 个伙伴, 全员自动) - 要 %d 艘" % [
 			Voyage.boat_count, Voyage.seats(), Voyage.party_size(),
-			Slaves.expedition.size(), Voyage.boats_needed()],
+			Slaves.count, Voyage.boats_needed()],
 		12, Color(0.86, 0.82, 0.74), HORIZONTAL_ALIGNMENT_CENTER))
 
 	_body.add_child(_label("造一条船 (一船两人):", 13, Color(1, 0.93, 0.76)))

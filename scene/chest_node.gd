@@ -27,13 +27,16 @@ var is_ghost := false       # 建造模式的半透明预览：不建碰撞、�
 var _spr: Sprite2D = null
 var _hint: Node2D = null
 var _full_mark: Label = null
+var _gap := 0.0                 # 素材底部透明留白（贴地修正, 见 SoftRes.bottom_gap）
 
 func _ready() -> void:
 	_spr = Sprite2D.new()
 	_spr.centered = false
-	_spr.position = Vector2(-IMG_W / 2.0, -IMG_H)
 	# 第三方素材不入库(见 README), 缺失时留空不崩
 	var chest_base := SoftRes.tex(TEX)
+	# 素材帧底部有透明留白（实测 chest.png 箱底留白），按非透明像素底边下移贴地
+	_gap = float(SoftRes.bottom_gap(chest_base, REGION))
+	_spr.position = Vector2(-IMG_W / 2.0, -IMG_H + _gap)
 	var at := AtlasTexture.new()
 	at.atlas = chest_base      # 缺失时为 null, 箱子留空但碰撞照常
 	at.region = REGION
@@ -53,7 +56,7 @@ func _ready() -> void:
 	_full_mark.add_theme_font_override("font", preload("res://resources/font/IPix.ttf"))
 	_full_mark.add_theme_font_size_override("font_size", 11)
 	_full_mark.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
-	_full_mark.position = Vector2(-5, -IMG_H - 14)
+	_full_mark.position = Vector2(-5, -IMG_H + _gap - 14)
 	_full_mark.visible = false
 	add_child(_full_mark)
 
@@ -123,7 +126,7 @@ func _on_reach(b: Node2D, on: bool) -> void:
 
 # 镐子/鼠标命中的矩形（世界坐标）：game.pick_station_cell 用
 func hit_rect() -> Rect2:
-	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H - 2.0),
+	return Rect2(global_position + Vector2(-IMG_W / 2.0, -IMG_H + _gap - 2.0),
 		Vector2(IMG_W, IMG_H + 4.0))
 
 # 按 F 可交互的矩形（世界坐标）：game._try_station_interact 用它判断玩家贴没贴边

@@ -25,7 +25,7 @@ const MODULES := [
 	{"key": "bag",   "name": "背包",           "hint": "点击两格交换物品 / 右键盔甲穿戴或脱下  -  B / Esc 关闭"},
 	{"key": "hero",  "name": "角色个人及技能", "hint": "属性 / 技能树"},
 	{"key": "team",  "name": "团队管理",       "hint": "查看伙伴人数与今天的派活进度"},
-	{"key": "battle", "name": "战斗",          "hint": "出征卡组编成 - 研究解锁后编入, 出海打仗带的就是这套"},
+	{"key": "battle", "name": "战斗",          "hint": "卡组编成 - 同伴/法术/部队选 12 张带出征, 点科技或行政可看详情"},
 	{"key": "tech",  "name": "科技",           "hint": "派劳动力研究 - 给作物/木材/制作加增益"},
 	{"key": "admin", "name": "行政",           "hint": "派劳动力研究 - 解锁政策卡并赚卡槽"},
 	{"key": "map",   "name": "地图",           "hint": "滚轮放缩  /  按住左键或中键拖拽移动视角"},
@@ -95,11 +95,18 @@ var _slot_labels: Array = []     # 生效槽面板（PanelContainer: 图标+文�
 var _pending_box: GridContainer = null
 var _pending_labels: Array = []  # 准备槽面板（挂上还没生效，下周一早上上任）
 var _card_rows := {}             # 卡id -> {panel, name, desc, btn}
-var _deck_rows := {}             # 解锁牌id -> {panel, name, desc, add, del}（出征编组）
 var _research_linked := false    # Research.changed 只连一次
 var _btl_info: Label = null      # 战斗页顶部信息行
-var _btl_rows := {}              # 战斗页解锁牌行
+var _btl_rows := {}              # 战斗页卡池行（p_同伴 / m_法术 / u_部队 三段共用）
+var _btl_partner_grid: GridContainer = null  # 同伴卡网格（新招募伙伴要动态补建行）
 var _btl_side: Label = null      # 战斗页右栏卡组明细
+# 科技/行政详情弹窗（点树上的条目弹出, 展示效果明细 + 随研究解锁的法术卡）
+var _rsch_wrap: CenterContainer = null
+var _rsch_panel: PanelContainer = null
+var _rsch_box: VBoxContainer = null
+var _rsch_btn: Button = null
+var _rsch_id := ""
+var _rsch_tree := "tech"
 # 团队页
 var _team_stats := []            # 统计卡上的数字 Label（顺序：人数/可派/已派/已干完）
 
@@ -406,18 +413,7 @@ func _build_admin_page() -> Control:
 	for id in Research.CARDS.keys():
 		_card_rows[String(id)] = _add_card_card(cards, String(id))
 
-	# 出征编组（研究解锁的战斗牌编进卡组, 强力卡限 4 张 / 精英卡限 2 张）
-	lower.add_child(_mk_label("出征编组 -- 研究解锁后编入战斗卡组 / 强力卡限 4 张 精英卡限 2 张",
-		12, Color(0.85, 0.78, 0.6)))
-	var deck_grid := GridContainer.new()
-	deck_grid.columns = 4
-	deck_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	deck_grid.add_theme_constant_override("h_separation", 8)
-	deck_grid.add_theme_constant_override("v_separation", 5)
-	lower.add_child(deck_grid)
-	_deck_rows.clear()
-	for id in CardsData.UNLOCK.keys():
-		_deck_rows[String(id)] = _add_deck_card(deck_grid, String(id))
+	# 出征编组已挪到「战斗」页统一编组（同伴/法术/部队都在那边选）
 
 	if not _research_linked:
 		Research.changed.connect(_on_research_changed)
@@ -509,11 +505,186 @@ func _add_card_card(parent: Node, id: String) -> Dictionary:
 	return {"panel": panel, "name": name_l, "desc": desc_l, "btn": btn}
 
 func _on_research_pressed(id: String, tree: String) -> void:
-	var ok := Research.research_tech(id) if tree == "tech" else Research.research_admin(id)
+	_open_research_detail(id, tree)   # 点条目先看详情（效果 + 送的卡）, 研究按钮在详情里
+
+# ---------------- 科技/行政详情弹窗 ----------------
+# 点树上条目弹出: 详细信息 + 效果明细 + 随研究解锁的战斗法术卡（行政还列政策卡）
+func _open_research_detail(id: String, tree: String) -> void:
+	if _rsch_panel == null:
+		_build_research_detail()
+	_rsch_id = id
+	_rsch_tree = tree
+	_rsch_wrap.visible = true
+	_rsch_panel.visible = true   # 先亮出来再刷新, 否则刷新函数会被 not visible 早退
+	_refresh_research_detail()
+	Audio.play_sfx("ui_click")
+
+func _close_research_detail() -> void:
+	if _rsch_panel != null:
+		_rsch_panel.visible = false
+	if _rsch_wrap != null:
+		_rsch_wrap.visible = false
+	_rsch_id = ""
+
+func _build_research_detail() -> void:
+	# 与伙伴详情弹窗同一套浮层模式（wrap 必须 IGNORE, 不然关掉后整栏点不动）
+	_rsch_wrap = CenterContainer.new()
+	_rsch_wrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_rsch_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_rsch_wrap)
+	_rsch_wrap.visible = false
+	_rsch_panel = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.09, 0.07, 0.06, 0.98)
+	sb.border_color = Color(0.6, 0.45, 0.27)
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(8)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 16
+	_rsch_panel.add_theme_stylebox_override("panel", sb)
+	_rsch_wrap.add_child(_rsch_panel)
+	_rsch_panel.visible = false
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(540, clampf(get_viewport_rect().size.y - 200.0, 300.0, 500.0))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_rsch_panel.add_child(scroll)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 8)
+	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(outer)
+	_rsch_box = VBoxContainer.new()           # 动态内容（每次打开清空重填）
+	_rsch_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rsch_box.add_theme_constant_override("separation", 5)
+	outer.add_child(_rsch_box)
+	# 底部按钮行：研究 + 关闭
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	outer.add_child(row)
+	_rsch_btn = Button.new()
+	_rsch_btn.custom_minimum_size = Vector2(200, 32)
+	_rsch_btn.add_theme_font_override("font", PIXEL_FONT)
+	_rsch_btn.add_theme_font_size_override("font_size", 13)
+	_rsch_btn.pressed.connect(_on_detail_research_pressed)
+	row.add_child(_rsch_btn)
+	var close_b := Button.new()
+	close_b.text = "关闭"
+	close_b.custom_minimum_size = Vector2(100, 32)
+	close_b.add_theme_font_override("font", PIXEL_FONT)
+	close_b.add_theme_font_size_override("font_size", 13)
+	close_b.pressed.connect(_close_research_detail)
+	row.add_child(close_b)
+
+func _refresh_research_detail() -> void:
+	if _rsch_panel == null or not _rsch_panel.visible or _rsch_id == "":
+		return
+	for c in _rsch_box.get_children():
+		c.queue_free()
+	var tech := _rsch_tree == "tech"
+	var table: Dictionary = Research.TECHS if tech else Research.ADMINS
+	var t: Dictionary = table[_rsch_id]
+	var done: bool = Research.has_tech(_rsch_id) if tech else Research.has_admin(_rsch_id)
+	var tier := clampi(int(t.get("tier", 1)), 1, 4)
+	var kind := "科技" if tech else "行政"
+	# 标题 + 档位/状态
+	_rsch_box.add_child(_mk_label("%s  ·  %s 第%s档" % [t["name"], kind,
+		["一", "二", "三", "四"][tier - 1]], 20, Color(1, 0.92, 0.75), HORIZONTAL_ALIGNMENT_CENTER))
+	var ready: bool = Research.tech_ready(_rsch_id) if tech else Research.admin_ready(_rsch_id)
+	var can: bool = Research.can_research_tech(_rsch_id) if tech else Research.can_research_admin(_rsch_id)
+	if done:
+		_rsch_box.add_child(_mk_label("已研究", 13, Color(0.55, 0.9, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
+	else:
+		var status := "可研究"
+		var col := Color(0.55, 0.9, 0.45)
+		if not ready:
+			var missing: Array[String] = []
+			for r in t.get("req", []):
+				var rid := String(r)
+				if tech and not Research.has_tech(rid):
+					missing.append(String(Research.TECHS[rid]["name"]))
+				elif not tech and not Research.has_admin(rid):
+					missing.append(String(Research.ADMINS[rid]["name"]))
+			status = "前置未齐: 需先研究 %s" % ", ".join(missing)
+			col = Color(0.95, 0.7, 0.45)
+		elif not can:
+			var pts: int = Research.tech_points if tech else Research.admin_points
+			status = "点数不足 (现有 %d / 需 %d)" % [pts, int(t["cost"])]
+			col = Color(0.95, 0.7, 0.45)
+		_rsch_box.add_child(_mk_label(status, 12, col, HORIZONTAL_ALIGNMENT_CENTER))
+	# 研究成本 + 一句话说明
+	_rsch_box.add_child(_mk_label("研究成本: %d %s点" % [int(t["cost"]), kind],
+		12, Color(0.85, 0.8, 0.6), HORIZONTAL_ALIGNMENT_CENTER))
+	_rsch_box.add_child(_mk_label(String(t["desc"]), 13, Color(0.92, 0.9, 0.82),
+		HORIZONTAL_ALIGNMENT_CENTER))
+	# 效果明细
+	_rsch_box.add_child(_mk_label("--- 效果明细 ---", 12, Color(0.72, 0.64, 0.52),
+		HORIZONTAL_ALIGNMENT_CENTER))
+	for line in _research_eff_lines(_rsch_id, tech):
+		_rsch_box.add_child(_mk_label("· " + str(line), 12, Color(0.85, 0.88, 0.75),
+			HORIZONTAL_ALIGNMENT_CENTER))
+	# 随研究解锁的战斗法术卡（科技/行政都送一张, 越后期越强力）
+	var sp_id := "m_" + _rsch_id
+	if CardsData.SPELLS.has(sp_id):
+		var sp: Dictionary = CardsData.SPELLS[sp_id]
+		_rsch_box.add_child(_mk_label("--- 随研究的战斗法术卡 ---", 12, Color(0.72, 0.64, 0.52),
+			HORIZONTAL_ALIGNMENT_CENTER))
+		_rsch_box.add_child(_mk_label("「%s」  %d费" % [sp["name"], int(sp["cost"])],
+			14, Color(0.98, 0.85, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
+		_rsch_box.add_child(_mk_label(str(sp["desc"]), 12, Color(0.82, 0.78, 0.7),
+			HORIZONTAL_ALIGNMENT_CENTER))
+		_rsch_box.add_child(_mk_label("研究完成后进战斗页卡池, 编入卡组才能带上战场",
+			10, Color(0.66, 0.62, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
+	# 底部按钮状态
+	_rsch_btn.visible = not done
+	if not done:
+		_rsch_btn.text = "研究（消耗 %d %s点）" % [int(t["cost"]), kind]
+		_rsch_btn.disabled = not can
+
+# 效果明细转可读文本（科技 eff / 行政 slots+政策卡）
+func _research_eff_lines(id: String, tech: bool) -> Array:
+	var out: Array = []
+	if tech:
+		var eff: Dictionary = Research.TECHS[id]["eff"]
+		for k in eff.keys():
+			match String(k):
+				"crop":
+					out.append("作物卖出价 +%d%%" % roundi(float(eff[k]) * 100.0))
+				"food":
+					out.append("食物卖出价 +%d%%" % roundi(float(eff[k]) * 100.0))
+				"all":
+					out.append("所有物品卖出价 +%d%%" % roundi(float(eff[k]) * 100.0))
+				"wood":
+					out.append("砍树额外掉 %d 根木头" % int(eff[k]))
+				"craft":
+					out.append("制作食物额外多产 %d 份" % int(eff[k]))
+				"research":
+					out.append("研究速度 +%d%%" % roundi(float(eff[k]) * 100.0))
+				"water":
+					out.append("水壶容量 +%d" % int(eff[k]))
+				"irrigate":
+					out.append("浇一格时顺带浇相邻耕地")
+				"chop":
+					out.append("砍树一斧顶两斧")
+	else:
+		var a: Dictionary = Research.ADMINS[id]
+		if int(a.get("slots", 0)) > 0:
+			out.append("政策卡槽 +%d" % int(a["slots"]))
+		for cid in a.get("cards", []):
+			var c: Dictionary = Research.CARDS[String(cid)]
+			out.append("政策卡「%s」- %s" % [c["name"], c["desc"]])
+	return out
+
+func _on_detail_research_pressed() -> void:
+	var ok: bool = Research.research_tech(_rsch_id) if _rsch_tree == "tech" \
+		else Research.research_admin(_rsch_id)
 	Audio.play_sfx("coin" if ok else "error", -6.0)
-	_on_research_changed()
 	if ok:
 		_refresh_hero()          # 伙伴属性/劳动力可能变了，角色页顺手刷一下
+	_on_research_changed()
+	_refresh_research_detail()   # 弹窗重刷成「已研究」
 
 # 出征编组一张解锁牌（牌面）：名字 / 数值 / [编入|撤下]
 func _add_deck_card(parent: Node, id: String) -> Dictionary:
@@ -575,7 +746,7 @@ func _on_card_pressed(id: String) -> void:
 func _on_research_changed() -> void:
 	_refresh_tech()
 	_refresh_admin()
-	_refresh_deck()
+	_refresh_battle()   # 战斗页没开时是空操作, 开着就即时刷新
 
 func _refresh_tech() -> void:
 	if _tech_info == null:
@@ -629,27 +800,39 @@ func _refresh_admin() -> void:
 		btn.disabled = not slotted and not waiting \
 			and (Research.free_slots() <= 0 or Research.pending_full())
 
-func _refresh_deck() -> void:
-	if _admin_info == null or _deck_rows.is_empty():
-		return
-	for id in _deck_rows.keys():
-		_refresh_deck_row(_deck_rows[id], CardsData.UNLOCK[id], String(id))
+# ---------------- 战斗页卡池行刷新（p_同伴 / m_法术 / u_部队 三类通用） ----------------
+func _kw_text(kw: String) -> String:
+	return {"cav": "骑-低油", "guard": "守-护邻", "ranged": "射-后排"}.get(kw, "")
 
-# 编组卡行刷新（战斗页与行政页共用）
-func _refresh_deck_row(r: Dictionary, c: Dictionary, id: String) -> void:
-	var unlocked := CardsData.deck_unlocked(String(id))
+# 编组条目的 [名字, 描述] 文案
+func _battle_entry_texts(id: String) -> Array:
+	var s := String(id)
+	if s.begins_with("p_"):
+		var card: Dictionary = CardsData.partner_card(int(s.substr(2)))
+		var kwt := _kw_text(String(card["kw"]))
+		return [String(card["name"]), "%d费 %d/%d%s" % [int(card["cost"]), int(card["atk"]),
+			int(card["hp"]), ((" " + kwt) if kwt != "" else "")]]
+	if s.begins_with("m_"):
+		var t: Dictionary = CardsData.SPELLS[s]
+		return [String(t["name"]), "%d费 法术 - %s" % [int(t["cost"]), t["desc"]]]
+	var u: Dictionary = CardsData.UNLOCK[s]
+	var kwt2 := _kw_text(String(u["kw"]))
+	return [String(u["name"]), "%d费 %d/%d%s / %s" % [int(u["cost"]), int(u["atk"]), int(u["hp"]),
+		((" " + kwt2) if kwt2 != "" else ""),
+		("强力卡" if String(u["rarity"]) == "strong" else "精英卡")]]
+
+func _refresh_battle_row(r: Dictionary, id: String) -> void:
+	var unlocked := CardsData.deck_entry_unlocked(String(id))
 	var cnt := Research.deck_count(String(id))
-	var cap := CardsData.deck_max_of(String(id))
+	var cap := CardsData.deck_entry_max(String(id))
 	var full := cnt >= cap
-	(r["name"] as Label).text = "%s  [%d/%d]%s" % [c["name"], cnt, cap,
+	var texts := _battle_entry_texts(String(id))
+	(r["name"] as Label).text = "%s  [%d/%d]%s" % [texts[0], cnt, cap,
 		"  已编满" if full else ""]
 	(r["name"] as Label).add_theme_color_override("font_color",
 		Color(0.98, 0.88, 0.55) if full \
 			else (Color(0.85, 0.88, 0.75) if unlocked else Color(0.6, 0.57, 0.52)))
-	var kwt: String = {"cav": "骑-低油", "guard": "守-护邻", "ranged": "射-后排"}.get(String(c["kw"]), "")
-	(r["desc"] as Label).text = "%d费 %d/%d%s / %s" % [c["cost"], c["atk"], c["hp"],
-		((" " + String(kwt)) if kwt != "" else ""),
-		("强力卡" if String(c["rarity"]) == "strong" else "精英卡")]
+	(r["desc"] as Label).text = str(texts[1])
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.2, 0.16, 0.1, 0.98) if full else Color(0.16, 0.13, 0.1, 0.98)
 	sb.border_color = Color(0.95, 0.78, 0.35) if full \
@@ -667,10 +850,11 @@ func _refresh_deck_row(r: Dictionary, c: Dictionary, id: String) -> void:
 	del_b.visible = unlocked
 	add_b.text = "编入"
 	del_b.text = "撤下"
-	add_b.disabled = full
+	add_b.disabled = full or Research.deck_total() >= CardsData.DECK_CAP
 	del_b.disabled = cnt <= 0
 
 # ---------------- 战斗页（出征卡组编成） ----------------
+# 左栏三段卡池：同伴卡 / 法术卡 / 部队牌；右栏出征卡组明细
 func _build_battle_page() -> Control:
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 6)
@@ -681,25 +865,40 @@ func _build_battle_page() -> Control:
 	main.add_theme_constant_override("separation", 10)
 	wrap.add_child(main)
 
-	# 左栏：解锁牌编组（+/- 与行政页共用一套 Research.deck）
+	# 左栏：三段卡池，可滚动
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(700, 430)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main.add_child(scroll)
 	var left := VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.add_theme_constant_override("separation", 4)
-	main.add_child(left)
-	left.add_child(_mk_label("解锁牌编组 -- 科技/行政页解锁后可编入 (强力卡限 4 张 / 精英卡限 2 张)",
-		12, Color(0.85, 0.78, 0.6)))
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 5)
-	left.add_child(grid)
-	_btl_rows.clear()
-	for id in CardsData.UNLOCK.keys():
-		_btl_rows[String(id)] = _add_deck_card(grid, String(id))
+	scroll.add_child(left)
 
-	# 右栏：下次出征的卡组构成（队伍即牌库, 一眼看清会带上哪些牌）
-	var side := _build_research_sidebar("下次出征的卡组")
+	left.add_child(_mk_label("同伴卡 -- 出征伙伴一人一张", 12, Color(0.85, 0.78, 0.6)))
+	_btl_partner_grid = _mk_battle_grid()
+	left.add_child(_btl_partner_grid)
+	_btl_rows.clear()
+	for i in Slaves.count:
+		_btl_rows["p_%d" % i] = _add_deck_card(_btl_partner_grid, "p_%d" % i)
+
+	left.add_child(_mk_label("法术卡 -- 每研究一个科技/行政解锁一张, 越后期越强力",
+		12, Color(0.85, 0.78, 0.6)))
+	var spell_grid := _mk_battle_grid()
+	left.add_child(spell_grid)
+	for id in CardsData.SPELLS.keys():
+		_btl_rows[String(id)] = _add_deck_card(spell_grid, String(id))
+
+	left.add_child(_mk_label("部队牌 -- 研究解锁的部队 (强力卡限 4 张 / 精英卡限 2 张)",
+		12, Color(0.85, 0.78, 0.6)))
+	var unit_grid := _mk_battle_grid()
+	left.add_child(unit_grid)
+	for id in CardsData.UNLOCK.keys():
+		_btl_rows[String(id)] = _add_deck_card(unit_grid, String(id))
+
+	# 右栏：出征卡组构成（一眼看清会带上哪些牌）
+	var side := _build_research_sidebar("出征卡组")
 	var side_v: VBoxContainer = side.get_child(0)
 	_btl_side = _mk_label("", 11, Color(0.82, 0.78, 0.7))
 	_btl_side.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -710,42 +909,63 @@ func _build_battle_page() -> Control:
 		_research_linked = true
 	return wrap
 
+# 战斗页卡池网格（两列）
+func _mk_battle_grid() -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = 2
+	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	g.add_theme_constant_override("h_separation", 8)
+	g.add_theme_constant_override("v_separation", 5)
+	return g
+
 func _refresh_battle() -> void:
 	if _btl_info == null:
 		return
-	_btl_info.text = "第 %d 天   出征伙伴 %d 人   编入解锁牌 %d 张   (伙伴出征在团队管理页设置)" % [
-		TimeManager.day, Slaves.expedition.size(), Research.deck.size()]
+	# 新招募的伙伴补建卡池行
+	if _btl_partner_grid != null:
+		for i in Slaves.count:
+			var pid := "p_%d" % i
+			if not _btl_rows.has(pid):
+				_btl_rows[pid] = _add_deck_card(_btl_partner_grid, pid)
+	_btl_info.text = "第 %d 天   卡组 %d/%d 张   全员自动出海, 出海不占当天劳动" % [
+		TimeManager.day, Research.deck_total(), CardsData.DECK_CAP]
 	for id in _btl_rows.keys():
-		_refresh_deck_row(_btl_rows[id], CardsData.UNLOCK[id], String(id))
+		_refresh_battle_row(_btl_rows[id], String(id))
 	if _btl_side != null:
 		_btl_side.text = _deck_summary_text()
 
-# 卡组构成明细：主角 + 出征伙伴一人一张 + 基础牌各 3 + 已生效行政法术 + 编组解锁牌
+# 卡组构成明细：主角 + 基础牌固定不占名额, 编入的牌按 同伴/法术/部队 分组列出
 func _deck_summary_text() -> String:
 	var lines: Array[String] = []
+	lines.append("卡组 %d/%d 张" % [Research.deck_total(), CardsData.DECK_CAP])
+	lines.append("-- 固定 (不占名额) --")
 	lines.append("主角亲征 x1")
-	for idx in Slaves.expedition:
-		var s: Dictionary = Slaves.slave_at(int(idx))
-		if not s.is_empty():
-			lines.append("%s x1" % str(s.get("name", "伙伴")))
-	lines.append("-- 基础牌(固定) --")
 	for id in CardsData.BASICS.keys():
 		lines.append("%s x%d" % [CardsData.BASICS[id]["name"], CardsData.BASIC_COPIES])
-	var spells: Array[String] = []
-	for id in CardsData.SUPPORT.keys():
-		if Research.is_active(String(id)):
-			spells.append(String(CardsData.SUPPORT[id]["name"]))
-	if not spells.is_empty():
-		lines.append("-- 行政法术 --")
-		lines.append(", ".join(spells))
-	if not Research.deck.is_empty():
-		lines.append("-- 编组解锁牌 --")
+	var secs := {"同伴": [], "法术": [], "部队": []}
+	for id in Research.deck:
+		var s := String(id)
+		var key := "部队"
+		if s.begins_with("p_"):
+			key = "同伴"
+		elif s.begins_with("m_"):
+			key = "法术"
+		var arr: Array = secs[key]
+		arr.append(String(_battle_entry_texts(s)[0]))
+	var any := false
+	for sec in ["同伴", "法术", "部队"]:
+		var arr: Array = secs[sec]
+		if arr.is_empty():
+			continue
+		any = true
+		lines.append("-- %s卡 --" % sec)
 		var by_name := {}
-		for id in Research.deck:
-			var nm: String = String(CardsData.UNLOCK.get(String(id), {}).get("name", id))
+		for nm in arr:
 			by_name[nm] = int(by_name.get(nm, 0)) + 1
 		for nm in by_name.keys():
 			lines.append("%s x%d" % [nm, by_name[nm]])
+	if not any:
+		lines.append("-- (还没编入卡牌) --")
 	return "\n".join(lines)
 
 func _refresh_slots() -> void:
@@ -914,8 +1134,6 @@ func _slave_portrait(i: int) -> Texture2D:
 
 # 一个伙伴当前的占用心状态：[文字, 颜色]
 func _slave_status(i: int) -> Array:
-	if Slaves.is_expedition(i):
-		return ["明日出海", Color(0.5, 0.78, 0.98)]
 	if Slaves.is_research(i, "tech"):
 		return ["钻研科技", Color(0.55, 0.9, 0.45)]
 	if Slaves.is_research(i, "admin"):

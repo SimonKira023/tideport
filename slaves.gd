@@ -203,7 +203,7 @@ var map_to := Vector2i(42, 38)
 
 var count := 0                  # 伙伴人数（= slaves.size()，两者始终同步）
 var slaves := []                # 每个伙伴的个体数据：{name, affection, fed_today, talked_today, gift_today, hp, max_hp, troop}
-var expedition := []            # 明天要跟主角出海的伙伴序号（int）。勾了的人明天不干活：预算按人数扣
+var expedition := []            # 出征名单（已取消手动勾选）：始终自动同步为全员出海，不占当天劳动
 # 派去搞研究的伙伴序号（Esc 面板的科技页/行政页勾选）。
 # 跟出海一样是「占人」的：被占用的人既不下地干活，也不上战场。
 var research_tech := []         # 派去研究科技树的
@@ -324,17 +324,9 @@ func backfill_combat() -> void:
 			s["gift_today"] = false
 			dirty = true
 	# 名单里可能有序号已经越界（读档/减员后），顺手清掉。
-	# 同一个伙伴也只允许占一个位置：出海 / 研究科技 / 研究行政 三者互斥。
+	# 同一个伙伴也只允许占一个位置：研究科技 / 研究行政 / 修码头 / 下井 / 打铁 互斥。
 	var used := {}
 	var clean: Array = []
-	for i in expedition:
-		if i >= 0 and i < slaves.size() and not used.has(i):
-			used[i] = true
-			clean.append(i)
-	if clean.size() != expedition.size():
-		dirty = true
-	expedition = clean
-	clean = []
 	for i in research_tech:
 		if i >= 0 and i < slaves.size() and not used.has(i):
 			used[i] = true
@@ -376,29 +368,19 @@ func backfill_combat() -> void:
 	if clean.size() != craft_crew.size():
 		dirty = true
 	craft_crew = clean
+	_sync_expedition()                   # 全员自动出海
 	if dirty:
 		changed.emit()
 
-# ---------------- 出海名单 ----------------
-# 勾上/取消某个伙伴「明天出行」。返回是否真的改了。
-func toggle_expedition(i: int) -> bool:
-	if i < 0 or i >= slaves.size():
-		return false
-	if expedition.has(i):
-		expedition.erase(i)
-	else:
-		expedition.append(i)
-		# 一个人只能干一件事：出海就把研究/修码头/下井/打铁停掉
-		research_tech.erase(i)
-		research_admin.erase(i)
-		dock_crew.erase(i)
-		craft_crew.erase(i)
-		_mine_erase(i)
-	changed.emit()
-	return true
-
-func is_expedition(i: int) -> bool:
-	return expedition.has(i)
+# ---------------- 出征名单（全自动） ----------------
+# 已取消「勾选谁明天出海」的选项：所有伙伴默认全员跟主角出海，且出海不占当天劳动。
+# expedition 变量保留只为兼容 game.gd / battle_map 等旧引用，始终与全员名单同步。
+func _sync_expedition() -> void:
+	var want := []
+	for i in slaves.size():
+		want.append(i)
+	if expedition != want:
+		expedition = want
 
 # ---------------- 修码头的人力 ----------------
 # 工地/码头动工（付过钱和材料）之后，在派活面板里勾人去挑土搬木头。
@@ -413,7 +395,6 @@ func toggle_dock(i: int) -> bool:
 		# 同样一个人只能占一个位置
 		research_tech.erase(i)
 		research_admin.erase(i)
-		expedition.erase(i)
 		craft_crew.erase(i)
 		_mine_erase(i)
 	changed.emit()
@@ -454,7 +435,6 @@ func toggle_craft(i: int) -> bool:
 		# 一个人只能占一个位置
 		research_tech.erase(i)
 		research_admin.erase(i)
-		expedition.erase(i)
 		dock_crew.erase(i)
 		_mine_erase(i)
 	changed.emit()
@@ -496,7 +476,6 @@ func toggle_mine(i: int, job: String) -> bool:
 	# 新下井：一个人只能占一个位置
 	research_tech.erase(i)
 	research_admin.erase(i)
-	expedition.erase(i)
 	dock_crew.erase(i)
 	craft_crew.erase(i)
 	mine_crew.append({"i": i, "job": job})
@@ -515,7 +494,7 @@ func mine_job_of(i: int) -> String:
 			return String(w.get("job", "stone"))
 	return ""
 
-# 从下井名单里撤掉某个人（出海/研究/修码头时互斥用）
+# 从下井名单里撤掉某个人（研究/修码头/打铁互斥用）
 func _mine_erase(i: int) -> void:
 	for w in mine_crew.duplicate():
 		if int(w.get("i", -1)) == i:
@@ -536,7 +515,7 @@ func expedition_slaves() -> Array:
 
 # ---------------- 研究劳动力（科技树 / 行政树） ----------------
 # 把第 i 个伙伴派去研究某条树。tree = "tech" / "admin"。
-# 再按一次 = 撤回来；派去另一条树 = 直接改派；出海名单里的人也顺手撤出来。
+# 再按一次 = 撤回来；派去另一条树 = 直接改派。
 func set_research(i: int, tree: String) -> bool:
 	if i < 0 or i >= slaves.size():
 		return false
@@ -553,9 +532,6 @@ func set_research(i: int, tree: String) -> bool:
 		dirty = true
 	if other.has(i):
 		other.erase(i)
-		dirty = true
-	if expedition.has(i):
-		expedition.erase(i)
 		dirty = true
 	if dock_crew.has(i):
 		dock_crew.erase(i)
@@ -609,12 +585,10 @@ func squad_count(n: int) -> int:
 	return c
 
 # ---------------- 额度 ----------------
-# 出海 / 研究科技 / 研究行政 / 工地(修码头) / 下井挖矿 / 打铁 都算「占人」，
-# 这些伙伴今天不下地干活。
+# 研究科技 / 研究行政 / 工地(修码头) / 下井挖矿 / 打铁 都算「占人」，
+# 这些伙伴今天不下地干活。（出海已不占劳动：全员自动出海。）
 func busy_count() -> int:
 	var used := {}
-	for i in expedition:
-		used[i] = true
 	for i in research_tech:
 		used[i] = true
 	for i in research_admin:
@@ -644,7 +618,7 @@ func slave_cells(s: Dictionary) -> int:
 func budget() -> int:
 	var total := 0
 	for i in slaves.size():
-		if is_expedition(i) or is_research(i, "tech") or is_research(i, "admin") \
+		if is_research(i, "tech") or is_research(i, "admin") \
 				or is_dock(i) or is_mine(i) or is_craft(i):
 			continue
 		total += slave_cells(slaves[i])
@@ -750,6 +724,7 @@ func preview_next() -> Dictionary:
 func recruit_roster() -> void:
 	slaves.append(_roll_slave(count))
 	count += 1
+	_sync_expedition()                   # 新伙伴自动出海
 	_preview_cache.clear()               # 都招进来了，下一位重新算
 	changed.emit()
 

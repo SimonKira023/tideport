@@ -384,7 +384,6 @@ func _collect(game: Node) -> Dictionary:
 			"list": Slaves.slaves.duplicate(true),
 			"assignments": _enc_cell_map(Slaves.assignments),
 			"done_today": _enc_cell_list(Slaves.done_today),
-			"expedition": Slaves.expedition.duplicate(),
 			"research_tech": Slaves.research_tech.duplicate(),
 			"research_admin": Slaves.research_admin.duplicate(),
 			"dock_crew": Slaves.dock_crew.duplicate(),
@@ -597,9 +596,7 @@ func _apply(data: Dictionary) -> void:
 		Slaves.assignments[_dec_cell(String(am.get("cell", "")))] = int(am.get("v", 0))
 	for dm in sl.get("done_today", []):
 		Slaves.done_today[_dec_cell(String(dm))] = true   # done_today 是格子数组，不是映射
-	Slaves.expedition.clear()
-	for i in sl.get("expedition", []):
-		Slaves.expedition.append(int(i))
+	# expedition 已取消存档：全员自动出海，backfill_combat 里会 _sync_expedition 同步
 	Slaves.research_tech.clear()
 	for i in sl.get("research_tech", []):
 		Slaves.research_tech.append(int(i))

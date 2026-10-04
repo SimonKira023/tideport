@@ -831,30 +831,33 @@ func _cast_spell(card: Dictionary, caster: String, side: String, idx: int, row: 
 			var arr := _row(side, row)
 			if idx < 0 or idx >= arr.size() or arr[idx] == null:
 				return
+			var n := int(card.get("n", 1))
 			var u: Dictionary = arr[idx]
-			u["atk"] = int(u["atk"]) + 1
-			u["hp"] = int(u["hp"]) + 1
-			u["max_hp"] = int(u["max_hp"]) + 1
+			u["atk"] = int(u["atk"]) + n
+			u["hp"] = int(u["hp"]) + n
+			u["max_hp"] = int(u["max_hp"]) + n
 		"hp_all":
 			for u: Dictionary in _all_units(caster):
-				u["hp"] = int(u["hp"]) + 1
-				u["max_hp"] = int(u["max_hp"]) + 1
+				u["hp"] = int(u["hp"]) + int(card.get("n", 1))
+				u["max_hp"] = int(u["max_hp"]) + int(card.get("n", 1))
 		"atk_all":
 			for u: Dictionary in _all_units(caster):
-				u["atk"] = int(u["atk"]) + 1
+				u["atk"] = int(u["atk"]) + int(card.get("n", 1))
 		"coin2":
+			var cn := int(card.get("n", 2))
 			if caster == "my":
-				_cost += 2
+				_cost += cn
 			else:
-				_foe_cost += 2
+				_foe_cost += cn
 		"draw2":
-			_draw_card(caster)
-			_draw_card(caster)
+			for i in int(card.get("n", 2)):
+				_draw_card(caster)
 		"heal":
+			var hn := int(card.get("n", 4))
 			if caster == "my":
-				_my_camp = mini(_my_camp_max, _my_camp + 4)
+				_my_camp = mini(_my_camp_max, _my_camp + hn)
 			else:
-				_foe_camp = mini(_foe_camp_max, _foe_camp + 4)
+				_foe_camp = mini(_foe_camp_max, _foe_camp + hn)
 		"camp_dmg":
 			var cdmg: int = int(card.get("dmg", 3))
 			if other == "my":

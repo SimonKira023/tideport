@@ -656,11 +656,14 @@ func _place_station(target: Vector2i) -> void:
 			and target == g._world_to_cell(g.player.global_position):
 		_flash("不能摆在脚底下", "error")
 		return
-	# 设施画的是 32x32、格子只有 16px：贴着摆两座会叠成一团（门口蓝影 bug 的根源），
-	# 所以要求跟别的设施隔开一格
+	# 工作台/熔炉画的是 32x32、格子只有 16px：贴着摆两座大件会叠成一团
+	# （门口蓝影 bug 的根源）, 所以大件之间要求隔开一格。
+	# 灯/井/蜂箱/储物箱这类小件画幅窄, 贴着大件放不会叠 —— 不算障碍
+	# （用户实测: 路灯两侧贴熔炉是正常摆法, 之前被一刀切挡住了）。
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
-			if Structures.has_station(target + Vector2i(dx, dy)):
+			var nk := Structures.kind_of(target + Vector2i(dx, dy))
+			if nk == Structures.KIND_WORKBENCH or nk == Structures.KIND_FURNACE:
 				_flash("离其他设施太近了", "error")
 				return
 	var kind := Structures.KIND_WORKBENCH
