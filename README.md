@@ -4,6 +4,17 @@
 
 种田、钓鱼、养殖、航海贸易、海战、卡牌收集、伙伴养成…… 从一间小木屋开始，把潮汐港经营成自己的家。
 
+## 下载游玩（普通玩家看这里）
+
+**不用装 Godot、不用克隆仓库**，两步开玩：
+
+1. 到 [Releases](https://github.com/SimonKira023/tideport/releases) 页下载最新版本的 `潮汐港demo_win64.zip`
+2. 解压后双击里面的 `潮汐港demo5.exe`
+
+> **首次运行提示**：若弹出「Windows 已保护你的电脑」，点 **更多信息 → 仍要运行** 即可。程序没有购买数字签名，属独立游戏正常现象，放心运行。
+>
+> 存档保存在本机 `%APPDATA%\Godot\app_userdata\潮汐港\`，以后下载新版本直接覆盖解压，进度不会丢。
+
 ## 运行
 
 1. 安装 [Godot 4.7.2](https://godotengine.org/download)（标准版即可，导出才需要 .NET 版）
