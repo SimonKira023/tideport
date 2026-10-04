@@ -31,10 +31,10 @@ func _initialize() -> void:
 	save_wav("res://resources/audio/sfx/step_sand.wav")
 	quit()
 
-# 海浪 v2 —— 浪涌事件表根除「摩擦」声。旧版 fposmod(t*2,1) 是固定节拍器: 每 0.5 秒一圈
-# 一模一样的浪, 8 秒样本 16 圈等距浪, 循环播起来频谱上就是等距条纹(视频里那阵摩擦声的
-# 真凶——上轮只修了雨声, 浪声漏网)。v2 每个浪的时间/峰高/起落速度全随机, 快起慢落像真浪;
-# 底噪无限流连续, 接缝交叉淡化无痕; 整体起伏也从整周期正弦换成随机漫步。
+# 海浪 v5 —— 根除「摩擦」声 + 打掉 2.4s 机械节律。旧版 fposmod(t*2,1) 是固定节拍器
+# (v1); v2~v4 浪涌事件全随机, 但整体起伏包络的控制点仍钉在固定 2.4s 网格上 —— 雨夜
+# 复检里那个连续 8 个精确 2.4s 的响度脉冲就是它(逐层消音实验实锤: 浪哑则脉冲消失)。
+# v5 控制点间距也随机(1.2~3.6s), 浪涌间隔方差再拉大, 循环播起来再无可预测节拍。
 func make_wave() -> void:
 	var dur := 12.0
 	var xf := int(0.5 * SR)
@@ -60,17 +60,20 @@ func make_wave() -> void:
 		base[i] = lp_b * 3.0           # 常驻底: 浪来浪去都在
 		mid[i] = lp_a                  # 浪身: 随浪涌抬
 		foam[i] = lp_f                 # 浪花: 峰顶才哗出来
-	# 整体起伏: 随机漫步控制点(余弦平滑, 首尾同值) —— 跟 rain.wav 同款手法
-	var seg := 2.4
-	var kn := int(ceil(dur / seg)) + 1
-	var knots := PackedFloat32Array()
-	knots.resize(kn)
-	for k in kn:
-		knots[k] = rng.randf_range(0.8, 1.0)
-	knots[0] = 0.92
-	knots[kn - 1] = knots[0]
+	# 整体起伏: 随机漫步控制点(余弦平滑, 首尾同值) —— v5: 控制点间距随机(1.2~3.6s),
+	# 旧版固定 2.4s 网格会让包络每 2.4s 出一个极值, 混音里就是等间隔响度脉冲
+	var pts_t: Array = []      # 控制点时刻
+	var pts_v: Array = []      # 控制点值
+	var pt := 0.0
+	pts_t.append(0.0)
+	pts_v.append(0.92)
+	while pt < dur:
+		pt += rng.randf_range(1.2, 3.6)
+		pts_t.append(minf(pt, dur))
+		pts_v.append(rng.randf_range(0.8, 1.0))
+	pts_v[pts_v.size() - 1] = 0.92   # 首尾同值, 循环接缝无痕
 	# 浪涌事件表: [t0, peak, rise, fall] —— 间隔/高度/起落全随机, 快起慢落
-	# 间隔刻意加大方差(有时连着来两浪、有时长间歇), 彻底打掉固定节律;
+	# 间隔方差拉满: gap 0.3~2.2s + 偶发长间歇(35%), 均值不再聚在任何单一节距上;
 	# 最后一浪保证在 dur-2.4 前起, 让循环接缝落在相对平静的段
 	var surges: Array = []
 	var st := rng.randf_range(0.6, 1.8)
@@ -79,16 +82,19 @@ func make_wave() -> void:
 		var rise := rng.randf_range(0.08, 0.30)
 		var fall := rng.randf_range(0.7, 2.1)
 		surges.append([st, peak, rise, fall])
-		var gap := rng.randf_range(0.15, 1.2)
-		if rng.randf() < 0.28:
-			gap += rng.randf_range(1.4, 3.2)   # 偶发长间歇
+		var gap := rng.randf_range(0.3, 2.2)
+		if rng.randf() < 0.35:
+			gap += rng.randf_range(1.5, 4.0)   # 偶发长间歇
 		st += rise + fall + gap
+	var kcur := 0
 	for i in total:
 		var t := i / float(SR)
-		var u := fposmod(t, seg) / seg
-		var k := mini(int(t / seg), kn - 2)
-		var sm := 0.5 - 0.5 * cos(PI * u)
-		var slow := lerpf(knots[k], knots[k + 1], sm)
+		# 随机间距控制点表: 余弦平滑插值(t 单调, 指针只前进)
+		while kcur < pts_t.size() - 2 and pts_t[kcur + 1] < t:
+			kcur += 1
+		var u: float = (t - pts_t[kcur]) / maxf(pts_t[kcur + 1] - pts_t[kcur], 1e-6)
+		var sm := 0.5 - 0.5 * cos(PI * clampf(u, 0.0, 1.0))
+		var slow := lerpf(pts_v[kcur], pts_v[kcur + 1], sm)
 		# 浪涌包络: 多浪重叠取 max 不叠爆; smoothstep 快起、指数慢落
 		var surge := 0.0
 		for ev in surges:

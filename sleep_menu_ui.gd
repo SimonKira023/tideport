@@ -13,7 +13,7 @@ const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
 const CLOCK := preload("res://clock_ui.gd")
 
 const NAP_LAST_HOUR := 25   # 凌晨 1 点(25 点)是「今天」的最后一格, 26 点会强制昏迷
-const CAMP_HOUR := 18       # 篝火时刻, 跟 game.gd 的 CAMP_HOUR 保持一致
+const CAMP_HOUR := 8        # 篝火时刻, 跟 game.gd 的 CAMP_HOUR 保持一致
 
 var _visible := false
 var _player: Node2D = null
@@ -277,9 +277,9 @@ func _refresh_hour() -> void:
 	_dial.hour = float(h)
 	_dial.queue_redraw()
 	_time_label.text = _hour_text(h)
-	# 事件提示: 睡到 18 点正好赶上傍晚的篝火（今晚真有火才提示, 播种法跟 game.gd 一致）
+	# 事件提示: 睡到 8 点正好赶上早上的篝火（今天真有火才提示, 播种法跟 game.gd 一致）
 	if h == CAMP_HOUR and _campfire_tonight():
-		_event_label.text = "今晚 18 点可能有篝火"
+		_event_label.text = "早上 8 点可能有篝火"
 	else:
 		_event_label.text = "醒来还是今天, 不换日"
 

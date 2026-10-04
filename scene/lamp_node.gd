@@ -29,7 +29,7 @@ var _glow: Sprite2D = null
 var _lit := false
 var _gap := 0.0                 # 素材底部透明留白（贴地修正, 见 SoftRes.bottom_gap）
 var _flick_t := 0.0             # 灯焰抖动时钟（点亮那刻随机相位, 多盏灯错开）
-const LIGHT_ENERGY := 1.15      # e36e 定的光斑亮度, 抖动围绕这个值呼吸
+const LIGHT_ENERGY := 1.3       # e36e 定的光斑亮度, 抖动围绕这个值呼吸（夜景包推亮一档）
 
 func _ready() -> void:
 	_art = Sprite2D.new()
@@ -59,7 +59,7 @@ func _ready() -> void:
 	_light.position = Vector2(0, -27)      # 光心抬到灯头那两盏上
 	_light.enabled = false
 	add_child(_light)
-	_glow = preload("res://scene/light_util.gd").make_glow(Color(1.0, 0.74, 0.42, 0.16), 1.3, 2.2)
+	_glow = preload("res://scene/light_util.gd").make_glow(Color(1.0, 0.74, 0.42, 0.22), 2.0, 1.7)
 	_glow.position = _light.position
 	_glow.visible = false
 	add_child(_glow)

@@ -44,10 +44,11 @@ const RECIPES := [
 		],
 	},
 	{
+		# 木板: 一块木头锯成两块, 铺在屋里/野外当地板（镐子可撬掉回收）
 		"result": preload("res://item/wood_floor.tres"),
-		"count": 1,
+		"count": 2,
 		"costs": [
-			{"item": preload("res://item/wood.tres"), "count": 2},
+			{"item": preload("res://item/wood.tres"), "count": 1},
 		],
 	},
 	{

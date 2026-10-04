@@ -16,6 +16,7 @@ var _frog: AudioStreamPlayer
 var _g_wave := 0.0
 var _g_wind := 0.0
 var _started := false
+
 # 鸟鸣: 到点随机叫一声（从头播 + 音高微随机）, 不再整段循环 --
 # 同一段录音 LOOP_FORWARD 循环, 叫声一模一样一遍遍重复, 还会从样本中间接续出半截叫声,
 # 停着不动听久了就是「莫名其妙的音效重复播放」。

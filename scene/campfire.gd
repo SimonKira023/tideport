@@ -1,4 +1,4 @@
-# scene/campfire.gd —— 篝火：某些天傍晚在远离建筑的草地上出现
+# scene/campfire.gd —— 篝火：某些天早上 8 点在远离建筑的草地上出现
 # 走近按 F 打开「篝火 - 招募伙伴」面板（campfire_ui.gd）。
 # 整棵都是程序化画的：石圈 + 交叉木柴是一张生成贴图，火苗/烟用粒子，光用 PointLight2D。
 # ❗原点在火堆底部中心（y_sort 排序点），跟房子/树一个道理。
@@ -140,12 +140,12 @@ func _build_light() -> void:
 	# 暖橙色的光晕：傍晚在野地里远远就能看见，走近了周围一圈都被烘成暖色。
 	# texture_scale 决定光晕大小（2.4 -> 直径约 300 像素，差不多 19 格的草地都亮起来），
 	# energy 轻微抖动 = 火在跳，不是死灯。
-	_light = LIGHT_UTIL.make_light(Color(1.0, 0.68, 0.36), 1.5, 2.4)
+	_light = LIGHT_UTIL.make_light(Color(1.0, 0.68, 0.36), 1.65, 2.4)
 	_light.position = Vector2(0, -6)
 	add_child(_light)
 	# e31 火堆本体的可见柔光（加法混合）：PointLight2D 只把周围"染色"、自己不发光，
 	#   夜里远看根本找不到光源在哪。叠这层加法柔光才像"这儿有一团火"。
-	_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.62, 0.30, 0.24), 2.9)
+	_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.62, 0.30, 0.30), 3.6, 1.6)
 	_glow.position = Vector2(0, -6)
 	add_child(_glow)
 	# 亮度和柔光一起抖：同一条 tween 上并排跑，火苗的明暗才对得上

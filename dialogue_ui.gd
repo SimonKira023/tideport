@@ -3,13 +3,12 @@
 # 由 slave_npc.gd 走近按 F 时打开（对话窗口是「寻路途中伙伴在场」时用）；
 # 团队界面里的伙伴详情弹窗是另一个 UI（不跟这个冲突）。
 #
-# 行为（e18 改版）：
-#   · 打开：显示伙伴名字 + 好感 + 按钮排（聊天 / 喂食 / 送礼 / 再见了）
+# 行为（赠送合并改版）：
+#   · 打开：显示伙伴名字 + 好感 + 按钮排（聊天 / 赠送 / 再见了）
 #   · 点「聊天」→ 弹视觉小说对话框（dialog_box, 2~3 段台词翻页）——
-#     **把话聊完关掉框的那一下才 Slaves.talk 记好感**（跟领主/巡逻队长同一个规矩）
-#   · 每天第一次聊天 +1 好感（slaves.gd.talk()）
-#   · 「喂食」→ 弹出食物选择 → 选一种消耗背包里一份 + 加好感
-#   · 「送礼」→ 送一份背包里的作物当礼物 → 加好感（作物对上口味加更多）
+#     聊天纯陪伴不加好感, 好感全靠赠送（随时都能聊）
+#   · 「赠送」→ 打开选物弹窗（gift_picker）, 从背包挑一份作物/食物/材料送出去 ——
+#     消耗一份 + 加好感（送中 Ta 的爱好好感 x2, 生日当天增量再 x2）
 #   · 「心里话」/「求婚」→ 婚恋入口（marriage.gd）：篝火夜话逐段解锁，
 #     五段全看完 + 好感满 + 有银戒 → 求婚 → 婚礼，演出全走 story_dialogue 导演模式
 #   · 关掉时 unpause
@@ -22,6 +21,7 @@ const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
 const NPC_SCRIPT := preload("res://scene/slave_npc.gd")   # 性别真相源（MODEL_MALE）
 const MARRIAGE_SCRIPT := preload("res://scripts_marriage.gd")   # 婚恋剧本工厂（static）
 const RING := preload("res://item/ring.tres")                   # 求婚信物
+const GIFT_PICKER := preload("res://gift_picker.gd")            # 赠送选物弹窗
 
 # 台词池（e24 起写, e30t 按**性别**拆成两套 —— 男伙伴说话短促、爱逞强爱吹牛,
 # 女伙伴话多一点、爱念叨也爱分享小发现; 同一档好感下读起来是两个人）
@@ -88,8 +88,7 @@ var _name_label: Label
 var _aff_label: Label
 var _line_label: Label
 var _chat_btn: Button
-var _feed_btn: Button
-var _gift_btn: Button
+var _give_btn: Button       # 赠送（喂食 + 送礼合并）
 var _heart_btn: Button       # 心里话（可结婚对象 + 好感到门槛才显示）
 var _propose_btn: Button     # 求婚（五段全看 + 好感满 + 有银戒才显示）
 var _close_btn: Button
@@ -102,7 +101,6 @@ func _ready() -> void:
 	hide()
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
-	# e18: 聊天对话框挂在本面板之上 —— 把话聊完关掉框的那一下才 Slaves.talk 落账
 	_dialog = preload("res://dialog_box.gd").new()
 	_dialog.name = "ChatDialog"
 	add_child(_dialog)
@@ -163,21 +161,13 @@ func _build() -> void:
 	_chat_btn.pressed.connect(_on_chat_pressed)
 	row.add_child(_chat_btn)
 
-	_feed_btn = Button.new()
-	_feed_btn.text = "喂食"
-	_feed_btn.custom_minimum_size = Vector2(100, 30)
-	_feed_btn.add_theme_font_override("font", PIXEL_FONT)
-	_feed_btn.add_theme_font_size_override("font_size", 13)
-	_feed_btn.pressed.connect(_on_feed_pressed)
-	row.add_child(_feed_btn)
-
-	_gift_btn = Button.new()
-	_gift_btn.text = "送礼"
-	_gift_btn.custom_minimum_size = Vector2(100, 30)
-	_gift_btn.add_theme_font_override("font", PIXEL_FONT)
-	_gift_btn.add_theme_font_size_override("font_size", 13)
-	_gift_btn.pressed.connect(_on_gift_pressed)
-	row.add_child(_gift_btn)
+	_give_btn = Button.new()
+	_give_btn.text = "赠送"
+	_give_btn.custom_minimum_size = Vector2(100, 30)
+	_give_btn.add_theme_font_override("font", PIXEL_FONT)
+	_give_btn.add_theme_font_size_override("font_size", 13)
+	_give_btn.pressed.connect(_on_give_pressed)
+	row.add_child(_give_btn)
 
 	_close_btn = Button.new()
 	_close_btn.text = "再见了"
@@ -254,15 +244,11 @@ func _refresh() -> void:
 	_aff_label.text = "好感 %s/%d" % [
 		_heart_str(int(s["affection"])), Slaves.AFFECTION_MAX]
 	# ❗IPix.ttf 没有全角引号「」—— 文案里别用
-	_line_label.text = "(点 聊天 跟 %s 说说话; 今天聊过了, 再说不加好感)" % s["name"] \
-		if bool(s["talked_today"]) else "(点 聊天 跟 %s 说说话, 每天第一次 +1 好感)" % s["name"]
-	# 聊天按钮：今天聊过就灰掉
-	_chat_btn.disabled = bool(s["talked_today"])
-	_chat_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s["talked_today"]) else Color(1, 1, 1)
-	# 送礼按钮：今天送过就灰掉
-	if _gift_btn != null:
-		_gift_btn.disabled = bool(s.get("gift_today", false))
-		_gift_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s.get("gift_today", false)) else Color(1, 1, 1)
+	_line_label.text = "(点 聊天 跟 %s 说说话; 点 赠送 挑份背包里的东西送 Ta)" % s["name"]
+	# 聊天按钮一直能点（不加好感, 纯看台词）
+	# 赠送按钮：今天送过就灰掉
+	_give_btn.disabled = bool(s.get("gift_today", false))
+	_give_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s.get("gift_today", false)) else Color(1, 1, 1)
 	# 婚恋按钮：心里话（可结婚对象且好感到下一段门槛）/ 求婚（五段全看 + 好感满 + 有银戒）
 	if _slave_index >= 0 and _slave_index < Slaves.ROSTER.size():
 		var id := str(Slaves.ROSTER[_slave_index]["id"])
@@ -270,9 +256,9 @@ func _refresh() -> void:
 		_heart_btn.visible = Marriage.can_heart_talk(id, aff)
 		_propose_btn.visible = Marriage.can_propose(id, aff, Inventory.count_item(RING) >= 1)
 
-# e18: 点聊天弹对话框 —— 2~3 段台词翻页, 翻完关框才落账
+# 点聊天弹对话框 —— 2~3 段台词翻页（聊天不加好感, 随时都能聊）
 func _on_chat_pressed() -> void:
-	if _slave_index < 0 or bool(Slaves.slave_at(_slave_index).get("talked_today", false)):
+	if _slave_index < 0:
 		return
 	var s: Dictionary = Slaves.slave_at(_slave_index)
 	var portrait: Texture2D = load("res://resources/texture/portraits/slave_%02d.png" % _slave_index)
@@ -280,14 +266,8 @@ func _on_chat_pressed() -> void:
 		portrait = load("res://resources/texture/portraits/player.png")
 	_dialog.open_multi(portrait, s["name"], _pick_group())
 
-# 对话框关掉的那一下才算聊了天
+# 对话框关掉的那一下：聊天不加好感, 只刷新界面
 func _finish_chat() -> void:
-	if _slave_index < 0:
-		return
-	var gain: int = Slaves.talk(_slave_index)
-	if gain > 0:
-		Audio.play_sfx("ui_click")
-		_flash_box("和 %s 聊了聊, 好感 +%d" % [Slaves.slave_at(_slave_index)["name"], gain])
 	_refresh()
 
 func _heart_str(n: int) -> String:
@@ -296,48 +276,30 @@ func _heart_str(n: int) -> String:
 		s += "*"      # ❗IPix.ttf 没有 ♥ 的字形（会显示成方块），用 * 代替
 	return s
 
-# 喂食：弹出确认（如果背包里没有任何食物，直接提示）
-func _on_feed_pressed() -> void:
-	# 从背包里找一份「食物」类的道具
-	var foods: Array = []
-	for s in Inventory.slot_list():
-		var it: ItemData = s["item"]
-		if it != null and it.type == "食物" and int(s["count"]) > 0:
-			foods.append(it)
-	if foods.is_empty():
-		_flash_box("背包里还没有食物,先去'物品制作'做一份吧!")
+# 赠送：打开选物弹窗（gift_picker）, 挑一份背包里的作物/食物/材料送出去
+func _on_give_pressed() -> void:
+	if _slave_index < 0:
 		return
-	# 简单选第一个食物（好感结算已经走 slaves.feed 的逻辑）
-	var food: ItemData = foods[0]
-	var gain: int = Slaves.feed(_slave_index, food)
-	if gain <= 0:
-		_flash_box("今天已经喂过 %s 了" % Slaves.slave_at(_slave_index)["name"])
-		return
-	Inventory.remove_item(food, 1)
-	Audio.play_sfx("buy")
-	_flash_box("给 %s 喂了 1 份 %s\n好感 +%d" % [
-		Slaves.slave_at(_slave_index)["name"], food.display_name, gain])
-	_refresh()
+	var gp: Control = GIFT_PICKER.new()
+	add_child(gp)
+	gp.picked.connect(_on_gift_picked)
+	gp.open_for(_slave_index)
 
-# 送礼：从背包里找一份「作物」当礼物送出去（每天第一次 +2 好感）
-func _on_gift_pressed() -> void:
-	var crop: ItemData = null
-	for s in Inventory.slot_list():
-		var it: ItemData = s["item"]
-		if it != null and it.type == "作物" and int(s["count"]) > 0:
-			crop = it
-			break
-	if crop == null:
-		_flash_box("背包里还没有作物, 收了庄稼再拿来当礼物吧!")
+# 选物弹窗点了某件物品 → 落账（give 记好感 + 扣背包一份, 跟弹窗约定配对）
+func _on_gift_picked(item: ItemData) -> void:
+	if _slave_index < 0 or item == null:
 		return
-	var gain: int = Slaves.gift_item(_slave_index, crop)
+	var sname: String = Slaves.slave_at(_slave_index)["name"]
+	var gain: int = Slaves.give(_slave_index, item)
 	if gain <= 0:
-		_flash_box("今天已经给 %s 送过礼物了" % Slaves.slave_at(_slave_index)["name"])
+		_flash_box("今天已经给 %s 送过东西了" % sname)
 		return
-	Inventory.remove_item(crop, 1)
+	Inventory.remove_item(item, 1)
 	Audio.play_sfx("buy")
-	_flash_box("给 %s 送了 1 份 %s\n好感 +%d" % [
-		Slaves.slave_at(_slave_index)["name"], crop.display_name, gain])
+	var bonus := ""
+	if item.display_name == Slaves.like_of(_slave_index):
+		bonus = "\n(Ta 最喜欢这个!)"
+	_flash_box("送给 %s 1 份 %s\n好感 +%d%s" % [sname, item.display_name, gain, bonus])
 	_refresh()
 
 # ---------------- 婚恋（marriage.gd） ----------------

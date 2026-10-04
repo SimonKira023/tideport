@@ -271,7 +271,7 @@ var quest_log_panel: Control = null   # 任务栏（开背包时一并显示）
 var settlement_panel: Control = null  # 夜晚结算画面（睡觉时弹出来）
 var assign_panel: Control = null      # 夜晚给伙伴派活的面板（结算之后）
 var cheat_panel: Control = null       # 作弊面板（按 P 唤醒，加钱/加资源）
-var campfire: Node2D = null           # 傍晚出现的篝火（招伙伴用）
+var campfire: Node2D = null           # 早 8 点出现的篝火（招伙伴用）
 var campfire_panel: Control = null    # 篝火招募面板（走近篝火按 F 打开）
 var dock: Node2D = null               # 东岸外海的废弃码头（scene/dock.gd）
 var dock_panel: Control = null        # 码头面板：修码头 / 造船 / 出海
@@ -320,9 +320,6 @@ func _ready() -> void:
 
 	# 4.65) 岸边白浪（贴陆水格上一条会呼吸、往复推进的浪线 + 泡沫点）
 	_build_waves()
-
-	# 4.651) 水面粼光：深水区碎光呼吸（参照海图 Sparkles, 白天金夜里冷白）
-	_build_sparkles()
 
 	# 4.655) 唯美氛围：全屏后处理滤镜（色彩分级+晕影+天光）+ 漂浮光尘
 	_build_fx()
@@ -526,7 +523,6 @@ func _tick_camera_shake(delta: float) -> void:
 func _process(delta: float) -> void:
 	_sync_post(delta)
 	_tick_water_ripple(delta)      # e33b 水面微澜：波纹分桶轮换
-	_tick_sparkles()               # 粼光昼夜变色：白天碎金夜里冷白
 	_tick_camera_shake(delta)      # e33d 相机震屏：衰减抖动
 	# 建造模式的 ghost：贴着鼠标格走，绿 = 能放 / 红 = 不能放
 	if _move_mode:
@@ -543,7 +539,7 @@ func _process(delta: float) -> void:
 func _sync_post(delta: float) -> void:
 	if _post_mat == null:
 		return
-	var want := _night_at(TimeManager.hour + TimeManager.minute / 60.0)
+	var want := _night_at(fmod(TimeManager.hour + 2.0 + TimeManager.minute / 60.0, 24.0))
 	_post_night = move_toward(_post_night, want, delta * 0.5)
 	_post_mat.set_shader_parameter("night", _post_night)
 	# 雨夜湿地反光：亮源往下淌光晕（风暴更湿），雨停后地面慢慢"晾干"
@@ -558,6 +554,7 @@ func _sync_post(delta: float) -> void:
 	_post_mat.set_shader_parameter("ca", clampf(_post_night * 0.7 + _post_wet * 0.4, 0.0, 1.0))
 
 # 夜度曲线：8~17 点纯白天；17~21 点天在暗；21~5 点最暗；5~8 点天在亮
+# 色调钟比真实钟快 2 小时 —— 6 点就亮成白天, 15 点开始擦黑, 19 点全黑, 凌晨 3 点开始蒙蒙亮
 func _night_at(h: float) -> float:
 	if h >= 8.0 and h < 17.0:
 		return 0.0
@@ -1191,7 +1188,6 @@ func _align_pond() -> void:
 #   · 桥 = 横跨河面的素材精灵，两端是陆地当桥头
 var _pond_cells: Array = []    # _align_pond 后保留下来作为池塘原状的格子
 var _water_set := {}           # 所有水格（海洋 + 河 + 池塘），Vector2i -> true
-var _spark_holder: Node2D      # 水面粼光层（白天太阳碎金 / 夜里冷白月色倒影）
 var _land_set := {}            # 所有陆地格
 var _forced := {}              # 被强制指定水/陆的格子（平滑时不去动它）
 var _sand_set := {}            # 沙滩格（左岛西北岸那片）：不可耕、不长树/石
@@ -1689,6 +1685,9 @@ func _build_bridges() -> void:
 	node.position = grid_layer.position
 	add_child(node)
 	move_child(node, shore_layer.get_index() + 1)   # 桥在水面/岸线之上、角色之下
+	# b7: 容器开 y_sort —— 前层护栏(z=0)借此进根节点的 y_sort 池, 跟 critters/
+	#     dock 同一套嵌套机制。桥面 sprite 是负 z, z 优先于 y_sort, 不受影响。
+	node.y_sort_enabled = true
 
 	for y in BRIDGE_ROWS:
 		var x0 := _bridge_x0(y)
@@ -1709,17 +1708,21 @@ func _build_bridges() -> void:
 		sp.z_index = Z_BRIDGE
 		node.add_child(sp)
 		# h2: 前层护栏 —— 桥贴图最下 16px (南护栏带) 再叠一张同纹理的 region sprite,
-		#     z 抬到 +1 (压过角色 y_sort 池的 0 层): 走在下桥带 (y+1) 的角色就在
-		#     护栏后面, 被 h3 挖出栏杆孔的前层护栏半遮半露。上/中桥带的角色不与
-		#     这条带重叠, 不受影响。
+		#     走在下桥带 (y+1) 的角色就在护栏后面, 被 h3 挖出栏杆孔的前层护栏
+		#     半遮半露。上/中桥带的角色不与这条带重叠, 不受影响。
+		# b7: 护栏不再恒抬 z=+1 —— 那会把蹚水走到桥南侧 (y 更大, 明明在护栏
+		#     前面) 的玩家也压在护栏底下。改成 z=0 参与 y_sort: 排序点落在
+		#     护栏带底边 ((y+2)*16), 贴图用 offset 画回 y+1 行 —— 玩家在桥上
+		#     (脚 y 更小) 时护栏照旧盖住玩家, 走到桥南时玩家盖住护栏。
 		var rf := Sprite2D.new()
 		rf.name = "BridgeFront%d" % y
 		rf.texture = tex
 		rf.centered = false
 		rf.region_enabled = true
 		rf.region_rect = Rect2(0, (BRIDGE_H_TILES - 1) * 16, w * 16, 16)
-		rf.position = Vector2(x0 * 16, (y + 1) * 16)
-		rf.z_index = 1
+		rf.position = Vector2(x0 * 16, (y + 2) * 16)   # y_sort 排序点 = 护栏带底边
+		rf.offset = Vector2(0, -16)                    # 贴图画回 y+1 行, 位置不变
+		rf.z_index = 0                                 # 跟角色同层, 交给 y_sort 排
 		node.add_child(rf)
 
 	print("[桥] 架了 %d 座(行 %s),每座跨 %d 格,扁平单层贴桥面(z=%d),三行桥带全可走" % [BRIDGE_ROWS.size(), str(BRIDGE_ROWS), 2 * BRIDGE_HALF + 1, Z_BRIDGE])
@@ -1738,13 +1741,14 @@ func _bridge_piece() -> Image:
 		img.decompress()
 	var cell := Rect2i(0, BRIDGE_VARIANT * 64, 80, 64)
 	_bridge_piece_img = img.get_region(Rect2i(cell.position + BRIDGE_TRIM.position, BRIDGE_TRIM.size))
-	# h3: 下护栏带 (y=41..50) 素材是一整块实心护板, 玩家被它挡住就彻底看不见了。
-	#     按上护栏的镜像结构挖出柱间竖缝 (保留 y=42..46 横梁和四根立柱, 清掉
-	#     y=41 与 y=47..50 的柱间区), 变成一样的镂空栏杆 —— 走在下桥带的角色
-	#     透过栏杆孔看得见 (上护栏素材自带镂空, 不用动)。挖在 piece 上, 拼装
-	#     和缩放自动带着孔走。
+	# h3: 前层护栏带 (piece y=32..46 → 拼装贴图最下 16px, 画在角色之上) 素材是
+	#     一整块实心护板, 走在桥上的角色会被它整个挡住。按真实俯视桥的样子
+	#     改成「一排栏杆柱」: 保留四根立柱全高 + 底缘收边 (y=45..46), 柱间
+	#     y=32..44 连顶梁一起整段挖透 —— 没有栅栏缝、没有穿腰横杠, 主角
+	#     全身都看得见, 透出的就是桥下的水。y=30..31 顶梁上沿留在主桥层
+	#     (角色之下), 正好当桥面的边梁纹, 桥面保持连续。
 	for gap in [Vector2i(5, 19), Vector2i(25, 35), Vector2i(41, 55)]:
-		for gy in [41, 47, 48, 49, 50]:
+		for gy in range(32, 45):
 			for gx in range(gap.x, gap.y + 1):
 				_bridge_piece_img.set_pixel(gx, gy, Color(0, 0, 0, 0))
 	# j7: 素材是纯侧视图, 底部 y=47..50 是支撑柱脚 —— 扁平铺在俯视地图上,
@@ -1831,12 +1835,13 @@ func _build_water_collision() -> void:
 		sb.add_child(cs)
 
 	# g5: 桥沿薄墙 —— 桥带三行是豁口, 但桥得是实心的: 不能从桥带直接踏进河里,
-	#     也不能从河里游进桥底下。给每座桥的视觉跨度 (x0..x1) 砌两条 4px 薄横墙,
-	#     只砌在「墙外侧那一格是河面」的桥跨上 (河道会摆, 用外侧行判水比用桥行准):
-	#       北墙贴上桥带行 (y-1) 顶部 4px —— 外侧格 (x, y-2) 是水才砌
-	#       南墙贴下桥带行 (y+1) 底部 4px —— 外侧格 (x, y+2) 是水才砌
-	#     外侧是岸的桥头不砌 (本就从岸上上下桥); 东西向过桥、沿河在 y-2/y+2 行
-	#     平行游泳都不受影响; 站在桥带边上的碰撞圆跟墙只叠 ~2px, 顶多被微推。
+	#     也不能从河里游进桥底下。给每座桥的视觉跨度 (x0..x1) 砌两条 4px 薄横墙:
+	#       北墙贴上桥带行 (y-1) 顶部 4px
+	#       南墙贴下桥带行 (y+1) 底部 4px
+	#     b6 修: 原先「墙外侧那格是水才砌」把落在岸上的桥头两格漏成了能穿行的
+	#     豁口 —— 陆上桥头的栏杆也得拦人, 现在全跨度无条件砌, 想绕就沿引道外
+	#     侧 (x0-1/x1+1 列) 走。东西向过桥 (沿 y 行) 不受影响; 站在桥带边上的
+	#     碰撞圆跟墙只叠 ~2px, 顶多被微推。
 	var rails := StaticBody2D.new()
 	rails.name = "BridgeRails"
 	container.add_child(rails)
@@ -1845,22 +1850,20 @@ func _build_water_collision() -> void:
 		var bx0: int = _bridge_x0(y)
 		var bx1: int = _bridge_x1(y)
 		for x in range(bx0, bx1 + 1):
-			if _water_set.has(Vector2i(x, y - 2)):
-				var rcn := CollisionShape2D.new()
-				var shn := RectangleShape2D.new()
-				shn.size = Vector2(16, 4)
-				rcn.shape = shn
-				rcn.position = Vector2(x * 16 + 8, (y - 1) * 16 + 2)
-				rails.add_child(rcn)
-				rail_count += 1
-			if _water_set.has(Vector2i(x, y + 2)):
-				var rcs := CollisionShape2D.new()
-				var shs := RectangleShape2D.new()
-				shs.size = Vector2(16, 4)
-				rcs.shape = shs
-				rcs.position = Vector2(x * 16 + 8, (y + 2) * 16 - 2)
-				rails.add_child(rcs)
-				rail_count += 1
+			var rcn := CollisionShape2D.new()
+			var shn := RectangleShape2D.new()
+			shn.size = Vector2(16, 4)
+			rcn.shape = shn
+			rcn.position = Vector2(x * 16 + 8, (y - 1) * 16 + 2)
+			rails.add_child(rcn)
+			rail_count += 1
+			var rcs := CollisionShape2D.new()
+			var shs := RectangleShape2D.new()
+			shs.size = Vector2(16, 4)
+			rcs.shape = shs
+			rcs.position = Vector2(x * 16 + 8, (y + 2) * 16 - 2)
+			rails.add_child(rcs)
+			rail_count += 1
 	print("[水碰撞] %d 块矩形(共 %d 格), 桥带豁口 + 桥沿薄墙 %d 条" % [rects.size(), water_for_collide.size(), rail_count])
 
 # 贪心矩形合并：扫到一个水格 → 横扩到最长 → 竖扩到最长 → 标记访问
@@ -2059,60 +2062,11 @@ func _build_waves() -> void:
 	waves.name = "WavesLayer"
 	add_child(waves)
 	waves.setup(self)
-
-# 水面粼光：深水区撒一把会呼吸的碎光（跟海图一个做法）。
-# 白天是太阳碎金, 夜里整层转冷白 = 月光星光落在水面的倒影（见 _tick_sparkles）。
-func _build_sparkles() -> void:
-	if _water_set.is_empty():
-		return
-	var depth := _water_depth_map()
-	var cands: Array = []
-	for c in _water_set.keys():
-		# 只撒在离岸 3 格开外的深水; 码头栈桥/桥面底下不闪
-		if int(depth.get(c, 1)) >= 3 and not is_deck_cell(c) and not is_bridge_cell(c):
-			cands.append(c)
-	if cands.is_empty():
-		return
-	_spark_holder = Node2D.new()
-	_spark_holder.name = "Sparkles"
-	add_child(_spark_holder)
-	var rnd := RandomNumberGenerator.new()
-	rnd.seed = COAST_SEED + 5150
-	for i in range(cands.size() - 1, 0, -1):   # 种子随机打散, 取前 N 颗
-		var j := rnd.randi_range(0, i)
-		var tmp = cands[i]
-		cands[i] = cands[j]
-		cands[j] = tmp
-	var dot := _spark_tex()
-	for i in mini(40, cands.size()):
-		var c: Vector2i = cands[i]
-		var s := Sprite2D.new()
-		s.texture = dot
-		s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		s.position = grid_layer.position + Vector2(c.x * 16 + 8, c.y * 16 + 8) \
-			+ Vector2(rnd.randf_range(-6.0, 6.0), rnd.randf_range(-6.0, 6.0))
-		_spark_holder.add_child(s)
-		var dur := rnd.randf_range(1.6, 3.2)   # 各自呼吸, 亮度/周期错开相位
-		var tw := create_tween().set_loops()
-		tw.tween_property(s, "modulate:a", 0.55, dur * 0.5).from(0.0).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(s, "modulate:a", 0.0, dur * 0.5).set_trans(Tween.TRANS_SINE)
-
-# 一颗粼光: 3x3 亮心 + 四邻淡边
-func _spark_tex() -> ImageTexture:
-	var img := Image.create_empty(3, 3, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	img.set_pixel(1, 1, Color(1, 1, 0.95))
-	for p in [Vector2i(0, 1), Vector2i(2, 1), Vector2i(1, 0), Vector2i(1, 2)]:
-		img.set_pixel(p.x, p.y, Color(1, 1, 0.95, 0.4))
-	return ImageTexture.create_from_image(img)
-
-# 粼光昼夜变色: 白天太阳碎金, 夜里冷白月光（过渡时段跟昼夜后处理同款曲线）
-func _tick_sparkles() -> void:
-	if _spark_holder == null:
-		return
-	var t := TimeManager.hour + TimeManager.minute / 60.0
-	var nf := clampf(maxf((5.2 - t) / 1.6, (t - 19.8) / 1.6), 0.0, 1.0)
-	_spark_holder.modulate = Color(1.0, 0.92, 0.62).lerp(Color(0.72, 0.85, 1.15), nf)
+	# 水面波光 v2：深水上的横向碎光条（scene/water_glint.gd），排在白浪之后同层后画
+	var glint: Node2D = preload("res://scene/water_glint.gd").new()
+	glint.name = "WaterGlint"
+	add_child(glint)
+	glint.setup(self)
 
 # 唯美氛围（王国新大陆观感）：全屏后处理滤镜。萤火虫/光尘粒子层已整体删除
 # （多次调渐隐玩家仍见白点，直接消去）。滤镜垫在 HUD 第 0 位 —— 只调世界画面，
@@ -2383,6 +2337,10 @@ func _setup_backpack() -> void:
 	hud.add_child(bp)
 	backpack_panel = bp
 	bp.opened.connect(func():
+		# b4: 背包(含详情页)在篝火面板之下渲染, 两者同开时下层文字会透过
+		#   半透明面板变成「暗字水印」——开背包前先关篝火面板。
+		if campfire_panel != null and campfire_panel.is_open():
+			campfire_panel.close_panel()
 		_set_player_frozen(true))
 	bp.closed.connect(func():
 		_set_player_frozen(false))
@@ -2579,8 +2537,8 @@ func _setup_story_dialogue() -> void:
 
 # ---------------- 篝火（招伙伴） ----------------
 # e53 招募改纯任务制: 有候选人坐镇的日子（Recruits.visitor, 花名册窗口期）,
-# 傍晚 18 点起远离建筑的草地上燃起一堆篝火, 走近按 F 搭话谈入伙。过夜就熄。
-const CAMP_HOUR := 18
+# 早 8 点起远离建筑的草地上燃起一堆篝火, 走近按 F 搭话谈入伙。过夜就熄。
+const CAMP_HOUR := 8    # 篝火早上 8 点就来（原来傍晚 18 点才点）
 const CAMP_ANCHOR_DIST := 7        # 离建筑/出生点至少这么远（格）
 
 func _setup_campfire() -> void:

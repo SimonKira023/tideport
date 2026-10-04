@@ -6,7 +6,7 @@ extends Node
 
 signal floor_changed(pos: Vector2i)   # 某格地板状态变了（铺上/拆掉/换类型）
 
-const KIND_WOOD := 0         # 木地板（2 木头合成）
+const KIND_WOOD := 0         # 木板（1 木头锯成 2 块）
 const KIND_PATH := 1         # 鹅卵石小径（1 石头合成）
 # 拆掉时返还哪种物品，按类型对号入座
 const KIND_ITEM := {

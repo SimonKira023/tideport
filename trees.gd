@@ -56,7 +56,8 @@ func clear_cell(c: Vector2i) -> void:
 		tree_removed.emit(c)
 
 # 砍一下。返回 {result: 结果, wood: 掉几根木头, seeds: 掉几颗树种子}
-#   · 幼苗/小树：一斧子刨掉，把树种还给你（等于移栽）
+#   · 幼苗：一斧子刨掉，把树种还给你（等于移栽）
+#   · 小树（长到一半）：一斧子砍倒 -> 掉 1~2 根木头，不出种子
 #   · 成树：CHOPS_TO_FELL 斧子砍倒 -> 掉木头 + 树种子，原地留个树桩
 #   · 树桩：STUMP_CHOPS 下敲碎 -> 掉 1 根木头
 # power = 一斧头削掉几点耐久。默认 1（没研究「精钢斧」时的基线），
@@ -67,10 +68,15 @@ func hit(c: Vector2i, rng: RandomNumberGenerator, power := 1) -> Dictionary:
 	var t: Dictionary = trees[c]
 	var dmg := maxi(1, power)
 	match int(t.stage):
-		ST_SAPLING, ST_YOUNG:
+		ST_SAPLING:
 			trees.erase(c)
 			tree_removed.emit(c)
 			return {"result": RESULT_FELLED, "wood": 0, "seeds": 1}
+		ST_YOUNG:
+			# 长到一半的小树砍倒：也给点木头（1~2 根），但不结种子
+			trees.erase(c)
+			tree_removed.emit(c)
+			return {"result": RESULT_FELLED, "wood": 1 + rng.randi() % 2, "seeds": 0}
 		ST_MATURE:
 			t.hp = int(t.hp) - dmg
 			if int(t.hp) > 0:

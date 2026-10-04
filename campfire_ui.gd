@@ -2,7 +2,7 @@
 # 走近篝火按 F 打开：火边坐着的来客按花名册固定（顺序/名字/初始职业），
 # 「上前搭话」播剧情对话（recruits.gd 的 DIALOGS）—— 条件达成当场入队，不够就被婉拒。
 # 招募不花钱：完成来客的诉求（作物/金币/材料/指引链任务/历练/科技/声望）才是入队条件。
-# 伙伴上限 8 人 —— 满员的日子里傍晚根本不会出现篝火（见 game.gd _on_campfire_tick）。
+# 伙伴上限 8 人 —— 满员的日子里根本不会出现篝火（见 game.gd _on_campfire_tick）。
 extends Control
 
 signal opened
@@ -18,6 +18,7 @@ var _info2: Label
 var _btn: Button
 var _flash_label: Label
 var _delivered := false   # 这堆火已经谈成一位（卡片切到刚入队那位、按钮停用）
+var _talk_hid := false    # 搭话播剧情时面板暂时藏了（播完要亮回来）
 
 # —— 「今晚火边的这个人」信息卡 ——
 var _card_title: Label
@@ -55,7 +56,7 @@ func _build() -> void:
 
 	var box := PanelContainer.new()
 	var st := StyleBoxFlat.new()
-	st.bg_color = Color(0.16, 0.10, 0.06, 0.97)       # 暖黑（篝火旁的夜色）
+	st.bg_color = Color(0.16, 0.10, 0.06, 1.0)         # b4: 全不透明, 防背后 UI 文字透出成暗字
 	st.border_color = Color(0.85, 0.52, 0.2)          # 火光橙
 	st.set_border_width_all(3)
 	st.set_corner_radius_all(8)
@@ -123,7 +124,7 @@ func _label(text: String, size: int, color: Color,
 func _build_card(vbox: VBoxContainer) -> void:
 	var card := PanelContainer.new()
 	var st := StyleBoxFlat.new()
-	st.bg_color = Color(0.10, 0.07, 0.04, 0.95)
+	st.bg_color = Color(0.10, 0.07, 0.04, 1.0)   # b4: 全不透明
 	st.border_color = Color(0.66, 0.38, 0.15)
 	st.set_border_width_all(2)
 	st.set_corner_radius_all(6)
@@ -149,7 +150,7 @@ func _build_card(vbox: VBoxContainer) -> void:
 	# 小像：贴图本来就是 32x32 的像素画，放大到 48 必须用最近邻，不然糊成一团
 	var frame := PanelContainer.new()
 	var fs := StyleBoxFlat.new()
-	fs.bg_color = Color(0.06, 0.04, 0.03, 0.9)
+	fs.bg_color = Color(0.06, 0.04, 0.03, 1.0)   # b4: 全不透明
 	fs.border_color = Color(0.45, 0.28, 0.13)
 	fs.set_border_width_all(2)
 	fs.set_corner_radius_all(4)
@@ -299,16 +300,33 @@ func _talk() -> void:
 		return
 	sd.play(intro, func(): _after_intro(c))
 
+# 剧情要上场了, 面板先让路 —— 大面板杵在屏幕正中会把台词挡得严严实实。
+# 只 hide() 视觉, _visible 不动（逻辑上还开着, closed 信号不发）。
+func _panel_hide_for_talk() -> void:
+	if _visible and is_visible():
+		_talk_hid = true
+		hide()
+
+# 剧情链走到头, 把面板亮回来（可选补一条提示）
+func _panel_show_after_talk(msg := "") -> void:
+	if _talk_hid:
+		_talk_hid = false
+		if _visible:
+			show()
+	if msg != "":
+		_flash(msg)
+
 func _after_intro(c: Dictionary) -> void:
 	if not Recruits.visitor():    # 对话期间窗口关了（过夜才可能，兜底）
+		_talk_hid = false
 		return
 	var sd: Node = get_tree().get_first_node_in_group("story_dialogue")
 	if not Recruits.met(c["need"]):
 		var wait := Recruits.talk_lines("wait")
 		if sd != null and not wait.is_empty():
-			sd.play(wait, func(): _flash("条件还没够 (%s)" % Recruits.progress_text()))
+			sd.play(wait, func(): _panel_show_after_talk("条件还没够 (%s)" % Recruits.progress_text()))
 		else:
-			_flash("条件还没够 (%s)" % Recruits.progress_text())
+			_panel_show_after_talk("条件还没够 (%s)" % Recruits.progress_text())
 		return
 	var ok := Recruits.talk_lines("ok")
 	# 有专属入伙长剧本就播导演模式演出（cg_view 场景 + 台词）; 没配则走旧单行台词
@@ -321,6 +339,7 @@ func _after_intro(c: Dictionary) -> void:
 		_finish_talk(c)
 
 func _finish_talk(c: Dictionary) -> void:
+	_panel_show_after_talk()                 # 剧情（含入伙演出）播完, 面板亮回来
 	if not Recruits.deliver():
 		_flash("条件还没够 (%s)" % Recruits.progress_text())
 		return
@@ -343,7 +362,7 @@ func _flash(text: String) -> void:
 
 # ---------------- 开合 ----------------
 func _input(event: InputEvent) -> void:
-	if not _visible:
+	if not _visible or not is_visible():
 		return
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
 		close_panel()
@@ -356,10 +375,10 @@ func open_panel() -> void:
 	show()
 	Audio.play_sfx("ui_open")
 	_flash_label.text = ""
-	# 一堆火只谈成一位 —— 万一面板比火晚建（理论上不会），靠火的标记对齐一次
+	# 「这堆火谈成没有」以当前这堆火为准重新判定 ——
+	# 新火（新客）来了必须把上一位的「已入伙」状态清掉, 不然卡片永远显示旧人、按钮点不动
 	var fire := _current_fire()
-	if fire != null and bool(fire.get("recruited")):
-		_delivered = true
+	_delivered = fire != null and bool(fire.get("recruited"))
 	_refresh()
 	opened.emit()
 

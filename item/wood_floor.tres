@@ -5,9 +5,9 @@
 
 [resource]
 script = ExtResource("1_item")
-display_name = "木地板"
+display_name = "木板"
 icon = ExtResource("2_dummy")
 type = "地板"
 max_stack = 99
-description = "用两块木头做成的木地板。手持点击草地或耕地上就能铺上去。"
+description = "一块木头锯成两块木板。手持点击草地或耕地上就能铺上去。"
 sell_price = 8

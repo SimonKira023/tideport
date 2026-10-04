@@ -1,12 +1,13 @@
 # backpack_ui.gd —— Esc（或 B）打开的「模块面板」
 #
-# 上方是一排**模块选择**：背包 / 角色 / 团队 / 科技 / 行政 / 地图 / 制作 / 建造 / 外交 / 设置，
+# 上方是一排**模块选择**：背包 / 角色 / 团队 / 科技 / 行政 / 地图 / 日历 / 制作 / 建造 / 外交 / 设置，
 # 点哪个下面就显示哪个。默认停在「背包」。
 #
 # 目前真正有内容的：
 #   · 背包   —— 快捷栏 + 背包 30 格，点两格交换/合并
 #   · 团队管理 —— 看伙伴人数、派了多少活（**招募已从这一页去掉**：傍晚野外的篝火边按 F）
 #   · 地图   —— 按真实地形实时画出来的岛（滚轮放缩 / 拖拽移动 / 黄点是自己、蓝点是伙伴）
+#   · 日历   —— 四季 28 天一格, 粉色格子是伙伴生日（生日当天送东西好感增量翻倍）
 #   · 角色个人及技能、物品制作、设置 —— 先把入口和版式搭好，内容还在建
 extends Control
 
@@ -19,6 +20,7 @@ const NPC_SCRIPT := preload("res://scene/slave_npc.gd")   # 取伙伴立绘用�
 const DIPLOMACY_PAGE := preload("res://diplomacy_ui.gd")  # 外交页：五国卡片（送礼/签约在这里办）
 const CardsData := preload("res://scene/cards_data.gd")   # 行政页「出征编组」: 解锁牌表在这
 const IRIS := preload("res://scene/iris_wipe.gd")         # d9: 回主页面的 iris 黑幕转场
+const GIFT_PICKER := preload("res://gift_picker.gd")      # 赠送选物弹窗（团队详情页 / 对话窗共用）
 
 # 模块表：key / 名字 / 下面那行灰字说明
 const MODULES := [
@@ -29,6 +31,7 @@ const MODULES := [
 	{"key": "tech",  "name": "科技",           "hint": "派劳动力研究 - 给作物/木材/制作加增益"},
 	{"key": "admin", "name": "行政",           "hint": "派劳动力研究 - 解锁政策卡并赚卡槽"},
 	{"key": "map",   "name": "地图",           "hint": "滚轮放缩  /  按住左键或中键拖拽移动视角"},
+	{"key": "calendar", "name": "日历",        "hint": "四季 28 天 - 粉色格子是伙伴的生日, 金边是今天"},
 	{"key": "craft", "name": "物品制作",       "hint": "消耗材料做食物 / 地板  -  点配方即可"},
 	{"key": "build", "name": "建造",           "hint": "选建筑 -> 回地图摆放: 左键放置 / 右键取消"},
 	{"key": "diplomacy", "name": "外交",       "hint": "五国关系 / 武备 / 送礼 / 签约"},
@@ -51,6 +54,7 @@ const PAGE_SIZES := {
 	"hero": Vector2(1080, 620),
 	"battle": Vector2(1080, 600),
 	"build": Vector2(760, 420),
+	"calendar": Vector2(820, 400),
 	"diplomacy": Vector2(560, 560),
 }
 var _tab_btns := {}             # key -> Button
@@ -72,8 +76,8 @@ var _detail_name_label: Label = null
 var _detail_info_label: Label = null
 var _detail_rename: LineEdit = null
 var _detail_rename_btn: Button = null
-var _detail_feed_btn: Button = null
-var _detail_gift_btn: Button = null
+var _detail_give_btn: Button = null
+var _detail_like_label: Label = null          # 生日 + 爱好提示行
 var _detail_back_btn: Button = null
 var _detail_class_benefit: Label = null       # e24: 当前战斗收益行
 var _detail_labor_benefit: Label = null       # e24: 当前劳动收益行
@@ -195,6 +199,8 @@ func _build_page(key: String) -> Control:
 			return _build_battle_page()
 		"map":
 			return _build_map_page()
+		"calendar":
+			return _build_calendar_page()
 		"craft":
 			return _build_craft_page()
 		"build":
@@ -508,7 +514,7 @@ func _on_research_pressed(id: String, tree: String) -> void:
 	_open_research_detail(id, tree)   # 点条目先看详情（效果 + 送的卡）, 研究按钮在详情里
 
 # ---------------- 科技/行政详情弹窗 ----------------
-# 点树上条目弹出: 详细信息 + 效果明细 + 随研究解锁的战斗法术卡（行政还列政策卡）
+# 点树上条目弹出: 详细信息 + 效果明细 + 随研究解锁的战斗法术卡和部队牌（行政还列政策卡）
 func _open_research_detail(id: String, tree: String) -> void:
 	if _rsch_panel == null:
 		_build_research_detail()
@@ -535,7 +541,7 @@ func _build_research_detail() -> void:
 	_rsch_wrap.visible = false
 	_rsch_panel = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.07, 0.06, 0.98)
+	sb.bg_color = Color(0.09, 0.07, 0.06, 1.0)   # b4: 全不透明, 杜绝背后页签文字透出成暗字
 	sb.border_color = Color(0.6, 0.45, 0.27)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(8)
@@ -635,6 +641,26 @@ func _refresh_research_detail() -> void:
 			14, Color(0.98, 0.85, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
 		_rsch_box.add_child(_mk_label(str(sp["desc"]), 12, Color(0.82, 0.78, 0.7),
 			HORIZONTAL_ALIGNMENT_CENTER))
+		_rsch_box.add_child(_mk_label("研究完成后进战斗页卡池, 编入卡组才能带上战场",
+			10, Color(0.66, 0.62, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
+	# 随研究解锁的部队牌（一张研究可能解锁多张, 如枢密院同时给神机弩手和甲骑）
+	var unit_ids: Array = []
+	for uid in CardsData.UNLOCK.keys():
+		if String(CardsData.UNLOCK[uid]["req"]) == _rsch_id:
+			unit_ids.append(String(uid))
+	if unit_ids.size() > 0:
+		_rsch_box.add_child(_mk_label("--- 随研究的部队牌 ---", 12, Color(0.72, 0.64, 0.52),
+			HORIZONTAL_ALIGNMENT_CENTER))
+		for uid in unit_ids:
+			var uc: Dictionary = CardsData.UNLOCK[uid]
+			var kwt_u := _kw_text(String(uc["kw"]))
+			var u_txt := "「%s」  %d费 %d/%d" % [uc["name"], int(uc["cost"]),
+				int(uc["atk"]), int(uc["hp"])]
+			if kwt_u != "":
+				u_txt += " " + kwt_u
+			u_txt += "  " + ("强力卡" if String(uc["rarity"]) == "strong" else "精英卡")
+			_rsch_box.add_child(_mk_label(u_txt, 14, Color(0.98, 0.85, 0.45),
+				HORIZONTAL_ALIGNMENT_CENTER))
 		_rsch_box.add_child(_mk_label("研究完成后进战斗页卡池, 编入卡组才能带上战场",
 			10, Color(0.66, 0.62, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 	# 底部按钮状态
@@ -827,6 +853,12 @@ func _refresh_battle_row(r: Dictionary, id: String) -> void:
 	var cap := CardsData.deck_entry_max(String(id))
 	var full := cnt >= cap
 	var texts := _battle_entry_texts(String(id))
+	# 未解锁的部队牌在描述里标出来源（随哪项科技/行政解锁）
+	if not unlocked and String(id).begins_with("u_"):
+		var req := String(CardsData.UNLOCK[String(id)]["req"])
+		if Research.ADMINS.has(req) or Research.TECHS.has(req):
+			var rname := String(Research.ADMINS[req]["name"]) if Research.ADMINS.has(req) else String(Research.TECHS[req]["name"])
+			texts[1] = "%s (随%s解锁)" % [texts[1], rname]
 	(r["name"] as Label).text = "%s  [%d/%d]%s" % [texts[0], cnt, cap,
 		"  已编满" if full else ""]
 	(r["name"] as Label).add_theme_color_override("font_color",
@@ -890,7 +922,7 @@ func _build_battle_page() -> Control:
 	for id in CardsData.SPELLS.keys():
 		_btl_rows[String(id)] = _add_deck_card(spell_grid, String(id))
 
-	left.add_child(_mk_label("部队牌 -- 研究解锁的部队 (强力卡限 4 张 / 精英卡限 2 张)",
+	left.add_child(_mk_label("部队牌 -- 随科技/行政研究解锁的部队 (强力卡限 4 张 / 精英卡限 2 张)",
 		12, Color(0.85, 0.78, 0.6)))
 	var unit_grid := _mk_battle_grid()
 	left.add_child(unit_grid)
@@ -1096,7 +1128,7 @@ func _build_team_page() -> Control:
 	_team_list.add_theme_constant_override("separation", 6)
 	wrap.add_child(_team_list)
 
-	wrap.add_child(_mk_label("走近伙伴按 F 可以对话, 对话 + 喂食 + 送礼都加好感; 点伙伴卡看详情",
+	wrap.add_child(_mk_label("走近伙伴按 F 可以对话 (聊天不加好感, 赠送才加); 点伙伴卡看详情",
 		11, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 	wrap.add_child(_mk_label("招新伙伴: 傍晚野外会亮起篝火, 走近按 F",
 		11, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
@@ -1157,7 +1189,7 @@ func _make_slave_card(i: int, s: Dictionary) -> Control:
 	card.add_theme_stylebox_override("panel", sb)
 	card.custom_minimum_size = Vector2(0, 88)
 	card.gui_input.connect(_on_card_gui_input.bind(i))
-	card.tooltip_text = "点开 %s 的详情 (喂食 / 改名 / 晋升)" % str(s["name"])
+	card.tooltip_text = "点开 %s 的详情 (赠送 / 改名 / 晋升)" % str(s["name"])
 
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
@@ -1300,7 +1332,7 @@ func _build_slave_detail() -> void:
 	_detail_wrap.visible = false
 	_detail_panel = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.07, 0.06, 0.98)
+	sb.bg_color = Color(0.09, 0.07, 0.06, 1.0)   # b4: 全不透明, 杜绝背后页签文字透出成暗字
 	sb.border_color = Color(0.6, 0.45, 0.27)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(8)
@@ -1312,7 +1344,7 @@ func _build_slave_detail() -> void:
 	_detail_wrap.add_child(_detail_panel)
 	_detail_panel.visible = false
 
-	# e30s: 详情页内容很高（两棵树 + 改名 + 喂食 + 送礼），直接塞进卡片会顶出屏幕底。
+	# e30s: 详情页内容很高（两棵树 + 改名 + 赠送），直接塞进卡片会顶出屏幕底。
 	#   跟角色页/科技页同一套路：限高 + 关横向滚动，竖向可以拖。
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(600, clampf(get_viewport_rect().size.y - 160.0, 320.0, 620.0))
@@ -1375,35 +1407,24 @@ func _build_slave_detail() -> void:
 	_detail_rename_btn.pressed.connect(_on_rename_pressed)
 	rename_row.add_child(_detail_rename_btn)
 
-	box.add_child(_mk_label("(每天第一次对话 +1 好感, 第一次喂食 +1)",
-		11, Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER))
-	box.add_child(_mk_label("(每天第一次送礼 +2; 好感每 4 点换伙伴 1 点攻击)",
+	# 生日 + 爱好一行（_refresh_slave_detail 里按当前伙伴填）
+	_detail_like_label = _mk_label("", 12, Color(0.98, 0.78, 0.55), HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_detail_like_label)
+	box.add_child(_mk_label("(赠送: 每天一次, 挑背包里的作物/食物/材料送 Ta; 好感每 4 点换伙伴 1 点攻击)",
 		11, Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER))
 
-	# 喂食 / 送礼
-	var feed_row := HBoxContainer.new()
-	feed_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	feed_row.add_theme_constant_override("separation", 8)
-	box.add_child(feed_row)
-	_detail_feed_btn = Button.new()
-	_detail_feed_btn.text = "喂食 (选背包里的第一份食物)"
-	_detail_feed_btn.custom_minimum_size = Vector2(280, 30)
-	_detail_feed_btn.add_theme_font_override("font", PIXEL_FONT)
-	_detail_feed_btn.add_theme_font_size_override("font_size", 13)
-	_detail_feed_btn.pressed.connect(_on_feed_pressed_detail)
-	feed_row.add_child(_detail_feed_btn)
-
-	var gift_row := HBoxContainer.new()
-	gift_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	gift_row.add_theme_constant_override("separation", 8)
-	box.add_child(gift_row)
-	_detail_gift_btn = Button.new()
-	_detail_gift_btn.text = "送礼 (选背包里的第一份作物)"
-	_detail_gift_btn.custom_minimum_size = Vector2(280, 30)
-	_detail_gift_btn.add_theme_font_override("font", PIXEL_FONT)
-	_detail_gift_btn.add_theme_font_size_override("font_size", 13)
-	_detail_gift_btn.pressed.connect(_on_gift_pressed_detail)
-	gift_row.add_child(_detail_gift_btn)
+	# 赠送（打开选物弹窗 gift_picker, 从背包挑一份作物/食物/材料）
+	var give_row := HBoxContainer.new()
+	give_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	give_row.add_theme_constant_override("separation", 8)
+	box.add_child(give_row)
+	_detail_give_btn = Button.new()
+	_detail_give_btn.text = "赠送 (从背包挑一份送 Ta)"
+	_detail_give_btn.custom_minimum_size = Vector2(280, 30)
+	_detail_give_btn.add_theme_font_override("font", PIXEL_FONT)
+	_detail_give_btn.add_theme_font_size_override("font_size", 13)
+	_detail_give_btn.pressed.connect(_on_give_pressed_detail)
+	give_row.add_child(_detail_give_btn)
 
 	_detail_back_btn = Button.new()
 	_detail_back_btn.text = "回到列表"
@@ -1425,23 +1446,22 @@ func _refresh_slave_detail() -> void:
 	var hearts := ""
 	for _k in aff:
 		hearts += "*"
-	_detail_info_label.text = "好感 %s  %d/%d\n今天%s聊过,%s喂过,%s送过礼" % [
+	_detail_info_label.text = "好感 %s  %d/%d\n今天%s送过东西" % [
 		hearts, aff, Slaves.AFFECTION_MAX,
-		"" if bool(s["talked_today"]) else "没",
-		"" if bool(s["fed_today"]) else "没",
 		"" if bool(s.get("gift_today", false)) else "没",
 	]
+	# 生日 + 爱好一行（跟选物弹窗顶部提示同一口径）
+	if _detail_like_label != null:
+		var like := Slaves.like_of(_detail_index)
+		_detail_like_label.text = "生日: %s    最喜欢: %s (送中好感 x2)" % [
+			Slaves.birthday_text(_detail_index), like if like != "" else "(无)"]
 	# 输入框默认填当前名（玩家可以编辑再点改名）
 	if _detail_rename != null:
 		_detail_rename.text = s["name"]
-	# 喂食按钮：今天喂过就灰掉
-	if _detail_feed_btn != null:
-		_detail_feed_btn.disabled = bool(s["fed_today"])
-		_detail_feed_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s["fed_today"]) else Color(1, 1, 1)
-	# 送礼按钮：今天送过就灰掉
-	if _detail_gift_btn != null:
-		_detail_gift_btn.disabled = bool(s.get("gift_today", false))
-		_detail_gift_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s.get("gift_today", false)) else Color(1, 1, 1)
+	# 赠送按钮：今天送过就灰掉
+	if _detail_give_btn != null:
+		_detail_give_btn.disabled = bool(s.get("gift_today", false))
+		_detail_give_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s.get("gift_today", false)) else Color(1, 1, 1)
 	# e27g: 树的皮肤由 _refresh_class_trees 统一刷, 这里只更新两行当前收益
 	var troop := String(s.get("troop", "新兵"))
 	var cur_atk: int = int(Slaves.CLASSES.get(troop, {}).get("atk", 0))
@@ -1478,56 +1498,28 @@ func _on_rename_pressed() -> void:
 		Audio.play_sfx("error", -6.0)
 	_flash_detail_info("名字不能为空")
 
-func _on_feed_pressed_detail() -> void:
+# 赠送：打开选物弹窗（gift_picker）, 挑一份背包里的作物/食物/材料送出去
+func _on_give_pressed_detail() -> void:
 	if _detail_index < 0:
 		return
-	var s: Dictionary = Slaves.slave_at(_detail_index)
-	if s.is_empty() or bool(s["fed_today"]):
-		return
-	# 找一份食物（食物类道具）
-	var food: ItemData = null
-	for sl in Inventory.slot_list():
-		var it: ItemData = sl["item"]
-		if it != null and it.type == "食物" and int(sl["count"]) > 0:
-			food = it
-			break
-	if food == null:
-		_flash_detail_info("背包里还没有食物,先去物品制作页做一份吧")
-		Audio.play_sfx("error", -6.0)
-		return
-	var gain: int = Slaves.feed(_detail_index, food)
-	if gain <= 0:
-		_flash_detail_info("今天已经喂过了")
-		return
-	Inventory.remove_item(food, 1)
-	Audio.play_sfx("buy")
-	_flash_detail_info("喂了 1 份 %s, 好感 +%d" % [food.display_name, gain])
-	_refresh_slave_detail()
+	var gp: Control = GIFT_PICKER.new()
+	add_child(gp)
+	gp.picked.connect(_on_gift_picked_detail)
+	gp.open_for(_detail_index)
 
-func _on_gift_pressed_detail() -> void:
-	if _detail_index < 0:
+# 选物弹窗点了某件物品 → 落账（give 记好感 + 扣背包一份, 跟弹窗约定配对）
+func _on_gift_picked_detail(item: ItemData) -> void:
+	if _detail_index < 0 or item == null:
 		return
-	var s: Dictionary = Slaves.slave_at(_detail_index)
-	if s.is_empty() or bool(s.get("gift_today", false)):
-		return
-	# 找一份作物（收获来的庄稼当礼物）
-	var crop: ItemData = null
-	for sl in Inventory.slot_list():
-		var it: ItemData = sl["item"]
-		if it != null and it.type == "作物" and int(sl["count"]) > 0:
-			crop = it
-			break
-	if crop == null:
-		_flash_detail_info("背包里还没有作物, 收了庄稼再拿来当礼物吧")
-		Audio.play_sfx("error", -6.0)
-		return
-	var gain: int = Slaves.gift_item(_detail_index, crop)
+	var gain: int = Slaves.give(_detail_index, item)
 	if gain <= 0:
-		_flash_detail_info("今天已经送过礼物了")
+		_flash_detail_info("今天已经送过东西了")
 		return
-	Inventory.remove_item(crop, 1)
+	Inventory.remove_item(item, 1)
 	Audio.play_sfx("buy")
-	_flash_detail_info("送了 1 份 %s, 好感 +%d" % [crop.display_name, gain])
+	var sname := str(Slaves.slave_at(_detail_index)["name"])
+	var bonus := " (Ta 最喜欢这个!)" if item.display_name == Slaves.like_of(_detail_index) else ""
+	_flash_detail_info("送给 %s 1 份 %s, 好感 +%d%s" % [sname, item.display_name, gain, bonus])
 	_refresh_slave_detail()
 
 func _flash_detail_info(text: String) -> void:
@@ -1559,6 +1551,102 @@ func _refresh_slave_list() -> void:
 			12, Color(0.78, 0.74, 0.66), HORIZONTAL_ALIGNMENT_CENTER)
 		hint.custom_minimum_size = Vector2(360, 40)
 		_team_list.add_child(hint)
+
+# ---------------- 日历页 ----------------
+# 一年 4 季 x 28 天, 每季一行铺开 28 个格子:
+#   · 粉色格子 = 有伙伴在这天过生日（格子里写名字, 悬停看全名）
+#   · 金边格子 = 今天
+var _calendar_cells: Array = []      # 日期格子 PanelContainer（meta: season/day/sb/name）
+var _calendar_today: Label = null
+
+func _build_calendar_page() -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 8)
+
+	_calendar_today = _mk_label("", 13, Color(1, 0.92, 0.75), HORIZONTAL_ALIGNMENT_CENTER)
+	wrap.add_child(_calendar_today)
+
+	for season in TimeManager.SEASONS.size():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		wrap.add_child(row)
+		# 行首季节标签
+		var sl := _mk_label(str(TimeManager.SEASONS[season]), 14, Color(0.95, 0.86, 0.62))
+		sl.custom_minimum_size = Vector2(34, 0)
+		sl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(sl)
+		var grid := GridContainer.new()
+		grid.columns = 28
+		grid.add_theme_constant_override("h_separation", 2)
+		grid.add_theme_constant_override("v_separation", 4)
+		row.add_child(grid)
+		for day in 28:
+			grid.add_child(_make_calendar_cell(season, day + 1))
+	return wrap
+
+func _make_calendar_cell(season: int, day: int) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(24, 36)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.16, 0.14, 0.12, 0.9)
+	sb.border_color = Color(0.4, 0.35, 0.3)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(3)
+	sb.content_margin_left = 1
+	sb.content_margin_right = 1
+	sb.content_margin_top = 1
+	sb.content_margin_bottom = 1
+	panel.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(v)
+	var dl := _mk_label(str(day), 10, Color(0.8, 0.76, 0.68), HORIZONTAL_ALIGNMENT_CENTER)
+	dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(dl)
+	var nl := _mk_label("", 9, Color(0.98, 0.62, 0.72), HORIZONTAL_ALIGNMENT_CENTER)
+	nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nl.clip_text = true          # 改过 8 字名的也塞得下（截断, 全名在 tooltip）
+	nl.custom_minimum_size = Vector2(0, 12)
+	v.add_child(nl)
+	panel.set_meta("sb", sb)
+	panel.set_meta("season", season)
+	panel.set_meta("day", day)
+	panel.set_meta("name", nl)
+	_calendar_cells.append(panel)
+	return panel
+
+# 切到日历页时重刷一遍：今天描金, 生日格按当前名单重新标（改过名也能跟上）
+func _refresh_calendar() -> void:
+	if _calendar_cells.is_empty():
+		return
+	# 谁的生日落在哪天: [season, day, 名字]
+	var bds: Array = []
+	for i in Slaves.slaves.size():
+		var bd := Slaves.birthday_of(i)
+		if bd.x >= 0:
+			bds.append([int(bd.x), int(bd.y), str(Slaves.slaves[i]["name"])])
+	for c in _calendar_cells:
+		var panel: PanelContainer = c
+		var season := int(panel.get_meta("season"))
+		var day := int(panel.get_meta("day"))
+		var sb: StyleBoxFlat = panel.get_meta("sb")
+		var nl: Label = panel.get_meta("name")
+		var names: Array = []
+		for bd in bds:
+			if int(bd[0]) == season and int(bd[1]) == day:
+				names.append(str(bd[2]))
+		var is_today: bool = TimeManager.season == season and TimeManager.day == day
+		var is_bd := not names.is_empty()
+		sb.bg_color = Color(0.32, 0.14, 0.18, 0.95) if is_bd else Color(0.16, 0.14, 0.12, 0.9)
+		sb.border_color = Color(1, 0.85, 0.4) if is_today \
+			else (Color(0.95, 0.55, 0.66) if is_bd else Color(0.4, 0.35, 0.3))
+		sb.set_border_width_all(2 if is_today else 1)
+		nl.text = ", ".join(names)
+		panel.tooltip_text = ("%s的生日" % ", ".join(names)) if is_bd \
+			else "%s季 第 %d 天" % [TimeManager.SEASONS[season], day]
+	_calendar_today.text = "今天: %s季 第 %d 天    粉色格子 = 伙伴生日 (当天送东西好感增量翻倍)" % [
+		TimeManager.SEASONS[TimeManager.season], TimeManager.day]
 
 # ---------------- 地图页 ----------------
 # ❗建面板的时候 Slaves.map_from/map_to 可能还没被 game.gd 覆盖成「整座岛」，
@@ -1639,7 +1727,7 @@ func _build_craft_page() -> Control:
 		row.pressed.connect(_on_craft_pressed.bind(i, false))
 		base_page.add_child(row)
 		_craft_rows.append({"btn": row, "idx": i, "result": r["result"], "wb": false})
-	base_page.add_child(_mk_label("(手持木地板时点到草地/耕地上即可铺设)",
+	base_page.add_child(_mk_label("(手持木板时点到草地/耕地上即可铺设)",
 		11, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 
 	# 工作台: 要站在工作台旁边才能做（更复杂的工具和器械）
@@ -2107,6 +2195,8 @@ func _refresh_page(key: String) -> void:
 			_refresh_battle()
 		"map":
 			_refresh_map_page()
+		"calendar":
+			_refresh_calendar()
 		"craft":
 			_refresh_craft()
 		"build":
@@ -2159,7 +2249,7 @@ func _refresh_team() -> void:
 		Slaves.budget(), Slaves.used(), Slaves.remaining(), Slaves.done_today.size()]
 	_refresh_slave_list()
 	_refresh_class_trees()       # 树的皮肤跟晋升对象 / 钱料对齐
-	# 详情面板开着时也同步刷一下（喂食/改名/加好感后回到列表能看到新值）
+	# 详情面板开着时也同步刷一下（赠送/改名/加好感后回到列表能看到新值）
 	if _detail_panel != null and _detail_panel.visible:
 		_refresh_slave_detail()
 
@@ -2358,7 +2448,7 @@ func _refresh_class_trees() -> void:
 	if has_target:
 		var s: Dictionary = Slaves.slave_at(_last_slave)
 		cur_c = String(s["troop"])
-		cur_l = String(s["labor"])
+		cur_l = String(s.get("labor", "帮工"))   # 缺 labor 的存档/测试数据兜底, 不炸团队页
 		var x := cur_c
 		while x != "":
 			chain_c.push_front(x)
@@ -2379,7 +2469,7 @@ func _refresh_class_trees() -> void:
 		if has_target:
 			var s2: Dictionary = Slaves.slave_at(_last_slave)
 			_tree_target.text = "晋升对象: %s (战斗 %s / 劳动 %s) - 点树上的职业就能转职" \
-				% [s2["name"], s2["troop"], s2["labor"]]
+				% [s2["name"], s2["troop"], s2.get("labor", "帮工")]
 		else:
 			_tree_target.text = "先在下面点开一个伙伴, 这两棵树才会挂到他身上"
 
@@ -2389,7 +2479,7 @@ func _on_class_node_clicked(cname: String, labor: bool) -> void:
 		_tree_prompt("先点伙伴卡打开详情, 再点树上的职业转职")
 		return
 	var s: Dictionary = Slaves.slave_at(_last_slave)
-	var now := String(s["labor"]) if labor else String(s["troop"])
+	var now := String(s.get("labor", "帮工")) if labor else String(s["troop"])
 	if cname == now:
 		_tree_prompt("%s 已经是 %s 了" % [str(s["name"]), cname])
 		return
@@ -2625,6 +2715,17 @@ class ClassTreeView:
 	func _prev_of(sid: String) -> String:
 		return Slaves.labor_prev_of(sid) if labor else Slaves.prev_of(sid)
 
+	# b10: 这份职业给的具体加成 —— 劳动树念 build/study/labor, 战斗树念攻
+	func _benefit_text(sid: String) -> String:
+		if labor:
+			var d: Dictionary = Slaves.LABOR_CLASSES.get(sid, {})
+			var parts: Array = []
+			for k in ["build", "study", "labor"]:
+				if d.has(k):
+					parts.append("%s +%d" % [Slaves.ATTR_NAMES[k], int(d[k])])
+			return " / ".join(parts) if not parts.is_empty() else "无特殊收益"
+		return "攻 +%d" % int(Slaves.CLASSES.get(sid, {}).get("atk", 0))
+
 	# 外部把晋升对象的上下文喂进来（backpack_ui._refresh_class_trees）
 	func set_target(chain: Array, cur: String, targets: Array, afford: Dictionary) -> void:
 		_chain = chain
@@ -2744,8 +2845,8 @@ class ClassTreeView:
 			cost_l.add_theme_color_override("font_color",
 				name_col.darkened(0.22) if is_cur or is_target or on_chain
 				else Color(0.5, 0.46, 0.42))
-			panel.tooltip_text = "%s\n点一下 = 给晋升对象转到这份职业\n消耗: %s" \
-				% [sid, ct if ct != "" else "免费"]
+			panel.tooltip_text = "%s\n收益: %s\n点一下 = 给晋升对象转到这份职业\n消耗: %s" \
+				% [sid, _benefit_text(sid), ct if ct != "" else "免费"]
 			panel.position = (_rects[sid] as Rect2).position
 		queue_redraw()
 

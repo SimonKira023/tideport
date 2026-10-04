@@ -40,10 +40,9 @@ const BASE_CAP := 3             # 伙伴上限基础值 (e44: 岛上每盖一座
 var CAP := BASE_CAP             # 伙伴上限: 基础 3 + 同伴小屋数 (Structures 侧调 refresh_cap 刷新)
 
 # —— 好感 ——
+# e56: 聊天纯聊天不加好感; 喂食 + 送礼合并成「赠送」（give）, 只走 GIFT_AFFECTION 一个口径
 const AFFECTION_MAX := 10       # 好感上限（心数）
-const FEED_AFFECTION := 1       # 每天第一次喂食加的好感
-const TALK_AFFECTION := 1       # 每天第一次对话加的好感
-const GIFT_AFFECTION := 2       # 每天第一次送礼加的好感（作物当礼物）
+const GIFT_AFFECTION := 2       # 每天第一次赠送加的好感（送中爱好 x2, 生日当天再 x2）
 const AFF_ATK_STEP := 4         # 好感收益：每攒满 4 点好感, 伙伴打仗 +1 攻（10 满 = +2）
 
 # —— 职业晋升树（双树：战斗 + 劳动）——
@@ -133,6 +132,37 @@ const ROSTER := [
 		"req": "完成第一项科技", "need": {"flag": "tech_first"}},
 ]
 
+# —— e56 生日 —— 按花名册 id 查表: [季节, 当季第几天]（season 0春/1夏/2秋/3冬, day 1~28）。
+# 一年 4 季 x 28 天, 8 人摊开在四季（同季的错开半个月）。日历页（backpack_ui）会把
+# 有生日的格子标出来; 生日当天赠送的好感增量 x2。
+const BIRTHDAYS := {
+	"rq_00": [0, 7],    # 布恩   春季 7 日
+	"rq_01": [0, 19],   # 娜雅   春季 19 日
+	"rq_02": [1, 5],    # 珞琳   夏季 5 日
+	"rq_03": [1, 23],   # 咪露   夏季 23 日
+	"rq_04": [2, 11],   # 塔洛   秋季 11 日
+	"rq_05": [2, 26],   # 海莉   秋季 26 日
+	"rq_06": [3, 9],    # 珂丹   冬季 9 日
+	"rq_07": [3, 21],   # 雪莱   冬季 21 日
+}
+
+# —— e56 爱好 —— 每人最爱的一件东西（物品显示名, 与 item/*.tres 的 display_name 对号）。
+# 赠送栏（gift_picker）会提示 Ta 的爱好; 送中这个东西好感增量 x2。
+const LIKES := {
+	"rq_00": "烤土豆",    # 布恩   灶边烤出来的才有锅气
+	"rq_01": "胡萝卜",    # 娜雅   地里刚拔的最甜
+	"rq_02": "鸡蛋",      # 珞琳   鸡窝里还热乎的那种
+	"rq_03": "河鲈",      # 咪露   刀客好口福, 爱吃鱼
+	"rq_04": "南瓜派",    # 塔洛   甜食能还债一样治愈他
+	"rq_05": "蜂蜜",      # 海莉   出海人的糖分补给
+	"rq_06": "牛奶",      # 珂丹   园丁喝奶长力气
+	"rq_07": "卷心菜汤",  # 雪莱   研究到半夜喝一口热汤
+}
+
+# —— e56 赠送白名单 —— 只有这三类能当礼物送出去（跟市场/城镇可卖口径一致）。
+# 工具 / 装备 / 种子 / 地板 / 船 / 放置件这些「道具」都不收。
+const GIFT_TYPES := ["作物", "食物", "材料"]
+
 # —— e52e: 职业图标 —— 晋升树卡片名字旁的小图（16x16, 取自 Farm RPG 素材包）
 # 战斗线用武器, 材质档随阶位递进（木/铜/铁/金）; 劳动线营造用镐、学问用法杖和书、
 # 丰饶用镰刀。整图写路径字符串, 图集切格写 [路径, x, y, w, h]（同 Research.ICONS）。
@@ -202,7 +232,7 @@ var map_from := Vector2i(-26, -4)
 var map_to := Vector2i(42, 38)
 
 var count := 0                  # 伙伴人数（= slaves.size()，两者始终同步）
-var slaves := []                # 每个伙伴的个体数据：{name, affection, fed_today, talked_today, gift_today, hp, max_hp, troop}
+var slaves := []                # 每个伙伴的个体数据：{name, affection, gift_today, hp, max_hp, troop, labor, squad}
 var expedition := []            # 出征名单（已取消手动勾选）：始终自动同步为全员出海，不占当天劳动
 # 派去搞研究的伙伴序号（Esc 面板的科技页/行政页勾选）。
 # 跟出海一样是「占人」的：被占用的人既不下地干活，也不上战场。
@@ -271,10 +301,8 @@ func troop_max_hp(t: String) -> int:
 	return Legion.ally_max_hp() + (CAVALRY_HP_BONUS if is_mounted_troop(t) else 0)
 
 func _on_new_day(_day: int) -> void:
-	# 每天重置「今天喂过/聊过/送过」标记 —— 这样第二天又能加好感
+	# 每天重置「今天送过」标记 —— 第二天又能赠送（e56: 喂食/聊天标记已拆, 赠送只剩这一个）
 	for s in slaves:
-		s["fed_today"] = false
-		s["talked_today"] = false
 		s["gift_today"] = false
 		# 军团：睡一觉血回满，倒下的伙伴也爬起来。
 		# 血上限每天重算 —— 这样行政卡「同袍」一挂上、或者当天转职成了骑兵,
@@ -700,9 +728,7 @@ func _roll_slave(idx: int) -> Dictionary:
 	return {
 		"name": String(row["name"]),
 		"affection": 0,
-		"fed_today": false,
-		"talked_today": false,
-		"gift_today": false,
+		"gift_today": false,             # 今天送过没（赠送每天一次）
 		"max_hp": Legion.ally_max_hp(),   # 军团：伙伴血量（吃到行政卡「同袍」）
 		"hp": Legion.ally_max_hp(),
 		"troop": String(row["troop"]),    # 初始战斗职业（按花名册, 多数是起点的新兵）
@@ -747,47 +773,57 @@ func rename(i: int, new_name: String) -> bool:
 	changed.emit()
 	return true
 
-# 喂食：每天第一次加 FEED_AFFECTION。
-# 返回加了的好感（0 表示今天已经喂过，不重复加）。
-# food 传 ItemData（e30s: 口味偏好系统已拆掉, 喂什么都一样）。
-func feed(i: int, food: ItemData) -> int:
-	var s: Dictionary = slave_at(i)
-	if s.is_empty() or food == null:
-		return 0
-	if bool(s["fed_today"]):
-		return 0
-	s["fed_today"] = true
-	s["affection"] = mini(AFFECTION_MAX, int(s["affection"]) + FEED_AFFECTION)
-	changed.emit()
-	return FEED_AFFECTION
+# ---------------- 生日 / 爱好 / 赠送（e56） ----------------
+# 第 i 位伙伴的花名册 id（伙伴严格按 ROSTER 顺序入队, 下标就是花名册序号）。
+func roster_id(i: int) -> String:
+	if i < 0 or i >= slaves.size():
+		return ""
+	return String(ROSTER[i % ROSTER.size()]["id"])
 
-# 对话：每天第一次对话加 TALK_AFFECTION。返回加了的好感。
-func talk(i: int) -> int:
-	var s: Dictionary = slave_at(i)
-	if s.is_empty():
-		return 0
-	if bool(s["talked_today"]):
-		return 0
-	s["talked_today"] = true
-	var gain := TALK_AFFECTION
-	s["affection"] = mini(AFFECTION_MAX, int(s["affection"]) + gain)
-	changed.emit()
-	return gain
+# 第 i 位伙伴的生日: [季节, 当季第几天]; 查不到返回 (-1, -1)。
+func birthday_of(i: int) -> Vector2i:
+	var id := roster_id(i)
+	if BIRTHDAYS.has(id):
+		return Vector2i(int(BIRTHDAYS[id][0]), int(BIRTHDAYS[id][1]))
+	return Vector2i(-1, -1)
 
-# 送礼：拿一份「作物」当礼物，每天第一次加 GIFT_AFFECTION。
-# 返回加了的好感（0 表示今天已经送过 / 没这伙伴 / item 不是作物）。
-func gift_item(i: int, item: ItemData) -> int:
+# 今天是不是 Ta 的生日（对 TimeManager 的当前季节/日子）。
+func is_birthday(i: int) -> bool:
+	var b := birthday_of(i)
+	return b.x >= 0 and b.x == TimeManager.season and b.y == TimeManager.day
+
+# 生日的一行文案（"春季 7 日"）; 查不到返回空串。
+func birthday_text(i: int) -> String:
+	var b := birthday_of(i)
+	if b.x < 0:
+		return ""
+	return "%s季 %d 日" % [TimeManager.SEASONS[b.x], b.y]
+
+# 第 i 位伙伴最爱的事物（物品显示名）; 查不到返回空串。
+func like_of(i: int) -> String:
+	return String(LIKES.get(roster_id(i), ""))
+
+# 赠送（e56: 喂食 + 送礼合并）: 选背包里的一份东西送出去。
+#   · 只收 作物/食物/材料 这三类（工具/装备/种子这类「道具」不收）
+#   · 每天第一次 +GIFT_AFFECTION; 送中爱好 x2; 生日当天增量再 x2（爱好 + 生日 = 4 倍）
+# 返回加了的好感（0 = 今天已经送过 / 类型不收 / 没这伙伴）。
+func give(i: int, item: ItemData) -> int:
 	var s: Dictionary = slave_at(i)
 	if s.is_empty() or item == null:
 		return 0
-	if item.type != "作物":
+	if not GIFT_TYPES.has(item.type):
 		return 0
 	if bool(s.get("gift_today", false)):
 		return 0
 	s["gift_today"] = true
-	s["affection"] = mini(AFFECTION_MAX, int(s["affection"]) + GIFT_AFFECTION)
+	var gain := GIFT_AFFECTION
+	if item.display_name == like_of(i):
+		gain *= 2
+	if is_birthday(i):
+		gain *= 2
+	s["affection"] = mini(AFFECTION_MAX, int(s["affection"]) + gain)
 	changed.emit()
-	return GIFT_AFFECTION
+	return gain
 
 # 好感收益：伙伴的攻击加成。每攒满 AFF_ATK_STEP 点好感 +1 攻
 # （满好感 10 = +2 攻）。battle_map 出阵时拼进伙伴的最终攻击。

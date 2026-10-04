@@ -703,7 +703,7 @@ func _swing_pick(target: Vector2i, mouse_world: Vector2) -> void:
 		if back != null:
 			Inventory.add_item(back, 1)
 		Audio.play_sfx("chop", -8.0, 1.15)
-		_flash("撬回了%s" % ("鹅卵石小径" if kind == Floor.KIND_PATH else "木地板"))
+		_flash("撬回了%s" % ("鹅卵石小径" if kind == Floor.KIND_PATH else "木板"))
 		return
 	if g.has_method("pick_rock_cell"):
 		target = g.pick_rock_cell(mouse_world, target)

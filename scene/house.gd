@@ -198,10 +198,10 @@ func _build_fire_light() -> void:
 	var at := Vector2(190, 26)
 	if fp != null:
 		at = fp.position + Vector2(fp.region_rect.size.x * 0.5, fp.region_rect.size.y * 0.62)
-	_fire_light = LIGHT_UTIL.make_light(Color(1.0, 0.58, 0.26), 1.15, 1.7, 2.2)
+	_fire_light = LIGHT_UTIL.make_light(Color(1.0, 0.58, 0.26), 1.3, 1.7, 2.2)
 	_fire_light.position = at
 	interior.add_child(_fire_light)
-	_fire_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.55, 0.24, 0.20), 1.5, 2.2)
+	_fire_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.55, 0.24, 0.26), 2.1, 1.8)
 	_fire_glow.position = at
 	interior.add_child(_fire_glow)
 	var tw := create_tween().set_loops()

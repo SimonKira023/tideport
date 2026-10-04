@@ -42,7 +42,7 @@ void fragment() {
 	}
 	blur /= 8.0;
 	float bl = dot(blur, vec3(0.299, 0.587, 0.114));
-	col += blur * smoothstep(0.52, 0.95, bl) * (0.5 + night * 0.2);
+	col += blur * smoothstep(0.52, 0.95, bl) * (0.5 + night * 0.28);
 
 	// ---- 雨夜湿地反光 v2：向上采 10 点找亮源，把"源的颜色"往下淌出更长的湿润光带
 	// （v1 是固定蓝白；v2 带源色——暖灯淌暖光、青窗淌青光，更像真积水映灯）
@@ -63,14 +63,17 @@ void fragment() {
 	// 超亮部分（泛光加出来的）不参与回压，保住 bloom 的光晕
 	if (night > 0.003) {
 		vec3 sc = clamp(col, 0.0, 1.0);
-		col = mix(col, sc * sc * (3.0 - 2.0 * sc), night * 0.28);
+		col = mix(col, sc * sc * (3.0 - 2.0 * sc), night * 0.34);
 	}
 
 	// ---- 色温分离：高光镀金、阴影浸青 + 晨雾感
 	float l = dot(col, vec3(0.299, 0.587, 0.114));
 	float tone = smoothstep(0.16, 0.85, l);
-	col *= mix(vec3(0.87, 0.94, 1.17), vec3(1.07, 1.0, 0.85), tone);
-	col += vec3(0.02, 0.045, 0.085) * (1.0 - tone);
+	// 夜里两端拉宽：阴影浸得更青、高光镀得更金 —— 冷暖对撞出 Eastward 式夜色
+	vec3 sh_col = mix(vec3(0.87, 0.94, 1.17), vec3(0.76, 0.88, 1.32), night);
+	vec3 hi_col = mix(vec3(1.07, 1.0, 0.85), vec3(1.16, 1.02, 0.74), night);
+	col *= mix(sh_col, hi_col, tone);
+	col += vec3(0.02, 0.045, 0.085) * (1.0 - tone) * (1.0 + night * 0.6);
 
 	// ---- 柔光：deep warm rose 底色 soft-light 轻罩
 	vec3 soft = vec3(0.34, 0.26, 0.21);
@@ -84,9 +87,9 @@ void fragment() {
 	// ---- 晕影 + 顶部天光（白天暖金斜阳 -> 夜里冷月光，晕影夜里更收）
 	vec2 d = (SCREEN_UV - vec2(0.5)) * vec2(1.18, 1.4);
 	float vig = smoothstep(0.55, 1.2, length(d));
-	col *= 1.0 - vig * (0.5 + night * 0.14);
+	col *= 1.0 - vig * (0.5 + night * 0.20);
 	vec3 sky = mix(vec3(1.0, 0.92, 0.72), vec3(0.58, 0.70, 1.0), night);
-	col += sky * (0.09 + night * 0.015) * smoothstep(0.85, 0.0, SCREEN_UV.y);
+	col += sky * (0.09 + night * 0.03) * smoothstep(0.85, 0.0, SCREEN_UV.y);
 
 	// ---- 情绪滤镜（战斗用）: 危急时边缘浸暗红越压越紧, 大优时暖金上扬
 	float m = clamp(mood, -1.0, 1.0);

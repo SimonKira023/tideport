@@ -1229,6 +1229,22 @@ func _ready() -> void:
 					break
 			chk(kpar == null or str(kpar.get_collider().name) != "BridgeRails",
 				"沿桥带行平行走不被桥沿墙绊住 (g5)")
+			# b6: 陆上桥头的栏杆也得拦人 —— 桥头两格落在岸上, 旧逻辑「外侧是水才砌」
+			#     把它们漏成豁口, 玩家能直接穿过栏杆。挑一格外侧是岸的桥头试北墙。
+			var head_cell := Vector2i.ZERO
+			for xh in range(bx0, bx1 + 1):
+				if not g._water_set.has(Vector2i(xh, brow - 2)) \
+						and not Trees.is_blocked(Vector2i(xh, brow - 2)):
+					head_cell = Vector2i(xh, brow - 1)
+					break
+			chk(head_cell != Vector2i.ZERO, "桥跨里找到落在岸上的桥头格 %s (b6)" % str(head_cell))
+			if head_cell != Vector2i.ZERO:
+				place_player(head_cell)
+				player.global_position.y += 4.0   # 先沉 4px 离开碰撞圆与墙的 2px 重叠区
+				var khead: KinematicCollision2D = player.move_and_collide(Vector2(0, -10))
+				chk(khead != null and str(khead.get_collider().name) == "BridgeRails",
+					"从陆上桥头往北穿栏杆被桥沿墙挡住 (撞到 %s)"
+						% ("无" if khead == null else str(khead.get_collider().name)))
 
 		# e30: Bridges 下面不许再挂任何 StaticBody2D（护栏细线碰撞要拆干净）
 		var rail_bodies := 0
@@ -1236,9 +1252,11 @@ func _ready() -> void:
 			if c is StaticBody2D:
 				rail_bodies += 1
 		chk(rail_bodies == 0, "Bridges 下没有护栏碰撞体（RailBodies 已拆, 剩 %d 个）" % rail_bodies)
-		# h2/h3: 前层护栏 + 栏杆孔 —— 每座桥两张 sprite: 整贴 (z=Z_BRIDGE) + 底
-		#     16px region 前层 (z=+1, 压过角色池): 走下桥带的角色在护栏后面,
+		# h2/h3/b7: 前层护栏 + 栏杆孔 —— 每座桥两张 sprite: 整贴 (z=Z_BRIDGE) +
+		#     底 16px region 前层 (z=0 参与 y_sort): 走下桥带的角色在护栏后面,
 		#     下护栏素材挖了柱间竖缝, 透过栏杆孔看得见人。
+		chk(bridges2.y_sort_enabled,
+			"Bridges 容器开了 y_sort, 前层护栏借此进根节点排序池 (b7)")
 		for by in g.BRIDGE_ROWS:
 			var bmain: Sprite2D = g.get_node_or_null("Bridges/Bridge%d" % by)
 			var bfront: Sprite2D = g.get_node_or_null("Bridges/BridgeFront%d" % by)
@@ -1247,9 +1265,10 @@ func _ready() -> void:
 				continue
 			chk(bfront.region_enabled
 				and bfront.region_rect == Rect2(0, 32, bmain.texture.get_width(), 16)
-				and bfront.z_index == 1
-				and bfront.position == bmain.position + Vector2(0, 32),
-				"桥 %d 前层护栏取整贴底 16px, z=+1 盖住下桥带角色 (h2)" % by)
+				and bfront.z_index == 0
+				and bfront.offset == Vector2(0, -16)
+				and bfront.position == bmain.position + Vector2(0, 48),
+				"桥 %d 前层护栏 z=0 参与 y_sort, 排序点在护栏底边贴图画回原位 (b7)" % by)
 		var bpiece: Image = g._bridge_piece()
 		chk(bpiece != null
 			and bpiece.get_height() == 47
@@ -1257,7 +1276,7 @@ func _ready() -> void:
 			"下护栏柱间挖出竖缝, 素材裁到横梁底 47 高 (h3/j7)")
 		chk(bpiece != null
 			and bpiece.get_pixel(2, 42).a > 0.5 and bpiece.get_pixel(2, 46).a > 0.5
-			and bpiece.get_pixel(10, 44).a > 0.5,
+			and bpiece.get_pixel(10, 46).a > 0.5,
 			"下护栏立柱和横梁保留, 柱脚已清 (h3/j7)")
 		player.global_position = bsaved
 
@@ -1954,16 +1973,14 @@ func _ready() -> void:
 			chk(tile23.text.contains(Slaves.attrs_short_text(Slaves.slave_at(idx23))),
 				"瓦片底下写着三项属性（%s）" % tile23.text)
 			var need23: Dictionary = (ap23.get_script() as Script).get_script_constant_map()["BOARD_NEEDS"]
-			# exp 板块后来改成「远征编队: 全员自动出海」——出海不吃属性,
-			# 唯一要求是别误标成吃劳动（否则误导玩家去凑劳动值）
 			chk(need23.size() == 6
 					and String(need23["crop"]).contains("劳动")
 					and String(need23["mine"]).contains("劳动")
 					and String(need23["dock"]).contains("建造")
 					and String(need23["smith"]).contains("建造")
 					and String(need23["research"]).contains("知识")
-					and String(need23["exp"]).contains("不占劳动"),
-				"五个板块标了所需属性, 出海板块标了不占劳动")
+					and String(need23["exp"]).contains("出海"),
+				"六个板块都标了所需说明（劳动/建造/知识 + 出海不占劳动）")
 			chk(ap23._tiles["mine"].get_child_count() == 0,
 				"人撤走后矿井板块的瓦片也空了（%d 块）" % ap23._tiles["mine"].get_child_count())
 		ap23._dismiss()
@@ -2101,6 +2118,36 @@ func _ready() -> void:
 		"卡片改写成火边坐着的那位（%s）" % cp23._p_name.text)
 	cp23._refresh()
 	chk(cp23._btn.disabled, "招过人的火不能再招（按钮禁用）")
+	# b4: 背包(含详情页)画在篝火面板之下, 两者同开时下层文字透过半透明
+	#     面板变成「暗字水印」——开背包前必须先关篝火面板, 且两层背景全不透明。
+	g.backpack_panel.open()
+	chk(not cp23.is_open(), "开背包时篝火面板自动关掉 (b4)")
+	chk(g.backpack_panel.is_open(), "篝火关掉后背包正常打开 (b4)")
+	g.backpack_panel._open_slave_detail(0)
+	var det_b4: PanelContainer = g.backpack_panel.get("_detail_panel")
+	chk(det_b4 != null, "详情弹窗能构建 (b4)")
+	if det_b4 != null:
+		var dsb_b4: StyleBoxFlat = det_b4.get_theme_stylebox("panel") as StyleBoxFlat
+		chk(dsb_b4 != null and is_equal_approx(dsb_b4.bg_color.a, 1.0),
+			"详情卡片背景全不透明 (b4)")
+	g.backpack_panel._close_slave_detail()
+	g.backpack_panel.close()
+	var box_a_b4: Array = []
+	var stack_b4: Array[Node] = [cp23]
+	while not stack_b4.is_empty():
+		var n_b4: Node = stack_b4.pop_back()
+		if n_b4 is PanelContainer:
+			var s_b4: StyleBoxFlat = (n_b4 as PanelContainer).get_theme_stylebox("panel") as StyleBoxFlat
+			if s_b4 != null:
+				box_a_b4.append(s_b4.bg_color.a)
+		for c_b4 in n_b4.get_children():
+			stack_b4.append(c_b4)
+	var opaque_b4 := true
+	for a_b4 in box_a_b4:
+		if not is_equal_approx(float(a_b4), 1.0):
+			opaque_b4 = false
+	chk(opaque_b4 and box_a_b4.size() >= 3,
+		"篝火面板 %d 层背景全不透明 (b4)" % box_a_b4.size())
 	var n_two: int = Slaves.count
 	cp23._talk()
 	chk(Slaves.count == n_two, "同一堆火聊不出第二个人（还是 %d 人）" % Slaves.count)
@@ -2540,9 +2587,9 @@ func _ready() -> void:
 		var names26: Array = []
 		for m in bp26.MODULES:
 			names26.append(str(m["name"]))
-		chk(names26 == ["背包", "角色个人及技能", "团队管理", "战斗", "科技", "行政", "地图", "物品制作", "建造", "外交", "任务", "设置"],
-			"模块顺序对（d11 加了战斗页签）：%s" % str(names26))
-		chk(bp26._tab_btns.size() == 12, "上方有 12 个模块按钮（%d 个）" % bp26._tab_btns.size())
+		chk(names26 == ["背包", "角色个人及技能", "团队管理", "战斗", "科技", "行政", "地图", "日历", "物品制作", "建造", "外交", "任务", "设置"],
+			"模块顺序对（e56 加了日历页签）：%s" % str(names26))
+		chk(bp26._tab_btns.size() == 13, "上方有 13 个模块按钮（%d 个）" % bp26._tab_btns.size())
 		# 地图那一栏必须排在「物品制作」前面、建造在设置前面
 		chk(names26.find("地图") >= 0 and names26.find("地图") < names26.find("物品制作"),
 			"「地图」排在「物品制作」前面（第 %d 个）" % (names26.find("地图") + 1))
@@ -2694,9 +2741,9 @@ func _ready() -> void:
 			break
 	chk(path_idx >= 0, "配方表里有「鹅卵石小径」配方（idx=%d）" % path_idx)
 	if floor_recipe_idx >= 0:
-		chk(Crafting.craft(floor_recipe_idx), "用 2 个木头做 1 块木地板")
-		chk(Inventory.count_item(wood_floor) == wood_floor_before + 1, "背包里多 1 块木地板")
-		chk(Inventory.count_item(load("res://item/wood.tres")) == wood_before_b - 2, "木头 -2")
+		chk(Crafting.craft(floor_recipe_idx), "用 1 个木头锯 2 块木地板")
+		chk(Inventory.count_item(wood_floor) == wood_floor_before + 2, "背包里多 2 块木地板")
+		chk(Inventory.count_item(load("res://item/wood.tres")) == wood_before_b - 1, "木头 -1")
 	# 缺材料时不能做
 	Inventory.remove_item(load("res://item/carrot.tres"), Inventory.count_item(load("res://item/carrot.tres")))
 	var salad_recipe_idx := -1
@@ -2725,14 +2772,11 @@ func _ready() -> void:
 	chk(not (load("res://slaves.gd") as Script).get_script_constant_map().has("TASTE_POOL"),
 		"Slaves 不再有 TASTE_POOL")
 
-	print("\n=== 30. 伙伴个体化（名字 / 好感 / 喂食）===")
+	print("\n=== 30. 伙伴个体化（名字 / 好感 / 生日 / 赠送）===")
 	# 先把旧的伙伴清掉，重新招 3 个进来。
 	# ❗用 while 循环只删 slaves 数组不会 emit changed，_sync_slaves 不会销毁对应节点，
 	#   下次招新伙伴时 slaves.size() 跟 count 对不上 —— 改用 clear_all()，
 	#   但 clear_all 只清任务分配不动 slaves 数组；所以两个一起清。
-	for s in Slaves.slaves:
-		s["fed_today"] = false
-		s["talked_today"] = false
 	Slaves.slaves.clear()
 	Slaves.count = 0
 	Slaves.changed.emit()    # 触发 _sync_slaves 把残留节点销毁
@@ -2747,9 +2791,15 @@ func _ready() -> void:
 		chk(s["name"] != "", "每个伙伴都有名字（%s）" % s["name"])
 		chk(s["affection"] == 0, "新人初始好感 0")
 		chk(not s.has("pref"), "新人身上不再有 pref 字段（口味偏好系统已拆）")
-		chk(not bool(s["fed_today"]) and not bool(s["talked_today"]), "今天还没喂过/聊过")
+		chk(not bool(s["gift_today"]), "新人今天还没送过东西")
 	chk(Slaves.slaves[0]["name"] != "" and Slaves.slaves[1]["name"] != "",
 		"招进来的人名字都不为空")
+	# 生日 / 爱好档案（按花名册: 布恩春7 / 娜雅春19 / 珞琳夏5, 爱好表见 slaves.gd LIKES）
+	chk(Slaves.birthday_of(0) == Vector2i(0, 7) and Slaves.birthday_text(0) == "春季 7 日",
+		"布恩生日 = 春季 7 日（%s）" % Slaves.birthday_text(0))
+	chk(Slaves.birthday_of(1) == Vector2i(0, 19), "娜雅生日 = 春季 19 日")
+	chk(Slaves.birthday_of(2) == Vector2i(1, 5), "珞琳生日 = 夏季 5 日")
+	chk(Slaves.like_of(0) == "烤土豆", "布恩最爱: 烤土豆")
 	# 改名
 	var orig_name: String = Slaves.slaves[0]["name"]
 	chk(Slaves.rename(0, "阿明"), "把第 0 个改名为「阿明」")
@@ -2757,37 +2807,51 @@ func _ready() -> void:
 	chk(not Slaves.rename(0, "   "), "空名字拒绝改名")
 	chk(not Slaves.rename(99, "X"), "越界 index 拒绝")
 	chk(Slaves.slaves[0]["name"] == "阿明", "改名失败后名字没变")
-	# 喂食：吃什么都一样 +1 好感（口味偏好系统 e30s 已拆）
+	# 赠送（e56: 喂食+送礼合并）: 只收 作物/食物/材料; 送中爱好 x2（布恩最爱烤土豆）
 	Inventory.add_item(item_baked, 3)
 	Inventory.add_item(item_pie, 3)
 	var before_aff: int = int(Slaves.slaves[0]["affection"])
 	var baked_have: int = Inventory.count_item(item_baked)
-	var gain1: int = Slaves.feed(0, item_baked)
+	var gain1: int = Slaves.give(0, item_baked)
 	if gain1 > 0:
-		Inventory.remove_item(item_baked, 1)        # slaves.feed 不动背包，自己扣
-	chk(gain1 == 1, "喂食 = 1 好感（实际 %d）" % gain1)
-	chk(int(Slaves.slaves[0]["affection"]) == before_aff + 1, "好感真的 +1")
-	chk(bool(Slaves.slaves[0]["fed_today"]), "今天喂过标记打开")
+		Inventory.remove_item(item_baked, 1)        # give 不动背包, 调用方自己扣
+	chk(gain1 == Slaves.GIFT_AFFECTION * 2, "送中爱好 = 好感 x2（实际 %d）" % gain1)
+	chk(int(Slaves.slaves[0]["affection"]) == before_aff + gain1, "好感真的加上去了")
+	chk(bool(Slaves.slaves[0]["gift_today"]), "今天送过标记打开")
 	chk(Inventory.count_item(item_baked) == baked_have - 1, "背包里少一份烤土豆")
-	chk(Slaves.feed(0, item_pie) == 0, "今天再喂 = 0（不重复加）")
-	# 好感上限：塞到 AFFECTION_MAX-1 再喂一份，恰好封顶不冲过
+	chk(Slaves.give(0, item_pie) == 0, "今天再送 = 0（不重复加）")
+	# 非爱好的东西 = 基础好感（娜雅最爱胡萝卜, 南瓜派不是）
+	var gain30b: int = Slaves.give(1, item_pie)
+	if gain30b > 0:
+		Inventory.remove_item(item_pie, 1)
+	chk(gain30b == Slaves.GIFT_AFFECTION, "送非爱好 = 基础好感 %d（实际 %d）" % [Slaves.GIFT_AFFECTION, gain30b])
+	# 好感上限：塞到 AFFECTION_MAX-1 再送一份，恰好封顶不冲过
 	Slaves.slaves[0]["affection"] = Slaves.AFFECTION_MAX - 1
-	Slaves.slaves[0]["fed_today"] = false
-	Slaves.slaves[0]["talked_today"] = false
+	Slaves.slaves[0]["gift_today"] = false
 	var pre_aff: int = int(Slaves.slaves[0]["affection"])
-	var gain_pre: int = Slaves.feed(0, item_salad)
-	chk(pre_aff + gain_pre <= Slaves.AFFECTION_MAX, "好感最多到 AFFECTION_MAX（pre=%d + gain=%d <= %d）"
-		% [pre_aff, gain_pre, Slaves.AFFECTION_MAX])
+	var gain_pre: int = Slaves.give(0, item_salad)
+	if gain_pre > 0:
+		Inventory.remove_item(item_salad, 1)
+	chk(int(Slaves.slaves[0]["affection"]) == mini(pre_aff + gain_pre, Slaves.AFFECTION_MAX),
+		"好感最多到 AFFECTION_MAX（pre=%d + gain=%d 封顶存 %d）"
+		% [pre_aff, gain_pre, int(Slaves.slaves[0]["affection"])])
 	chk(int(Slaves.slaves[0]["affection"]) == Slaves.AFFECTION_MAX,
 		"好感到了上限：%d" % int(Slaves.slaves[0]["affection"]))
-	# 对话加好感
-	for i in Slaves.slaves.size():
-		Slaves.slaves[i]["affection"] = 0
-		Slaves.slaves[i]["talked_today"] = false
-		Slaves.slaves[i]["fed_today"] = false
-	var g_talk: int = Slaves.talk(0)
-	chk(g_talk == 1, "对话 +1 好感")
-	chk(Slaves.talk(0) == 0, "今天再对话 = 0（不重复加）")
+	# 生日当天增量翻倍: 把日历拨到布恩生日（春 7）再送一次, 测完把日子拨回去
+	var keep_season30: int = TimeManager.season
+	var keep_day30: int = TimeManager.day
+	TimeManager.season = 0
+	TimeManager.day = 7
+	chk(Slaves.is_birthday(0), "日历拨到春 7, 今天是布恩的生日")
+	Slaves.slaves[0]["affection"] = 0
+	Slaves.slaves[0]["gift_today"] = false
+	var gain_bd30: int = Slaves.give(0, item_baked)
+	chk(gain_bd30 == Slaves.GIFT_AFFECTION * 4, "生日 + 爱好 = 好感 x4（实际 %d）" % gain_bd30)
+	TimeManager.season = keep_season30
+	TimeManager.day = keep_day30
+	# 聊天纯陪伴不加好感（e56: 好感只走赠送一个口径, talk/feed 接口已拆）
+	chk(not Slaves.has_method("talk"), "Slaves 不再有 talk()（聊天不加好感）")
+	chk(not Slaves.has_method("feed"), "Slaves 不再有 feed()（喂食并入赠送）")
 
 	print("\n=== 31. 木地板铺设 ===")
 	# 找一格草地
@@ -2860,32 +2924,45 @@ func _ready() -> void:
 	var dp: Node = g.get_node_or_null("HUD/Dialogue")
 	chk(dp != null, "对话面板 Dialogue 节点存在（%s）" % str(dp))
 	if dp != null:
-		# 强制打开看效果（e18: 打开面板不再自动聊天 —— 点「聊天」弹对话框, 关框才落账）
+		# 强制打开看效果（e56: 打开面板不自动赠送, 聊天纯陪伴不加好感）
 		for i in Slaves.slaves.size():
-			Slaves.slaves[i]["talked_today"] = false
-			Slaves.slaves[i]["fed_today"] = false
+			Slaves.slaves[i]["gift_today"] = false
 			Slaves.slaves[i]["affection"] = 0
 		dp.call("open_panel", 0)
 		chk(dp.is_open(), "open_panel 之后开着")
-		chk(not bool(Slaves.slaves[0]["talked_today"]),
-			"e18: 打开面板不自动聊天 (点聊天弹框, 关框才落账)")
-		# 模拟「点聊天 → 翻完对话框 → 关框」: _finish_chat 里才调 Slaves.talk
+		chk(not bool(Slaves.slaves[0]["gift_today"]),
+			"打开面板不自动赠送")
+		# 聊天: 翻完对话框关掉也不加好感（e56 改版: 好感只走赠送）
 		dp.call("_on_chat_pressed")
-		chk(dp.get("_dialog").is_open(), "点聊天弹出对话框 (e18)")
+		chk(dp.get("_dialog").is_open(), "点聊天弹出对话框")
 		dp.get("_dialog").close()
-		chk(Slaves.slaves[0]["talked_today"], "关掉对话框 = 当天第一次聊天落账 (e18)")
-		chk(Slaves.slaves[0]["affection"] == 1, "聊天 +1 好感 (e18)")
-		# 喂食按钮：模拟「点喂食」按钮的行为：找背包第一个食物、扣一份、加好感
+		chk(int(Slaves.slaves[0]["affection"]) == 0, "聊天不加好感 (e56)")
+		# 赠送: 点「赠送」弹选物窗, 从弹窗 picked 走全链路（give + 扣背包, 同 dialogue_ui._on_gift_picked）
+		# 先把日历拨到没人生日的日子, 好感数值才确定, 测完拨回去
+		var keep_season32: int = TimeManager.season
+		var keep_day32: int = TimeManager.day
+		TimeManager.season = 3
+		TimeManager.day = 3
 		Inventory.add_item(item_baked, 1)
 		var baked_count: int = Inventory.count_item(item_baked)
-		# 直接走 slaves.feed + Inventory.remove_item，跟 dialogue_ui._on_feed_pressed 等价
-		var gain_from_feed: int = Slaves.feed(0, item_baked)
-		if gain_from_feed > 0:
-			Inventory.remove_item(item_baked, 1)
-		chk(bool(Slaves.slaves[0]["fed_today"]), "对话里点喂食 = 当天第一次喂食标记")
-		chk(Slaves.slaves[0]["affection"] == 1 + gain_from_feed,
-			"喂完好感 = %d（1 聊天 + %d 喂食）" % [1 + gain_from_feed, gain_from_feed])
-		chk(Inventory.count_item(item_baked) == baked_count - 1, "背包里少一份烤土豆")
+		dp.call("_on_give_pressed")
+		var gp32: Control = null
+		for c32 in dp.get_children():
+			if c32.has_method("open_for"):
+				gp32 = c32
+		chk(gp32 != null, "点赠送弹出选物窗")
+		if gp32 != null:
+			chk(gp32.is_visible(), "选物窗开着 (爱好提示: %s)" % Slaves.like_of(0))
+			var aff_before32: int = int(Slaves.slaves[0]["affection"])
+			gp32.picked.emit(item_baked)          # 模拟在弹窗里点了烤土豆
+			chk(bool(Slaves.slaves[0]["gift_today"]), "选物送出 = 当天第一次赠送标记")
+			chk(int(Slaves.slaves[0]["affection"]) == aff_before32 + Slaves.GIFT_AFFECTION * 2,
+				"送中爱好好感 +%d (实际 %d)" % [Slaves.GIFT_AFFECTION * 2,
+				int(Slaves.slaves[0]["affection"]) - aff_before32])
+			chk(Inventory.count_item(item_baked) == baked_count - 1, "背包里少一份烤土豆")
+			gp32.call("close")
+		TimeManager.season = keep_season32
+		TimeManager.day = keep_day32
 		dp.call("close_panel")
 		chk(not dp.is_open(), "close_panel 之后关掉")
 
@@ -6597,35 +6674,53 @@ func _ready() -> void:
 	# 64a 接口都在: 对话窗的送礼按钮 + 队伍详情页的送礼按钮
 	var dlg64: Control = load("res://dialogue_ui.gd").new()
 	add_child(dlg64)
-	chk(dlg64.has_method("_on_gift_pressed"), "dialogue_ui._on_gift_pressed 接口在")
+	chk(dlg64.has_method("_on_give_pressed"), "dialogue_ui._on_give_pressed 接口在")
 	dlg64.queue_free()
 	var bp64: Control = g.get_node_or_null("HUD/Backpack")
-	var gift_btn64: Button = null
+	var give_btn64: Button = null
 	if bp64 != null:
 		bp64._build_slave_detail()   # 详情页是懒构建, 先手动建一次才拿得到按钮
-		gift_btn64 = bp64.get("_detail_gift_btn")
-	chk(gift_btn64 != null, "队伍详情页挂上了「送礼」按钮")
-	# 64b 送礼只收作物: 塞一个确定性假伙伴（今天没送过）
+		give_btn64 = bp64.get("_detail_give_btn")
+	chk(give_btn64 != null, "队伍详情页挂上了「赠送」按钮")
+	# 64b 赠送只收作物/食物/材料: 塞一个确定性假伙伴（今天没送过）
+	# 日历先拨到冬 3 (没人生日), 好感数值才确定, 64c 测完拨回去
+	var keep_season64: int = TimeManager.season
+	var keep_day64: int = TimeManager.day
+	TimeManager.season = 3
+	TimeManager.day = 3
 	Slaves.slaves = [{
-		"name": "礼收员", "affection": 0, "fed_today": true, "talked_today": true,
-		"gift_today": false, "max_hp": 30, "hp": 30, "troop": "刀客", "squad": 1,
+		"name": "礼收员", "affection": 0, "gift_today": false,
+		"max_hp": 30, "hp": 30, "troop": "刀客", "squad": 1,
 		"labor": "帮工",
 	}]
 	Slaves.count = 1
 	var carrot64: ItemData = load("res://item/carrot.tres")
 	var seed64: ItemData = load("res://item/seed.tres")
-	chk(Slaves.gift_item(0, seed64) == 0, "送非作物(种子) = 0 (只收庄稼)")
+	chk(Slaves.give(0, seed64) == 0, "送道具类(种子) = 0 (只收作物/食物/材料)")
 	chk(int(Slaves.slaves[0]["affection"]) == 0, "送错东西好感没动")
-	var gain64: int = Slaves.gift_item(0, carrot64)
+	var gain64: int = Slaves.give(0, carrot64)
 	chk(gain64 == Slaves.GIFT_AFFECTION,
 		"送作物 = +%d 好感 (实际 %d)" % [Slaves.GIFT_AFFECTION, gain64])
 	chk(bool(Slaves.slaves[0]["gift_today"]), "今天送过标记打开")
-	chk(Slaves.gift_item(0, carrot64) == 0, "今天再送 = 0 (不重复加)")
+	chk(Slaves.give(0, carrot64) == 0, "今天再送 = 0 (不重复加)")
 	chk(int(Slaves.slaves[0]["affection"]) == Slaves.GIFT_AFFECTION, "好感真的 +2")
+	# 64c 生日翻倍: 拨到春 7 (下标 0 = 布恩的生日), 好感增量 x2
+	TimeManager.season = 0
+	TimeManager.day = 7
+	chk(Slaves.is_birthday(0), "日历拨到春 7 = 布恩的生日")
+	Slaves.slaves[0]["gift_today"] = false
+	Slaves.slaves[0]["affection"] = 0
+	chk(Slaves.give(0, carrot64) == Slaves.GIFT_AFFECTION * 2, "生日当天赠送 = 好感 x2")
+	var baked64: ItemData = load("res://item/baked_potato.tres")
+	Slaves.slaves[0]["gift_today"] = false
+	Slaves.slaves[0]["affection"] = 0
+	chk(Slaves.give(0, baked64) == Slaves.GIFT_AFFECTION * 4, "生日 + 爱好(烤土豆) = 好感 x4")
+	TimeManager.season = keep_season64
+	TimeManager.day = keep_day64
 	# 64d 新一天重置: 又能送了
 	Slaves._on_new_day(1)
 	chk(not bool(Slaves.slaves[0]["gift_today"]), "新一天 gift_today 重置")
-	chk(Slaves.gift_item(0, carrot64) == Slaves.GIFT_AFFECTION, "第二天送礼 +2 再次生效")
+	chk(Slaves.give(0, carrot64) == Slaves.GIFT_AFFECTION, "第二天赠送 +2 再次生效")
 	# 64e 好感收益: 每 4 点好感换伙伴 1 点攻
 	chk(Slaves.affection_atk(0) == 0 and Slaves.affection_atk(3) == 0,
 		"好感 0/3 = +0 攻 (不满 4 点不涨)")
@@ -7956,6 +8051,11 @@ func _ready() -> void:
 		"战斗树 %d 档全摆上" % (map79["CLASSES"] as Dictionary).size())
 	chk((lt79.get("_cards") as Dictionary).size() == (map79["LABOR_CLASSES"] as Dictionary).size(),
 		"劳动树 %d 档全摆上" % (map79["LABOR_CLASSES"] as Dictionary).size())
+	# b10: 鼠标悬浮职业卡能看到具体加成 —— tooltip 里带「收益:」行
+	var tip79: String = String((ct79.get("_cards")["新兵"] as PanelContainer).tooltip_text)
+	chk(tip79.contains("收益: 攻 +"), "战斗树卡 tooltip 写明攻击加成（%s）" % tip79.replace("\n", " | "))
+	var ltip79: String = String((lt79.get("_cards")["帮工"] as PanelContainer).tooltip_text)
+	chk(ltip79.contains("收益: "), "劳动树卡 tooltip 写明收益（%s）" % ltip79.replace("\n", " | "))
 	Wallet.money = maxi(Wallet.money, 60)
 	Inventory.add_item(load("res://item/armor_wood.tres"), 1)   # e27g: 一线也要 1 级甲
 	bp79._on_class_node_clicked("骑兵", false)
@@ -8137,7 +8237,7 @@ func _ready() -> void:
 	wm81.set("_voy_clock", -1.0)
 	var trav_bak81: bool = Voyage.traveling
 	Voyage.traveling = true            # 演出钟只在航行中接管(不在海图上时天色跟钟)
-	chk(absf(float(wm81.call("_sky_hours")) - 15.0) < 0.2, "未起钟: 天色跟真实时刻")
+	chk(absf(float(wm81.call("_sky_hours")) - 17.0) < 0.2, "未起钟: 天色跟真实时刻+2 (色调钟快 2 小时)")
 	wm81.set("_voy_clock", 18.5)
 	chk(absf(float(wm81.call("_sky_hours")) - 18.5) < 0.2, "起钟后: 天色走演出钟(黄昏)")
 	chk(TimeManager.hour == 15 and TimeManager.minute == 0, "演出钟不碰 TimeManager")
@@ -9812,23 +9912,6 @@ func _ready() -> void:
 	g.chest_panel.call("_take", 0, true)
 	chk(Inventory.count_item(wood98) > before_take98, "面板右键整格取回 (取回 %d 件)"
 		% (Inventory.count_item(wood98) - before_take98))
-	# 98h 真实点击链回归（真机「箱子取东西闪退」修复）: 玩家取东西走的是箱子行的
-	# gui_input 信号, 信号链里 _take -> inventory_changed -> _refresh 会重建行 ——
-	# 旧行若被立即 free 就是 use-after-free 闪退。这里 emit 信号把真实链路走一遍。
-	Structures.chest_deposit(c98, wood98, 3)
-	g.chest_panel.call("_refresh")
-	await get_tree().process_frame      # queue_free 的旧行到帧末才消失, 等一帧再数
-	var box98: VBoxContainer = g.chest_panel.get("_list_box")
-	chk(box98 != null and box98.get_child_count() == 1, "箱里重建出一行 (可点)")
-	var row98: PanelContainer = box98.get_child(0)
-	var ev98t := InputEventMouseButton.new()
-	ev98t.button_index = MOUSE_BUTTON_LEFT
-	ev98t.pressed = true
-	var take_before98 := Inventory.count_item(wood98)
-	row98.emit_signal("gui_input", ev98t)
-	chk(Structures.chest_count(c98) == 2 and Inventory.count_item(wood98) == take_before98 + 1,
-		"点行左键取 1 个 (gui_input 信号链内刷新不闪退)")
-	await get_tree().process_frame      # 链里 queue_free 的行收尾, 给后面留干净状态
 	g.chest_panel.close_panel()
 	chk(not g.chest_panel.is_open(), "面板关得上 (时间也跟着恢复)")
 	# 98g 拆箱子不吞货 (源码护栏) + 干净收尾

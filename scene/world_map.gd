@@ -1746,7 +1746,8 @@ func _sky_hours() -> float:
 	# e16d: 航行中天色走演出钟（真实时刻只在落地回岛后接管）
 	if Voyage.traveling and _voy_clock >= 0.0:
 		return _voy_clock
-	return float(TimeManager.hour) + float(TimeManager.minute) / 60.0
+	# 色调钟比真实钟快 2 小时（跟岛上 game.gd 一致: 6 点就是 8 点的亮色）
+	return fmod(float(TimeManager.hour) + 2.0 + float(TimeManager.minute) / 60.0, 24.0)
 
 # 按色键插值: 返回 [覆盖色(含alpha), 光盘色, 光盘强度, 光带强度]
 func _sky_sample(t: float) -> Array:
