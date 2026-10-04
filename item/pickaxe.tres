@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://c1pkx0aq8m2v3"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://byimvimkj1vib" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Weapons and Armor/3. Iron/Pickaxe.png" id="2_pick"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_pick"]
+atlas = ExtResource("2_pick")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "镐子"
+icon = SubResource("AtlasTexture_pick")
+type = "工具"
+max_stack = 1
+description = "敲碎岩石和铁矿露头, 挖矿必备。"

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3 uid="uid://hrgr01atdcm08"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Weapons and Armor/3. Iron/Watering Can.png" id="2_can"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_can"]
+atlas = ExtResource("2_can")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "洒水壶"
+icon = SubResource("AtlasTexture_can")
+type = "工具"
+max_stack = 1
+description = "给作物浇水，每天浇水作物才会生长。"

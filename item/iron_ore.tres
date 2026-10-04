@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://b3orn0hf7j2x8"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://towvxqntq1jl" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Extras/Bars and ores.png" id="2_ore"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ore"]
+atlas = ExtResource("2_ore")
+region = Rect2(48, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "铁矿"
+icon = SubResource("AtlasTexture_ore")
+description = "含铁的矿石, 送去熔炉炼成铁锭。"
+sell_price = 5

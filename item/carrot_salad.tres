@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm11"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://qci1qothskbn" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Salad.png" id="2_salad"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_salad"]
+atlas = ExtResource("2_salad")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "胡萝卜沙拉"
+icon = SubResource("AtlasTexture_salad")
+type = "食物"
+description = "清脆的胡萝卜拌成的小菜，酸甜开胃。给伙伴吃会加好感。"
+sell_price = 56

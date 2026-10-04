@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm21"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Weapons and Armor/3. Iron/Axe.png" id="2_axe"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_axe"]
+atlas = ExtResource("2_axe")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "斧头"
+icon = SubResource("AtlasTexture_axe")
+type = "工具"
+max_stack = 1
+description = "用来砍树。对着树挥几下，木头和树种就到手了。"

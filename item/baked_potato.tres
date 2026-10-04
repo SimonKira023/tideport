@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm10"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://68vytpwrti3p" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Baked Potato.png" id="2_baked"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_baked"]
+atlas = ExtResource("2_baked")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "烤土豆"
+icon = SubResource("AtlasTexture_baked")
+type = "食物"
+description = "用柴火烤的土豆，咸香暖胃。给伙伴吃会加好感。"
+sell_price = 42

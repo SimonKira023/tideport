@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Fish/River/Perch.png" id="2_fish"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fish"]
+atlas = ExtResource("2_fish")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "河鲈"
+icon = SubResource("AtlasTexture_fish")
+type = "食物"
+max_stack = 99
+description = "淡水里常见的银白河鱼, 商人收价不错"
+sell_price = 22

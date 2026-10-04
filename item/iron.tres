@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://b4irn0mq5t6y2"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://towvxqntq1jl" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Extras/Bars and ores.png" id="2_iron"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_iron"]
+atlas = ExtResource("2_iron")
+region = Rect2(32, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "铁锭"
+icon = SubResource("AtlasTexture_iron")
+description = "炼好的铁, 打兵器造器械全靠它。"
+sell_price = 12

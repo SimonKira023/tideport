@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dy5lf2wuyjl5s"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://b4ryi80ik3p8l" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Weapons and Armor/3. Iron/Chestplate.png" id="2_icon"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_icon"]
+atlas = ExtResource("2_icon")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "锁链甲"
+icon = SubResource("AtlasTexture_icon")
+type = "装备"
+max_stack = 9
+description = "铁环编成的锁链甲, 岛上铁匠铺的看家手艺。"
+armor_tier = 2
+armor_hp = 20
+sell_price = 110

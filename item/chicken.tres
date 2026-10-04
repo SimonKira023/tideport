@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Animals/Farm/Chicken/Chicken White.png" id="2_chick"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_chick"]
+atlas = ExtResource("2_chick")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "小鸡"
+icon = SubResource("AtlasTexture_chick")
+type = "工具"
+max_stack = 6
+description = "叽叽喳喳的小家伙, 住在鸡舍里, 每天早上会下蛋 (买卖在对鸡舍按 F 的管理界面)"
+sell_price = 120

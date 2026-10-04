@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm1a"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://4k6j8ea0530s" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Wheat.png" id="2_wheat"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_icon"]
+atlas = ExtResource("2_wheat")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "小麦"
+icon = SubResource("AtlasTexture_icon")
+description = "金黄的小麦，做面包和派的原料。可以在哥布林商人那里买到。"
+sell_price = 5

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://dgrg01atdcm14"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/ground icons.png" id="2_dummy"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "木地板"
+icon = ExtResource("2_dummy")
+type = "地板"
+max_stack = 99
+description = "用两块木头做成的木地板。手持点击草地或耕地上就能铺上去。"
+sell_price = 8

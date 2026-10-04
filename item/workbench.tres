@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://cwbstation001"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://jayvnmce2vt2" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Work Benches/Workbench.png" id="2_wb"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "工作台"
+icon = ExtResource("2_wb")
+type = "放置"
+max_stack = 5
+description = "摆在空地上, 靠近它才能在背包里做更复杂的工具和器械。"
+sell_price = 10

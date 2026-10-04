@@ -1,0 +1,60 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# 画面预览工具的中间产物（tools/scene_dump.tscn + render_*.py 生成）
+/_preview_dump.json
+/_preview_tex/
+/_ui_dump.json
+/_ui_tex/
+/outputs/
+
+# Godot 导出模板的项目内副本（200MB，勿入库）
+/Godot/
+
+# 导出模板压缩包（1.2GB —— 换电脑时去官方重新下载，或用 tools/export 里的 tpz 手动装）
+/tools/export/
+
+# 导出产物（exe/pck 只在本机生成）
+/*.exe
+/*.pck
+/*.zip
+/*.mp4
+
+# ===== 第三方素材包（不入库，见 README「素材放置说明」）=====
+# 代码对它们全部软加载容错: 没放素材游戏照跑, 相关贴图/音乐留空
+/resources/FREE Mana Seed Character Base Demo 2.0/
+/resources/Farm RPG - Tiny Asset Pack - (All in One)/
+/resources/Farm RPG FREE 16x16 - Tiny Asset Pack/
+/resources/Loops Medieval Vol. 2/
+/resources/Sunnyside_World_Assets/
+/resources/Towball's Crossing Deluxe!/
+/resources/music-loop-bundle-2026-q2/
+# make_portraits.gd 的参考撕图(网络图源, 许可不明)
+/resources/character/
+
+# 星露谷 ripping 音频（Journey of the Prairie King, 代码零引用）
+/resources/audio/1-2*.mp3
+/resources/audio/1-2*.mp3.import
+/resources/audio/[Cc]owboy*.wav
+/resources/audio/[Cc]owboy*.wav.import
+
+# bgm 目录里全部 ogg: menu.ogg 来源不明, island/battle/ocean/town_* 是无引用遗留
+# （自产的 bgm_*.wav 不受影响, 照常入库）
+/resources/audio/bgm/*.ogg
+/resources/audio/bgm/*.ogg.import
+
+# ===== 本机临时产物 =====
+/.git_old/
+/ai_adventure.py
+/.tmp_ff/
+/clone_2s.jpg
+/clone_2s.jpg.import
+/HANDOFF.md
+/MIGRATE.md
+__pycache__/
+/tools/*.log
+/tools/*.png
+/tools/_probe_out/
+/tools/_trailer/*
+!/tools/_trailer/*.txt

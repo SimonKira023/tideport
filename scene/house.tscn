@@ -1,0 +1,259 @@
+[gd_scene load_steps=26 format=3]
+
+[ext_resource type="Script" path="res://scene/house.gd" id="1_house"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Houses/10.png" id="2_ext"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Beds.png" id="3_bed"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Houses/Door, windows, and chimney/Door.png" id="4_door"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Tables and desks.png" id="5_table"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Chairs.png" id="6_chair"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Fireplace.png" id="7_fire"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Closet.png" id="8_closet"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Dressers.png" id="9_dress"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Others.png" id="10_misc"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Interior/Sofa and armchair.png" id="11_sofa"]
+
+; 碰撞严格贴合 10.png 不透明区（探针像素扫描）：
+; 墙体带 = 图行 78..95 → 局部 y -34..-16 / x 10..70
+; 门台阶 = 图行 96..103 → 局部 y -16..-8 / x 43..59
+; 贴图底部 8px（局部 y -8..0）完全透明，不放碰撞（屋前可走）
+[sub_resource type="RectangleShape2D" id="Rect_house"]
+size = Vector2(60, 18)
+
+[sub_resource type="RectangleShape2D" id="Rect_step"]
+size = Vector2(16, 8)
+
+[sub_resource type="RectangleShape2D" id="Rect_bed"]
+size = Vector2(56, 56)
+
+; e36b 床的实体从「半张床」扩到整张：贴图 region (7,269,33,34) 摆在 (16,32)，
+;   占 x 16..49 / y 32..66，原来只盖了 y 33..52，下半张床能整个人站上去。
+[sub_resource type="RectangleShape2D" id="Rect_bedbody"]
+size = Vector2(33, 34)
+
+[sub_resource type="RectangleShape2D" id="Rect_door"]
+size = Vector2(26, 30)
+
+[sub_resource type="RectangleShape2D" id="Rect_exit"]
+size = Vector2(24, 34)
+
+; e30u 家具碰撞；e36b 改成「每一件看得见的东西都有碰撞，且严格等于它的贴图框」：
+; 各家具的 region_rect 本来就是 tools/scan_atlas.gd 扫出来的**不透明像素包围盒**，
+; 所以碰撞矩形直接取「region_rect 的大小 + 节点 position 摆到同一处」就等于贴着贴图，
+; 不会出现「脚下一半是空的、能贴着家具站进贴图里」。
+; ❗以前不做的椅子现在也补了：三把椅子的碰撞框和餐桌框是首尾相接的（椅子底 y95 / 桌面 y96），
+;   中间没有可站人的缝，补上不会把人卡住。
+; 这些格子只在屋里开（layer 2，跟床同一套开关，见 house.gd 的 _enter_house/_leave_house）。
+[sub_resource type="RectangleShape2D" id="Rect_fire"]
+size = Vector2(28, 42)
+
+[sub_resource type="RectangleShape2D" id="Rect_sofa"]
+size = Vector2(29, 20)
+
+[sub_resource type="RectangleShape2D" id="Rect_shelf"]
+size = Vector2(30, 34)
+
+[sub_resource type="RectangleShape2D" id="Rect_piano"]
+size = Vector2(29, 18)
+
+[sub_resource type="RectangleShape2D" id="Rect_table"]
+size = Vector2(63, 30)
+
+[sub_resource type="RectangleShape2D" id="Rect_wardrobe"]
+size = Vector2(25, 36)
+
+[sub_resource type="RectangleShape2D" id="Rect_mirror"]
+size = Vector2(14, 25)
+
+[sub_resource type="RectangleShape2D" id="Rect_chair"]
+size = Vector2(13, 21)
+
+[node name="House" type="Node2D"]
+script = ExtResource("1_house")
+
+[node name="Exterior" type="Sprite2D" parent="."]
+texture = ExtResource("2_ext")
+centered = false
+position = Vector2(0, -112)
+
+[node name="HouseBody" type="StaticBody2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HouseBody"]
+position = Vector2(40, -25)
+shape = SubResource("Rect_house")
+
+[node name="StepShape" type="CollisionShape2D" parent="HouseBody"]
+position = Vector2(51, -12)
+shape = SubResource("Rect_step")
+
+[node name="Door" type="Area2D" parent="."]
+position = Vector2(50, -2)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Door"]
+shape = SubResource("Rect_door")
+
+[node name="DoorFront" type="Marker2D" parent="."]
+position = Vector2(50, 28)
+
+[node name="Interior" type="Node2D" parent="."]
+position = Vector2(0, 288)
+
+[node name="RoomArt" type="Sprite2D" parent="Interior"]
+centered = false
+
+; e30u 内饰：开局就摆好的家具（region_rect 取自各图集的连通域扫描，见 tools/scan_atlas.gd）。
+; 摆位都贴着墙或让开走道，SpawnPoint(136,120) / 床 / 出口门前一律留空。
+[node name="Decor" type="Node2D" parent="Interior"]
+
+[node name="Wardrobe" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("8_closet")
+centered = false
+region_enabled = true
+region_rect = Rect2(35, 10, 25, 36)
+position = Vector2(70, 0)
+
+[node name="Mirror" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("10_misc")
+centered = false
+region_enabled = true
+region_rect = Rect2(1, 7, 14, 25)
+position = Vector2(216, 4)
+
+[node name="Fireplace" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("7_fire")
+centered = false
+region_enabled = true
+region_rect = Rect2(130, 6, 28, 42)
+position = Vector2(176, 0)
+
+[node name="Sofa" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("11_sofa")
+centered = false
+region_enabled = true
+region_rect = Rect2(2, 11, 29, 20)
+position = Vector2(86, 36)
+
+[node name="Bookshelf" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("10_misc")
+centered = false
+region_enabled = true
+region_rect = Rect2(1, 46, 30, 34)
+position = Vector2(240, 34)
+
+[node name="Piano" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("10_misc")
+centered = false
+region_enabled = true
+region_rect = Rect2(2, 93, 29, 18)
+position = Vector2(240, 72)
+
+[node name="Table" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("5_table")
+centered = false
+region_enabled = true
+region_rect = Rect2(225, 257, 63, 30)
+position = Vector2(150, 96)
+
+[node name="ChairLeft" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("6_chair")
+centered = false
+region_enabled = true
+region_rect = Rect2(2, 10, 13, 21)
+position = Vector2(158, 74)
+
+[node name="ChairRight" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("6_chair")
+centered = false
+region_enabled = true
+region_rect = Rect2(2, 10, 13, 21)
+position = Vector2(196, 74)
+
+[node name="ChairFront" type="Sprite2D" parent="Interior/Decor"]
+texture = ExtResource("6_chair")
+centered = false
+region_enabled = true
+region_rect = Rect2(2, 10, 13, 21)
+position = Vector2(176, 128)
+
+[node name="Bed" type="Area2D" parent="Interior"]
+position = Vector2(16, 32)
+
+[node name="Sprite2D" type="Sprite2D" parent="Interior/Bed"]
+texture = ExtResource("3_bed")
+centered = false
+region_enabled = true
+region_rect = Rect2(7, 269, 33, 34)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Interior/Bed"]
+position = Vector2(16.5, 17)
+shape = SubResource("Rect_bed")
+
+; 床的实体碰撞：layer 在代码里动态切换 —— 进屋才开(=2)，
+; 屋外永远是 0（室内那块地在世界坐标里是真实野地，开着会在野外留一堵隐形墙）
+[node name="BedBody" type="StaticBody2D" parent="Interior"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Interior/BedBody"]
+position = Vector2(32.5, 49)
+shape = SubResource("Rect_bedbody")
+
+; e30u 家具实体：跟 BedBody 一样 layer 在代码里切（进屋才开=2, 屋外 0）
+[node name="FurnitureBody" type="StaticBody2D" parent="Interior"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="FireShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(190, 21)
+shape = SubResource("Rect_fire")
+
+[node name="WardrobeShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(82.5, 18)
+shape = SubResource("Rect_wardrobe")
+
+[node name="MirrorShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(223, 16.5)
+shape = SubResource("Rect_mirror")
+
+[node name="SofaShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(100.5, 46)
+shape = SubResource("Rect_sofa")
+
+[node name="ShelfShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(255, 51)
+shape = SubResource("Rect_shelf")
+
+[node name="PianoShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(254.5, 81)
+shape = SubResource("Rect_piano")
+
+[node name="TableShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(181.5, 111)
+shape = SubResource("Rect_table")
+
+[node name="ChairLeftShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(164.5, 84.5)
+shape = SubResource("Rect_chair")
+
+[node name="ChairRightShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(202.5, 84.5)
+shape = SubResource("Rect_chair")
+
+[node name="ChairFrontShape" type="CollisionShape2D" parent="Interior/FurnitureBody"]
+position = Vector2(182.5, 138.5)
+shape = SubResource("Rect_chair")
+
+[node name="ExitDoor" type="Area2D" parent="Interior"]
+position = Vector2(128, 158)
+
+[node name="Sprite2D" type="Sprite2D" parent="Interior/ExitDoor"]
+texture = ExtResource("4_door")
+centered = false
+region_enabled = true
+region_rect = Rect2(0, 0, 16, 32)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Interior/ExitDoor"]
+position = Vector2(8, 4)
+shape = SubResource("Rect_exit")
+
+[node name="SpawnPoint" type="Marker2D" parent="Interior"]
+position = Vector2(136, 120)

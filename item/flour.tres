@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Flour.png" id="2_flour"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_flour"]
+atlas = ExtResource("2_flour")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "面粉"
+icon = SubResource("AtlasTexture_flour")
+type = "材料"
+max_stack = 99
+description = "磨坊里磨出来的细面, 做面食的原料, 比小麦值钱"
+sell_price = 22

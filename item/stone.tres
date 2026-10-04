@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://b2stn0df4law1"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://6n4uphvnhpv6" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Extras/Stones.png" id="2_stone"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_stone"]
+atlas = ExtResource("2_stone")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "石头"
+icon = SubResource("AtlasTexture_stone")
+description = "最常见的石料, 修矿井造熔炉都要用。"
+sell_price = 2

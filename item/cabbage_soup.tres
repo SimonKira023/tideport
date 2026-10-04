@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm12"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://dtmidxyig8wr0" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Soup.png" id="2_soup"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_soup"]
+atlas = ExtResource("2_soup")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "卷心菜汤"
+icon = SubResource("AtlasTexture_soup")
+type = "食物"
+description = "用卷心菜熬的鲜汤，暖身补气。给伙伴吃会加好感。"
+sell_price = 84

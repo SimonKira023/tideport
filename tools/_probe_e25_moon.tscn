@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/_probe_e25_moon.gd" id="1_moon"]
+
+[node name="ProbeMoon" type="Node"]
+script = ExtResource("1_moon")

@@ -1,0 +1,41 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://clock.gd" id="1_clk"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/UI/0.2.png" id="2_bg"]
+[ext_resource type="FontFile" path="res://resources/font/IPix.ttf" id="3_font"]
+
+[node name="ClockPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(5, 0)
+offset_right = 182.0
+offset_bottom = 132.0
+script = ExtResource("1_clk")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+custom_minimum_size = Vector2(0.335, 0)
+layout_mode = 2
+theme_override_constants/separation = 35
+accessibility_region = true
+
+[node name="Money&Date" type="Sprite2D" parent="VBoxContainer"]
+position = Vector2(86, 68)
+scale = Vector2(4.731383, 3.4264183)
+texture = ExtResource("2_bg")
+region_enabled = true
+region_rect = Rect2(192.03677, 0, 47.963226, 48.964687)
+
+[node name="TimeLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_fonts/font = ExtResource("3_font")
+text = "345"
+
+[node name="SeasonLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_fonts/font = ExtResource("3_font")
+text = "234"
+
+[node name="MoneyLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_stretch_ratio = 0.0
+theme_override_fonts/font = ExtResource("3_font")
+text = "123"
+horizontal_alignment = 2

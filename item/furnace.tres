@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://cfurnace00001"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://dqe3y2kkxjdai" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Work Benches/Furnace.png" id="2_fu"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fu"]
+atlas = ExtResource("2_fu")
+region = Rect2(0, 0, 32, 32)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "熔炉"
+icon = SubResource("AtlasTexture_fu")
+type = "放置"
+max_stack = 5
+description = "摆在空地上, 花 1 木头 1 铁矿点火熔炼, 一会儿就能取铁锭。镐子挖一下可拆回。"
+sell_price = 25

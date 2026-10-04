@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Extras/Rings.png" id="2_ring"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ring"]
+atlas = ExtResource("2_ring")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "银戒"
+icon = SubResource("AtlasTexture_ring")
+type = "材料"
+description = "铁匠铺打的银戒指。向心意相通的伙伴求婚时要用。"
+sell_price = 120

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/ground icons.png" id="2_dummy"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "鹅卵石小径"
+icon = ExtResource("2_dummy")
+type = "地板"
+max_stack = 99
+description = "用一块石头凿成的小径石板。手持点击草地或耕地就能铺上去, 镐子可以挖掉。"
+sell_price = 2

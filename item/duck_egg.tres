@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Duck Egg.png" id="2_degg"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_degg"]
+atlas = ExtResource("2_degg")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "鸭蛋"
+icon = SubResource("AtlasTexture_degg")
+type = "食物"
+max_stack = 99
+description = "比鸡蛋大一码, 腌咸蛋正合适"
+sell_price = 16

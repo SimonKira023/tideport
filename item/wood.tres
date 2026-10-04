@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://b7yxtc3g31k8s"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Sunnyside_World_Assets/Elements/Crops/wood.png" id="2_wood"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "木头"
+icon = ExtResource("2_wood")
+type = "材料"
+max_stack = 99
+description = "基础建材，以后盖房子用。"
+sell_price = 3

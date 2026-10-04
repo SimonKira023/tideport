@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Honey.png" id="2_honey"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_honey"]
+atlas = ExtResource("2_honey")
+region = Rect2(16, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "蜂蜜"
+icon = SubResource("AtlasTexture_honey")
+type = "食物"
+max_stack = 99
+description = "蜂箱里攒出来的, 稠得挂勺; 商人当食材收"
+sell_price = 30

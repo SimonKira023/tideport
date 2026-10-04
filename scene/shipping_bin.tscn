@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scene/shipping_bin.gd" id="1_bin"]
+
+[sub_resource type="RectangleShape2D" id="Rect_bin_reach"]
+size = Vector2(40, 52)
+
+[sub_resource type="RectangleShape2D" id="Rect_bin_body"]
+size = Vector2(14, 8)
+
+[node name="ShippingBin" type="Area2D"]
+script = ExtResource("1_bin")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -10)
+shape = SubResource("Rect_bin_reach")
+
+[node name="Body" type="StaticBody2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Body"]
+position = Vector2(0, -4)
+shape = SubResource("Rect_bin_body")

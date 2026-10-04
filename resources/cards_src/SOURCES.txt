@@ -1,0 +1,61 @@
+# 卡牌立绘候选素材清单 (cards_src)
+# 格式: 文件名 | 来源URL | 许可证 | 作者
+# 全部素材均为 CC0 / Public Domain，可商用、可修改、可再发布，无署名义务。
+# 说明: 所有 Kenney 素材来自其官网单个 pack 的免费 zip 包, 站点明示 Creative Commons CC0。
+#       下载日期: 2026-09-30
+#
+# 备注1: townguard_* 6 张角色出自 OpenGameArt「Town Guards Vol.1 免费样本」,
+#        按包内 README 的角色顺序 (Spearman / Sword & Shield / Archer / Heavy Guard /
+#        Captain / Standard Bearer) 命名, 与 GUARD_01..06 目录顺序一一对应。
+# 备注2: pixel_* 系列为 Kenney Tiny Dungeon 的 16x16 单块切片 (tile_XXXX.png),
+#        编号已按图集逐格核对。pixel_unit_beast.png = 兽头战士。
+# 备注3: kenney_icon_* 来自 Kenney Board Game Icons 包, 透明背景 64px PNG 图标。
+#
+文件名 | 来源URL | 许可证 | 作者
+bitrush_card_frame_common.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_frame_rare.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_frame_epic.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_frame_legendary.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_back.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_slot_empty.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+bitrush_card_frame_wide_landscape.png | https://www.colorosse.com/assets/2d/ui/bitrush-card-frames | CC0-1.0 | Colorosse
+kenney_card_frame_empty_pixel.png | https://kenney.nl/assets/playing-cards-pack | CC0 | Kenney (kenney.nl)
+kenney_card_back_pixel.png | https://kenney.nl/assets/playing-cards-pack | CC0 | Kenney (kenney.nl)
+kenney_cardback_boardgame_red.png | https://kenney.nl/assets/boardgame-pack | CC0 | Kenney (kenney.nl)
+kenney_cardback_boardgame_blue.png | https://kenney.nl/assets/boardgame-pack | CC0 | Kenney (kenney.nl)
+kenney_icon_card_outline.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_cards_stack.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+townguard_spearman.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_swordsman.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_archer.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_heavy_guard.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_captain.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_standard_bearer.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_portrait_01.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_portrait_02.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+townguard_portrait_03.png | https://opengameart.org/content/free-pixel-art-guards-%E2%80%94-spearman-sword-shield-archer-heavy-guard-samples | CC0 | hnnnnnnn (OpenGameArt)
+pixel_unit_mage.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_unit_beast.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_unit_knight_grey.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_unit_knight_blue.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_unit_imp.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_unit_ranger.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+kenney_icon_fire.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_campfire.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_sword.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_shield.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_bow.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_flask_blue.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_flask_half.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_hourglass.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_crown.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_skull.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_pouch.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_book.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+kenney_icon_tower.png | https://kenney.nl/assets/board-game-icons | CC0 | Kenney (kenney.nl)
+pixel_icon_torch.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_icon_potion_red.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_icon_hammer.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_icon_axes_crossed.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_icon_axe.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)
+pixel_icon_shield_small.png | https://kenney.nl/assets/tiny-dungeon | CC0 | Kenney (kenney.nl)

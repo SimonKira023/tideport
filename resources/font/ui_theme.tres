@@ -1,0 +1,11 @@
+[gd_resource type="Theme" load_steps=2 format=3]
+
+[ext_resource type="FontFile" path="res://resources/font/IPix.ttf" id="1_ipix"]
+
+; e30w 全局主题：只钉住「悬浮提示」的字体。
+;   tooltip 是引擎自己 new 出来的 TooltipLabel（不在任何场景里），
+;   散在各处的 label.tooltip_text 没法逐个挂字体 —— 只能在项目主题里统一改。
+;   没写进这里的其它控件照旧吃 Godot 默认主题（不会影响各面板自己的 font_override）。
+[resource]
+TooltipLabel/font_sizes/font_size = 13
+TooltipLabel/fonts/font = ExtResource("1_ipix")

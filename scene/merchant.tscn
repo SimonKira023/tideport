@@ -1,0 +1,31 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scene/merchant.gd" id="1_merchant"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Enemy/Goblins/Goblin merchant/1.png" id="2_goblin"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_merchant"]
+radius = 46.0
+
+[sub_resource type="RectangleShape2D" id="Rect_merchant_body"]
+size = Vector2(50, 10)
+
+[node name="Merchant" type="Area2D"]
+script = ExtResource("1_merchant")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_goblin")
+hframes = 4
+position = Vector2(-7, -16)
+
+; e29i: 摊位旁那只 shipping box 小箱删掉了 —— 哥布林渠道已并入主岛售卖箱
+; (渠道切换按钮), 这箱子只剩装饰作用还占一块地方, 用户要求移除。
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-5, -18)
+shape = SubResource("CircleShape2D_merchant")
+
+[node name="Body" type="StaticBody2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Body"]
+position = Vector2(0, -5)
+shape = SubResource("Rect_merchant_body")

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm13"]
+
+[ext_resource type="Script" uid="uid://bboks33em5q6e" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://oaxjkayprrs4" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Food Icons/Pumpkin Pie.png" id="2_pie"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_pie"]
+atlas = ExtResource("2_pie")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "南瓜派"
+icon = SubResource("AtlasTexture_pie")
+type = "食物"
+description = "用南瓜和小麦做成的甜派，香甜可口。给伙伴吃会加好感。"
+sell_price = 140

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Sunnyside_World_Assets/Elements/Crops/pumpkin_05.png" id="2_icon"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "南瓜"
+icon = ExtResource("2_icon")
+type = "作物"
+max_stack = 99
+description = "沉甸甸的大南瓜，能卖个好价钱。"
+sell_price = 105

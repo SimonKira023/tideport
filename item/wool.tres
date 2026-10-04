@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/Farm Animals/Wool.png" id="2_wool"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wool"]
+atlas = ExtResource("2_wool")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "羊毛"
+icon = SubResource("AtlasTexture_wool")
+type = "材料"
+max_stack = 99
+description = "畜棚里羊剪下来的毛, 攒着做布料"
+sell_price = 34

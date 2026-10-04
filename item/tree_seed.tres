@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemData" format=3 uid="uid://dgrg01atdcm22"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/texture/tree_seed_icon.png" id="2_seed"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "树种子"
+icon = ExtResource("2_seed")
+type = "种子"
+max_stack = 99
+description = "种在草地上（不是田里），几天后长成一棵树。砍掉能拿木头。"
+plant_on = "草地"
+sell_price = 8

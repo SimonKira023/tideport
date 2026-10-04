@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://egrg01atdcm06"]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Sunnyside_World_Assets/Elements/Crops/potato_05.png" id="2_potato"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "土豆"
+icon = ExtResource("2_potato")
+type = "作物"
+max_stack = 99
+description = "新鲜收获的土豆，可以卖给商人换钱。"
+sell_price = 30

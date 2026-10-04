@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Icons/RPG icons/Weapons and Armor/3. Iron/Fishing Rod.png" id="2_rod"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_rod"]
+atlas = ExtResource("2_rod")
+region = Rect2(0, 0, 16, 16)
+
+[resource]
+script = ExtResource("1_item")
+display_name = "鱼竿"
+icon = SubResource("AtlasTexture_rod")
+type = "工具"
+max_stack = 1
+description = "对准水面点左键甩竿, 咬钩了再点一下就能把鱼拉上来, 雨天鱼咬得快"

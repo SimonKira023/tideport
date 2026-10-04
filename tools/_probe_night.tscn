@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://probe_night"]
+
+[ext_resource type="Script" path="res://tools/_probe_night.gd" id="1"]
+
+[node name="ProbeNight" type="Node"]
+script = ExtResource("1")

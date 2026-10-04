@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" path="res://resources/Sunnyside_World_Assets/Elements/Crops/seeds_generic.png" id="2_seed"]
+[ext_resource type="Resource" path="res://item/carrot.tres" id="3_crop"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "胡萝卜种子"
+icon = ExtResource("2_seed")
+type = "种子"
+max_stack = 99
+description = "种下后需要浇水, 3 天后长成胡萝卜; 春播的作物"
+grow_to = ExtResource("3_crop")
+grow_days = 3
+seasons = [0]
+sell_price = 7

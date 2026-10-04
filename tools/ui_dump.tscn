@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/ui_dump.gd" id="1_uidump"]
+
+[node name="UiDump" type="Node"]
+script = ExtResource("1_uidump")
