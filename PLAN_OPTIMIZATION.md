@@ -8,7 +8,7 @@
 > ~~已知噪音：light_util.gd:67 的 `canvas_occluder_polygon_set_shape` 报错~~
 > → **2026-10-06 已修（A1）**，自检日志里该报错 0 行。
 >
-> **已完成**：A1、E1（含收尾）、E2、**A2（5/5）**、**A4（2 块：sky_layer / decor_layer）**、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
+> **已完成**：A1、E1（含收尾）、E2、**A2（5/5）**、**A3-1（背包树视图）**、**A4（2 块：sky_layer / decor_layer）**、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
 
 ---
 
@@ -137,7 +137,8 @@
       ⚠️ 仍留 game.gd 的「地形生成」（`_build_terrain` / `_compute_terrain` / `_align_pond` / `_smooth_coast`）
       与三个小判定（`_in_yard` / `_is_water_like` / `_at_map_edge`）：前者是**所有模块的上游**
       （`_land_set` / `_water_set` 由它产出），后者是热路径 + 自检直接读 —— 硬拆收益低、风险高，故意不拆。
-- [ ] **A3** 拆 `backpack_ui.gd`（2923 行）：背包 / 箱子 / 赠礼 / 商店按面板分开
+- [~] **A3** 拆 `backpack_ui.gd`（3295 行）：**已开刀 1 块**（`scene/backpack/tree_views.gd` = 三个树状图视图 class）；
+      继续按面板拆（背包格子 / 制作页 / 建造页 / 日历页 …）
 - [ ] **A4** 拆 `scene/world_map.gd`（3013 行）：航海移动 / 事件 / 渲染分开
 - [ ] **A5** 根目录几十个 `*_ui.gd` 收进 `ui/` 目录，同步修 .tscn 引用
 - [ ] **A6** 拆 `tools/selftest.gd`（10553 行）→ `tools/selftest/` 多文件 + 总入口，汇总输出不变
@@ -219,9 +220,13 @@ A2（拆 game.gd）**已收口 5/5**：game.gd 从 4594 行降到 3819 行，拆
 同一套「侦查引用面 → RefCounted 模块 + `setup()` → 调用方留门面 → 全量自检拿凭证」继续切海图剩下的部分。
 下一刀建议按这个顺序（一条一验收，别贪）：
 
-1. **A3**：拆 `backpack_ui.gd`（3137 行）——背包 / 箱子 / 赠礼 / 商店按面板分开。
-   这是剩余三个「胖子」里最肥的一个，套用同一套模式：侦查引用面 → 建模块（RefCounted + `setup()`）
-   → 调用方留门面转发 → 全量自检拿凭证。
+1. **A3 已开刀（1 块）**：`backpack_ui.gd` 拆出 `scene/backpack/tree_views.gd`
+   （原文件里三个内嵌「树状图」视图 class：SkillTreeView 角色页技能树 / ClassTreeView 团队页职业树 /
+   ResearchTreeView 科技·行政页树图）。**这三个是 `extends Control` 的自包含子类（只依赖 autoload，
+   互不引用）**，所以搬法与 RefCounted 模块不同：**整个 class 原样搬到外部文件，宿主用
+   `const X = preload(...).X` 别名**，调用点（`X.new()` 与类型注解）零改动。
+   验证：全量自检 PASS + 用 `tools/ui_dump.tscn` 导出的 16 张 UI 预览图做 A/B **逐像素完全一致**。
+   后续继续按面板拆（背包格子 / 制作页 / 建造页 / 日历页 …）。
 2. **A4 续**：`scene/world_map.gd` 同法继续切（地形生成 → 城镇标记 → 军队/AI 气泡 → HUD），
    再到 **A6** `tools/selftest.gd`（10929 行）。
    注意 selftest 有大量**按源码文字 grep** 的断言，拆文件时必须同步把查处指到新文件（A2 已踩过两次）；

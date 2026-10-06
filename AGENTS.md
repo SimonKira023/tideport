@@ -59,7 +59,13 @@ scene/          场景与游戏逻辑（game.gd 是岛上总控；main_menu.tscn
                 coast_layer 岸线（沙滩+浅滩）/ water_layer 水面绘制+水碰撞。
                 调用方留门面转发，节点仍直接挂 Game 下（y_sort 不许套容器）。
   world_map.gd  航海大地图    mainland.gd  大陆据点
-  world_map/    海图拆出来的模块：sky_layer = 天色系统（色键/昼夜刷新/远帆剪影）
+  world_map/    海图拆出来的模块：sky_layer = 天色系统（色键/昼夜刷新/远帆剪影）；
+                decor_layer = 果树林 / 远洋礁石 / 码头标记 / 三条河的桥面
+  backpack/     背包面板（根目录 backpack_ui.gd）拆出来的模块：tree_views = 三个「树状图」视图
+                （SkillTreeView 技能树 / ClassTreeView 职业树 / ResearchTreeView 科技行政树）。
+                它们是 extends Control 的自包含 class，搬法与 RefCounted 模块不同 ——
+                宿主用 `const SkillTreeView = preload("res://scene/backpack/tree_views.gd").SkillTreeView`
+                别名引用，调用点零改动。
   slave_npc.gd  伙伴像素外观唯一真相源（MODELS / MODEL_MALE / model_for / tint_for）
   troop.gd      战役地图通用兵种单位（含哥布林/魔物）
   battle_map.gd 战役地图

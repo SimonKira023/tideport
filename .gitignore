@@ -74,3 +74,4 @@ __pycache__/
 # 主文件拆分前的手工备份（拆分重构期间留一份，确认无误后可删）
 /_game_gd*.bak
 /_world_map_gd*.bak
+/_backpack_ui_gd*.bak
