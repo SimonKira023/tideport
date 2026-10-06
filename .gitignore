@@ -67,5 +67,10 @@ __pycache__/
 # ===== 自检输出（每跑一次就重写，别入库）=====
 /tools/_st.txt
 /tools/_selftest_result.txt
-# game.gd 拆分前的手工备份（拆分重构期间留一份，确认无误后可删）
+# 探针/语法检查的临时日志（每次重跑就覆盖）
+/tools/_chk*.txt
+/tools/_lines.txt
+/tools/_probe_*_log.txt
+# 主文件拆分前的手工备份（拆分重构期间留一份，确认无误后可删）
 /_game_gd*.bak
+/_world_map_gd*.bak

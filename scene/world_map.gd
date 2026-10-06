@@ -1673,232 +1673,35 @@ func _build_fx() -> void:
 	_build_farboats()
 
 # ---------------- 天色系统（e15c）----------------
-# 全天色键: [小时, 覆盖色, 覆盖强度, 光盘色, 光盘强度, 光带强度]。
-# 出海时时间停摆(e13a) -> 海图定格在出发那一刻的天色: 早上出海是晨光海,
-# 晚十点回岛前是暮色海 —— 宣传片里直接拨 TimeManager.hour 就能拍黄昏。
-const SKY_KEYS := [
-	[0.0,  Color(0.05, 0.09, 0.24), 0.50, Color(0.72, 0.82, 1.00), 0.30, 0.07],
-	[4.5,  Color(0.08, 0.12, 0.28), 0.46, Color(0.72, 0.82, 1.00), 0.26, 0.07],
-	[6.0,  Color(1.00, 0.82, 0.64), 0.14, Color(1.00, 0.80, 0.55), 0.42, 0.12],
-	[8.0,  Color(1.00, 0.96, 0.88), 0.05, Color(1.00, 0.92, 0.72), 0.32, 0.09],
-	[16.0, Color(1.00, 0.94, 0.84), 0.10, Color(1.00, 0.88, 0.62), 0.34, 0.09],
-	[18.5, Color(1.00, 0.55, 0.28), 0.42, Color(1.00, 0.60, 0.34), 0.46, 0.14],
-	[20.0, Color(0.13, 0.16, 0.34), 0.46, Color(0.80, 0.86, 1.00), 0.22, 0.08],
-	[24.0, Color(0.05, 0.09, 0.24), 0.50, Color(0.72, 0.82, 1.00), 0.30, 0.07],
-]
+# 实现已搬到 scene/world_map/sky_layer.gd（RefCounted 模块）。
+# 字段 _sky_root / _grade_spr / _dn_rect / _glow / _band / _farboats / _farboat_info /
+# _sky_t / _voy_clock 全部留在本文件 —— 自检直接读写它们（wm81.set("_voy_clock", ...) 要命中的
+# 必须是宿主真字段）；_build_fx 写 _spark_holder、_physics_process 调 _refresh_sky()、
+# _sync_post 调 _sky_hours()。模块通过 _game 读写这些字段, 所以门面只做转发。
+var _sky = preload("res://scene/world_map/sky_layer.gd").new()
 
+# ❗门面里都要先 setup(self)：自检 §81 会裸 `load(...).new()` 建海图、**不进树**（_ready 不跑），
+#   然后直接 call("_sky_hours")。不在这儿补一口 setup, 模块的 _game 就是 null。幂等, 无开销。
 func _build_sky(root: Node2D) -> void:
-	# [牺牲品] 保险丝(同 battle_map._build_night 的配方): 战场实测 Movie 模式进场帧
-	#   「最先建的那批含纹理节点」可能整批不渲染, 先扔一张图外深蓝块占住名额。
-	#   海图天色窗口/Movie 双模式已探针实测正常(2026-09-20), 此块未证实必需, 留作保险。
-	var sac := Sprite2D.new()
-	var simg := Image.create_empty(256, 256, false, Image.FORMAT_RGBA8)
-	simg.fill(Color(0.05, 0.07, 0.20, 0.5))
-	sac.texture = ImageTexture.create_from_image(simg)
-	sac.position = Vector2(-20000, -20000)   # 图外远海, 不入镜
-	root.add_child(sac)
-	# 天色根: 世界层 Node2D, 跟随相机铺满屏幕; z 抬到地图装饰之上, HUD(CanvasLayer)永远在其上
-	_sky_root = Node2D.new()
-	_sky_root.name = "Sky"
-	_sky_root.z_index = 60
-	root.add_child(_sky_root)
-	var vp := get_viewport_rect().size
-	# 暖冷渐变+暗角(e12e): 160x90 纹理 LINEAR 拉伸铺屏
-	_grade_spr = Sprite2D.new()
-	_grade_spr.name = "Grade"
-	_grade_spr.texture = _grade_tex()
-	_grade_spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_grade_spr.centered = false
-	_grade_spr.scale = vp / Vector2(160, 90)
-	_sky_root.add_child(_grade_spr)
-	# 顶边远海雾：8x64 纹理拉伸铺屏（纹理只有顶部带 alpha, 大气透视的错觉）
-	var haze := Sprite2D.new()
-	haze.name = "Haze"
-	haze.texture = _haze_tex()
-	haze.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	haze.centered = false
-	haze.scale = vp / Vector2(8, 64)
-	_sky_root.add_child(haze)
-	# 昼夜覆盖色: 全屏块(load 全屏白 PNG 原生尺寸铺 + modulate 上色;
-	# 窗口/Movie 双模式探针实测渲染正常 —— 早先「不渲染」是探针带画到视野外的误判)
-	_dn_rect = Sprite2D.new()
-	_dn_rect.name = "DayNight"
-	_dn_rect.texture = load("res://resources/fx/white_screen.png")
-	_dn_rect.centered = false
-	_dn_rect.modulate = Color(1, 1, 1, 0)
-	_sky_root.add_child(_dn_rect)
-	# 太阳/月亮柔光盘 + 海面光带（都是加法混合; 根节点做缩放补偿, 子节点用屏幕坐标）
-	var add_mat := CanvasItemMaterial.new()
-	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	_glow = Sprite2D.new()
-	_glow.name = "SunMoon"
-	_glow.texture = _glow_tex()
-	_glow.material = add_mat
-	_sky_root.add_child(_glow)
-	_band = Sprite2D.new()
-	_band.name = "LightBand"
-	_band.texture = _band_tex()
-	_band.material = add_mat
-	_band.rotation_degrees = -14.0
-	_sky_root.add_child(_band)
-
-func _sky_hours() -> float:
-	# e16d: 航行中天色走演出钟（真实时刻只在落地回岛后接管）
-	if Voyage.traveling and _voy_clock >= 0.0:
-		return _voy_clock
-	# 色调钟比真实钟快 2 小时（跟岛上 game.gd 一致: 6 点就是 8 点的亮色）
-	return fmod(float(TimeManager.hour) + 2.0 + float(TimeManager.minute) / 60.0, 24.0)
-
-# 按色键插值: 返回 [覆盖色(含alpha), 光盘色, 光盘强度, 光带强度]
-func _sky_sample(t: float) -> Array:
-	var keys: Array = SKY_KEYS
-	for i in keys.size() - 1:
-		var a: Array = keys[i]
-		var b: Array = keys[i + 1]
-		if t >= float(a[0]) and t <= float(b[0]):
-			var u := (t - float(a[0])) / maxf(0.001, float(b[0]) - float(a[0]))
-			var col: Color = (a[1] as Color).lerp(b[1], u)
-			var al: float = lerpf(float(a[2]), float(b[2]), u)
-			var gc: Color = (a[3] as Color).lerp(b[3], u)
-			var ga: float = lerpf(float(a[4]), float(b[4]), u)
-			var ba: float = lerpf(float(a[5]), float(b[5]), u)
-			return [Color(col.r, col.g, col.b, al), gc, ga, ba]
-	var last: Array = keys[-1]
-	return [Color(last[1].r, last[1].g, last[1].b, float(last[2])), last[3], float(last[4]), float(last[5])]
-
-func _refresh_sky(delta: float) -> void:
-	_sky_t += delta
-	# e16d: 航行演出钟推进 —— 首次衔接出发时刻, 之后每 VOY_DAY_SEC 秒转一天
-	if Voyage.traveling:
-		if _voy_clock < 0.0:
-			_voy_clock = float(TimeManager.hour) + float(TimeManager.minute) / 60.0
-		_voy_clock = fmod(_voy_clock + delta * (24.0 / VOY_DAY_SEC), 24.0)
-	# 天色根跟随相机(世界层铺屏): 原点=屏幕左上角, 观景档拉远时 scale 反向补偿, 覆盖始终=全屏
-	if _sky_root != null:
-		var cam := get_viewport().get_camera_2d()
-		if cam != null:
-			var vp0 := get_viewport_rect().size
-			_sky_root.global_position = cam.get_screen_center_position() - vp0 * 0.5 / cam.zoom.x
-			_sky_root.scale = Vector2.ONE / cam.zoom.x
-	if _dn_rect == null:
-		return
-	var s := _sky_sample(_sky_hours())
-	_dn_rect.modulate = s[0]
-	var vp := get_viewport_rect().size
-	var t := _sky_hours()
-	# 太阳/月亮沿浅弧扫: 白天 5.5~19.5 从左到右, 夜里走另外一段
-	var day := t >= 5.5 and t < 19.5
-	var u := 0.0
-	if day:
-		u = clampf((t - 5.5) / 14.0, 0.0, 1.0)
-	else:
-		u = clampf(fposmod(t - 19.5, 24.0) / 10.0, 0.0, 1.0)
-	var gy := vp.y * (0.54 - 0.36 * sin(u * PI)) + sin(_sky_t * 0.7) * 2.0
-	_glow.position = Vector2(lerpf(vp.x * 0.12, vp.x * 0.88, u), gy)
-	_glow.modulate = Color(s[1].r, s[1].g, s[1].b, s[2])
-	# 光带: 斜搭在海面上, 缓慢呼吸
-	_band.modulate = Color(s[1].r * 0.85, s[1].g * 0.85, s[1].b, s[3] * (0.8 + 0.2 * sin(_sky_t * 0.5)))
-	_band.position = Vector2(vp.x * 0.5, vp.y * (0.34 + 0.05 * sin(_sky_t * 0.23)))
-	var bs := Vector2(vp.x * 1.9 / 256.0, vp.y * 0.42 / 24.0)
-	_band.scale = bs
-	# 粼光夜里转冷白 —— 星光落在海上的倒影感
-	if _spark_holder != null:
-		var nf := clampf(maxf((5.2 - t) / 1.6, (t - 19.8) / 1.6), 0.0, 1.0)
-		_spark_holder.modulate = Color(1, 1, 1).lerp(Color(0.72, 0.85, 1.15), nf)
-	# 远帆剪影慢漂（只在海图可见时动）
-	if visible and _farboats != null:
-		for info in _farboat_info:
-			var sp: Sprite2D = info["spr"]
-			var dir: float = float(info["speed"])
-			var nx := sp.position.x + dir * delta
-			if not is_water(Vector2(nx + signf(dir) * 10.0, sp.position.y)):
-				info["speed"] = -dir          # 到岸边就掉头, 永远漂在水上
-				nx = sp.position.x
-			sp.position.x = nx
-			sp.position.y = float(info["y0"]) + sin(_sky_t * 1.1 + float(info["ph"])) * 1.6
-
-# 顶边雾: 8x64, 从天光色 alpha 0.15 淡到 0
-func _haze_tex() -> ImageTexture:
-	var img := Image.create_empty(8, 64, false, Image.FORMAT_RGBA8)
-	var sky := Color(0.66, 0.80, 0.94)
-	for y in 64:
-		var a := 0.15 * pow(1.0 - float(y) / 63.0, 1.6)
-		for x in 8:
-			img.set_pixel(x, y, Color(sky.r, sky.g, sky.b, a))
-	return ImageTexture.create_from_image(img)
-
-# 日/月光盘: 64x64 径向柔光, (1-r)^2 衰减
-func _glow_tex() -> ImageTexture:
-	var n := 64
-	var img := Image.create_empty(n, n, false, Image.FORMAT_RGBA8)
-	var c := float(n - 1) * 0.5
-	for y in n:
-		for x in n:
-			var r := Vector2(float(x) - c, float(y) - c).length() / c
-			var a := pow(clampf(1.0 - r, 0.0, 1.0), 2.0) * 0.55
-			img.set_pixel(x, y, Color(1, 1, 1, a))
-	return ImageTexture.create_from_image(img)
-
-# 海面光带: 256x24, 横向 sin 包络 + 纵向边缘淡出
-func _band_tex() -> ImageTexture:
-	var w := 256
-	var h := 24
-	var img := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
-	for x in w:
-		var env := pow(sin(PI * float(x) / float(w - 1)), 1.5)
-		for y in h:
-			var fy := 1.0 - absf(float(y) - float(h - 1) * 0.5) / (float(h) * 0.5)
-			img.set_pixel(x, y, Color(1, 1, 1, env * fy * 0.5))
-	return ImageTexture.create_from_image(img)
-
-# 远帆剪影: 13x11 黑帆小船（深灰蓝, 半透明更远）
-func _farboat_tex() -> ImageTexture:
-	var img := Image.create_empty(13, 11, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var sil := Color(0.10, 0.13, 0.20, 0.85)
-	# 船身: 底部两行微外扩
-	for x in range(1, 12):
-		img.set_pixel(x, 9, sil)
-		img.set_pixel(x, 8, sil)
-	img.set_pixel(0, 8, sil)
-	img.set_pixel(12, 8, sil)
-	# 桅杆 + 三角帆
-	for y in range(2, 9):
-		img.set_pixel(6, y, sil)
-	for y in range(3, 8):
-		var ww := int(float(y - 2) * 0.9)
-		for x in range(7, 7 + ww):
-			img.set_pixel(x, y, Color(0.14, 0.17, 0.25, 0.7))
-	return ImageTexture.create_from_image(img)
+	_sky.setup(self)
+	_sky.build_sky(root)
 
 func _build_farboats() -> void:
-	_farboats = Node2D.new()
-	_farboats.name = "FarBoats"
-	add_child(_farboats)
-	var rnd := RandomNumberGenerator.new()
-	rnd.seed = SEED + 7777
-	var tex := _farboat_tex()
-	var made := 0
-	var tries := 0
-	while made < 3 and tries < 300:
-		tries += 1
-		var c := Vector2i(rnd.randi_range(4, MAP_W - 5), rnd.randi_range(4, MAP_H - 5))
-		if not _water.has(c) or int(_sea_d.get(c, 0)) < 2:
-			continue
-		made += 1
-		var s := Sprite2D.new()
-		s.texture = tex
-		s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		s.position = _cell_center(c)
-		s.modulate = Color(1, 1, 1, 0.55)
-		s.flip_h = rnd.randf() < 0.5
-		_farboats.add_child(s)
-		_farboat_info.append({
-			"spr": s,
-			"speed": rnd.randf_range(4.5, 8.0) * (-1.0 if s.flip_h else 1.0),
-			"y0": s.position.y,
-			"ph": rnd.randf_range(0.0, TAU),
-		})
+	_sky.setup(self)
+	_sky.build_farboats()
+
+func _sky_hours() -> float:
+	_sky.setup(self)
+	return _sky.sky_hours()
+
+func _sky_sample(t: float) -> Array:
+	_sky.setup(self)
+	return _sky.sky_sample(t)
+
+func _refresh_sky(delta: float) -> void:
+	_sky.setup(self)
+	_sky.refresh_sky(delta)
+
 
 # 全屏滤镜：只剩上暖 / 下冷的一层极淡色调（用户不要四周的暗角光晕）。
 func _grade_tex() -> ImageTexture:

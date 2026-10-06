@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://probe_seamap"]
+
+[ext_resource type="Script" path="res://tools/_probe_seamap.gd" id="1"]
+
+[node name="ProbeSeaMap" type="Node"]
+script = ExtResource("1")
