@@ -250,6 +250,42 @@ var soil: Node2D
 var g: Node2D
 var player: Node2D
 
+# ---- B2 防污染哨兵 ----
+# 自检会真跑睡觉 / 换日 / 存档流程，任何一处漏了 enabled 守卫或路径重定向，
+# 就会**悄无声息**地覆盖玩家真档。这里在开跑前记下三个真档路径的指纹，
+# 收尾时逐一比对；指纹有变就判失败。
+var _real_save_fingerprints := {}
+
+# 真档指纹：文件 -> "file:大小"；目录 -> "dir:名:大小,..."；不存在 -> "missing"
+func _dir_fingerprint(abs_path: String) -> String:
+	if FileAccess.file_exists(abs_path):
+		return "file:%d" % FileAccess.get_file_as_bytes(abs_path).size()
+	var d := DirAccess.open(abs_path)
+	if d == null:
+		return "missing"
+	var names := PackedStringArray()
+	d.list_dir_begin()
+	var n := d.get_next()
+	while n != "":
+		if not d.current_is_dir():
+			var f := FileAccess.open(abs_path + "/" + n, FileAccess.READ)
+			names.append("%s:%d" % [n, f.get_length() if f != null else -1])
+		n = d.get_next()
+	d.list_dir_end()
+	names.sort()
+	return "dir:" + ",".join(names)
+
+func _snapshot_real_saves() -> void:
+	_real_save_fingerprints.clear()
+	for p in [SaveManager.save_path, SaveManager.history_dir, SaveManager.slot_dir]:
+		_real_save_fingerprints[p] = _dir_fingerprint(SaveManager._abs(p))
+
+func _verify_real_saves_untouched() -> void:
+	for p in _real_save_fingerprints.keys():
+		var now := _dir_fingerprint(SaveManager._abs(p))
+		chk(now == _real_save_fingerprints[p],
+			"真档未被污染 %s (%s -> %s)" % [p, _real_save_fingerprints[p], now])
+
 func _ready() -> void:
 	# 兜底：万一中途报错、走不到最后的 quit()，别让这个进程一直挂着不动
 	var guard := Timer.new()
@@ -264,6 +300,7 @@ func _ready() -> void:
 	# ❗存档系统必须先关掉：自检会真的跑睡觉换日流程，
 	#   不关的话测试会把真实存档覆盖掉、game._ready 还会把旧档读进测试现场。
 	SaveManager.enabled = false
+	_snapshot_real_saves()      # B2：先记下真档指纹，收尾比对（防悄悄泄档）
 	g = load("res://scene/game.tscn").instantiate()
 	add_child(g)
 	await get_tree().process_frame
@@ -3158,11 +3195,13 @@ func _ready() -> void:
 
 	# 找一格「无田、无树、无地板、非水、非桥」的草地做实验
 	var sav_cell := Vector2i(-999, -999)
+	# ❗每夜补植走 rng.randomize()，每次跑自检长出来的树/石都不一样 ——
+	#   选实验格必须把「后面要用到的那几格」也一起验，否则断言会随机红（实测踩过）。
 	for c34 in g._land_set.keys():
 		var cv34: Vector2i = c34
 		if not Farm.tilled.has(cv34) and not Trees.has_tree(cv34) \
 				and not Floor.is_floored(cv34) and not g.is_water(cv34) \
-				and not g.is_bridge_cell(cv34):
+				and not g.is_bridge_cell(cv34) and not OreVein.is_blocked(cv34):
 			sav_cell = cv34
 			break
 	chk(sav_cell.x != -999, "找到实验用草地 %s" % sav_cell)
@@ -3170,7 +3209,11 @@ func _ready() -> void:
 	Farm.water(sav_cell)
 	Farm.plant(sav_cell, load("res://item/seed.tres"))
 	Floor.place(sav_cell + Vector2i(1, 0))
-	Trees.plant(sav_cell + Vector2i(2, 0), 1, Trees.ST_YOUNG)
+	# sav_cell + (2,0) 可能已被随机长出的树/石占了，先清干净再种 —— 否则 plant 静默返回 false，
+	# 后面「树的数据还原」就会拿着「原来那棵」去比 stage，随机红。
+	Trees.clear_cell(sav_cell + Vector2i(2, 0))
+	OreVein.clear_cell(sav_cell + Vector2i(2, 0))
+	chk(Trees.plant(sav_cell + Vector2i(2, 0), 1, Trees.ST_YOUNG), "实验树种上了")
 	Slaves.slaves = [{"name": "存档测试员", "affection": 4,
 		"fed_today": true, "talked_today": false}]
 	Slaves.count = 1
@@ -11378,6 +11421,8 @@ func _ready() -> void:
 	Slaves.slaves = slaves_bak107
 	Slaves.count = count_bak107
 	Marriage.reset()
+
+	_verify_real_saves_untouched()      # B2：真档一个字节都不许动
 
 	print("\n========================================")
 	if fails == 0:
