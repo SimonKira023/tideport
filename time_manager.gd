@@ -10,6 +10,14 @@ const DAYS_PER_SEASON := 28
 const START_HOUR := 6
 const REAL_SECONDS_PER_10MIN := 5.0   # e29g: 现实5秒 = 游戏10分钟(原7秒) —— 一天14分钟压到10分钟, 更紧凑; 出海时间已完全停止(e13a), 此常量只管岛上
 
+# 色调钟统一提前量（小时）—— 只管「画面颜色渲染」, 不动时间玩法本身。
+# 2026-10-06 作者要求: 全天颜色渲染提前两小时, 让黄昏色系更早到来、早上更像中午一点。
+# 各渲染器的原基准本来就不齐: 岛上昼夜色调(day_night)/阳光(sun_light)/角色影子(player)/
+# 路灯(lamp_node) 走真实钟; 后处理夜度(game._sync_post)/海图天色(sky_layer) 原本已比真实钟快 2 小时。
+# 现在各处一律在**各自原基准**上再提前这么多小时, 全天色调就同步提早, 且不改任何 gameplay 判定。
+# 以后想再挪: 只改这一个数（各渲染器读的都是 TimeManager.TONE_ADVANCE, 别再各写死 +2）。
+const TONE_ADVANCE := 2.0
+
 var year := 1
 var season := 0        # 0春 1夏 2秋 3冬
 var day := 1           # 当季第几天

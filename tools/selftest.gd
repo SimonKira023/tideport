@@ -8299,7 +8299,7 @@ func _ready() -> void:
 	wm81.set("_voy_clock", -1.0)
 	var trav_bak81: bool = Voyage.traveling
 	Voyage.traveling = true            # 演出钟只在航行中接管(不在海图上时天色跟钟)
-	chk(absf(float(wm81.call("_sky_hours")) - 17.0) < 0.2, "未起钟: 天色跟真实时刻+2 (色调钟快 2 小时)")
+	chk(absf(float(wm81.call("_sky_hours")) - 19.0) < 0.2, "未起钟: 天色跟真实时刻+4 (色键基准快2 + TONE_ADVANCE 2)")
 	wm81.set("_voy_clock", 18.5)
 	chk(absf(float(wm81.call("_sky_hours")) - 18.5) < 0.2, "起钟后: 天色走演出钟(黄昏)")
 	chk(TimeManager.hour == 15 and TimeManager.minute == 0, "演出钟不碰 TimeManager")

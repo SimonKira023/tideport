@@ -119,6 +119,7 @@ soft_res.gd     第三方素材「软加载」助手（缺失留空不崩，别�
 | 头顶/脚下坐标 | `Farm.TILE_SIZE` / `Farm.grid_origin` |
 | 存档写档时机 | **只有每天早上 6 点**（`game.gd` 两处），关窗兜底已按设计删除，**不要加回来** |
 | 婚恋 | `marriage.gd`（`BRIDES` / 判定）+ `scripts_marriage.gd`（台词工厂，static） |
+| 颜色渲染提前量 | `time_manager.gd` 的 **`TONE_ADVANCE`**（昼夜色调/阳光/角色影子/路灯/后处理夜度/海图天色统一读它，别再各写死 +2） |
 
 ## 7. 工作方式约定（作者对 AI 的期待）
 

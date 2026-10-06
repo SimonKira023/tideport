@@ -15,7 +15,9 @@ func _ready() -> void:
 	_update_target()
 
 func _update_target() -> void:
-	var h := TimeManager.hour + TimeManager.minute / 60.0
+	# 取「色调钟」= 真实钟 + TONE_ADVANCE（见 time_manager.gd）: 全天色调统一提早,
+	# 黄昏更早沉、早上更亮。_color_at 本身仍是「按色调钟查色」的纯函数(自检直接调它验色)。
+	var h: float = TimeManager.hour + TimeManager.minute / 60.0 + TimeManager.TONE_ADVANCE
 	_target = _color_at(h)
 
 # 每帧平滑过渡到目标颜色，避免突变

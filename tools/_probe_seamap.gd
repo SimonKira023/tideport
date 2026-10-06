@@ -14,6 +14,10 @@ const OUT := "res://outputs"
 var fails := 0
 var wm: Node2D
 
+# 把天色拨到某个「天色时刻」。偏移不写死: 开局先量一次「天色钟 - 真实钟」,
+# 以后加/减 TONE_ADVANCE 探针自动跟。
+var sky_ahead := 4.0
+
 func _ready() -> void:
 	await get_tree().process_frame
 	SaveManager.enabled = false
@@ -52,6 +56,32 @@ func _ready() -> void:
 	var fb := wm.get_node_or_null("FarBoats")
 	_ck(fb != null and fb.get_child_count() == 3, "远帆剪影 3 艘都建了（%d）" % (0 if fb == null else fb.get_child_count()))
 
+	# A4-2 装饰层拆出后: 这几组必须是**直接挂海图根下**的容器, 且 _trees_root 指的就是它
+	# （观景档拉远靠 _trees_root 整体显隐救帧率, 指丢了两档缩放就散了）
+	var trees := wm.get_node_or_null("Trees")
+	var rocks := wm.get_node_or_null("Rocks")
+	var docks := wm.get_node_or_null("DockMarks")
+	var bridges := wm.get_node_or_null("Bridges")
+	_ck(trees != null and trees.get_parent() == wm and trees.get_child_count() > 0,
+		"果树林 Trees 直接挂海图根下（%d 棵）" % (0 if trees == null else trees.get_child_count()))
+	# 礁石按 0.92 稠密噪声阈值撒，固定种子下**一块都不出**（A/B 实测: 切分前也是 0 块）
+	# → 只验容器就位 + 父级是海图根, 别断言数量（数量是内容问题, 不是结构问题）
+	_ck(rocks != null and rocks.get_parent() == wm,
+		"远洋礁石 Rocks 直接挂海图根下（本种子 %d 块）" % (0 if rocks == null else rocks.get_child_count()))
+	_ck(docks != null and docks.get_child_count() == 2, "两头码头标记 2 个")
+	_ck(bridges != null and bridges.get_child_count() > 0,
+		"三条河的桥面就位（%d 格）" % (0 if bridges == null else bridges.get_child_count()))
+	_ck(wm._trees_root == trees, "_trees_root 仍指着 Trees 容器（观景档显隐靠它）")
+
+
+	# 量一次「天色钟 - 真实钟」的总偏移(别写死: 以后改 TONE_ADVANCE 探针自动跟)
+	wm.set("_voy_clock", -1.0)
+	TimeManager.hour = 12
+	TimeManager.minute = 0
+	sky_ahead = float(wm._sky_hours()) - 12.0
+	print("  [天色] 天色钟比真实钟快 %.1f 小时" % sky_ahead)
+
+
 	await _shot_at(12.0, "1_day", "正午")
 	await _shot_at(18.5, "2_dusk", "黄昏")
 	await _shot_at(23.0, "3_night", "深夜")
@@ -76,9 +106,9 @@ func _ck(cond: bool, msg: String) -> void:
 		fails += 1
 		print("  [!!] " + msg)
 
-# 把天色拨到某个「天色时刻」（_sky_hours 比真实钟快 2 小时, 所以真实钟要减 2）
+# 把天色拨到某个「天色时刻」。偏移 sky_ahead 在 _ready 里量出(天色钟 - 真实钟), 别写死。
 func _shot_at(sky_hour: float, nm: String, label: String) -> void:
-	var real := sky_hour - 2.0
+	var real := sky_hour - sky_ahead
 	TimeManager.hour = int(floor(real))
 	TimeManager.minute = int(round(fmod(real, 1.0) * 60.0))
 	wm.set("_voy_clock", -1.0)          # 非航行: 天色跟真实钟

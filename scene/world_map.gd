@@ -1068,178 +1068,31 @@ func R(img: Image, x0: int, y0: int, x1: int, y1: int, c: Color) -> void:
 		for x in range(x0, x1 + 1):
 			P(img, x, y, c)
 
-# ---------------- 树 / 礁石 / 码头标记（纯装饰，不挡船） ----------------
-# e19: 树换成素材果树成树帧(战场同款 Cherry/Apricot 32x48, 帧号 6/3) ——
-# 旧的 14x18 程序三角树太简陋(用户点名)。缩 0.9 贴 16px 格, NEAREST 干净像素。
-const MAP_TREES := [
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Crops/Fruits Tree/Spring/Cherry Tree.png",
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Crops/Fruits Tree/Spring/Apricot Tree.png",
-]
-const MAP_TREE_FRAME := [6, 3]        # 两种果树的「成树」帧号（同 scene/tree_node.gd）
-const MAP_TREE_W := 32
-const MAP_TREE_H := 48
+# ---------------- 树 / 礁石 / 码头标记（纯装饰，不挡船）----------------
+# 实现已搬到 scene/world_map/decor_layer.gd（RefCounted 模块）。
+# 这些 Sprite2D 仍直接挂在海图根节点下（参与 z 排序；Trees 容器被 _physics_process 整体显隐），
+# 所以模块只「建 + g.add_child()」。_trees_root / dock_* / _land / _water / _sea_d / _town_marks
+# 都是宿主真字段，自检也直接读 —— 一律留在本文件。
 var _trees_root: Node2D = null        # 全部树 Sprite2D 的容器（观景档整屏拉远时整体藏掉救帧率）
+var _decor = preload("res://scene/world_map/decor_layer.gd").new()
 
+# ❗门面每次先 setup(self)：自检可能裸 load().new() 建海图、不进树（_ready 不跑）。幂等, 无开销。
 func _scatter_trees() -> void:
-	var noise := FastNoiseLite.new()
-	noise.seed = SEED + 999
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.11
-	var texs: Array = []
-	for k in MAP_TREES.size():
-		var at := AtlasTexture.new()
-		# 第三方素材不入库(见 README), 缺失时留空不崩
-		at.atlas = SoftRes.tex(MAP_TREES[k])
-		at.region = Rect2(float(MAP_TREE_FRAME[k] * MAP_TREE_W), 0.0,
-			float(MAP_TREE_W), float(MAP_TREE_H))
-		texs.append(at)
-	var bridge_set := {}
-	for bc in _bridge_cells():
-		bridge_set[bc] = true
-	var holder := Node2D.new()
-	holder.name = "Trees"
-	add_child(holder)
-	_trees_root = holder
-	for c in _land.keys():
-		var v := (noise.get_noise_2d(float(c.x), float(c.y)) + 1.0) * 0.5
-		if v < 0.72:
-			continue
-		# 码头附近留空，别把路挡了
-		if _cell_center(c).distance_to(dock_island) < 40.0 \
-				or _cell_center(c).distance_to(dock_continent) < 40.0:
-			continue
-		# 岛上两座木桥的桥面留空：树长在桥上像话吗
-		if bridge_set.has(c):
-			continue
-		# 城镇周围也留空：旗子和小房不跟树挤在一块
-		var near_town := false
-		for m in _town_marks:
-			if _cell_center(c).distance_to(m["pos"]) < 30.0:
-				near_town = true
-				break
-		if near_town:
-			continue
-		var s := Sprite2D.new()
-		s.texture = texs[absi(c.x * 13 + c.y * 7) % 2]   # 樱桃 / 杏树 交替，陆地不至一片同款
-		s.position = _cell_center(c) + Vector2(0, -6)
-		holder.add_child(s)
+	_decor.setup(self)
+	_decor.scatter_trees()
 
-# 礁石：远洋里稀疏撒几块，给空旷的海面一点地标（不影响航行）
 func _scatter_rocks() -> void:
-	var noise := FastNoiseLite.new()
-	noise.seed = SEED + 4242
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.3
-	var tex := _rock_tex()
-	var holder := Node2D.new()
-	holder.name = "Rocks"
-	add_child(holder)
-	for c in _water.keys():
-		if int(_sea_d.get(c, 0)) < 3:       # 只挑够深的水，别糊在岸边
-			continue
-		if (noise.get_noise_2d(float(c.x), float(c.y)) + 1.0) * 0.5 < 0.92:
-			continue
-		var s := Sprite2D.new()
-		s.texture = tex
-		s.position = _cell_center(c) + Vector2(0, -2)
-		holder.add_child(s)
+	_decor.setup(self)
+	_decor.scatter_rocks()
 
-func _rock_tex() -> ImageTexture:
-	var img := Image.create_empty(14, 12, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	R(img, 1, 8, 12, 9, Color(0.86, 0.94, 0.96, 0.85))      # 脚下一圈白浪
-	var stone := Color(0.44, 0.46, 0.50)
-	var stone_l := Color(0.58, 0.60, 0.64)
-	for p in [Vector2i(3, 7), Vector2i(4, 6), Vector2i(5, 7), Vector2i(5, 5),
-			Vector2i(6, 4), Vector2i(6, 5), Vector2i(6, 6), Vector2i(6, 7),
-			Vector2i(7, 5), Vector2i(7, 6), Vector2i(7, 7), Vector2i(8, 6),
-			Vector2i(8, 7), Vector2i(9, 7)]:
-		img.set_pixel(p.x, p.y, stone)
-	for p in [Vector2i(5, 5), Vector2i(6, 4), Vector2i(7, 5)]:
-		img.set_pixel(p.x, p.y, stone_l)
-	return ImageTexture.create_from_image(img)
-
-# 两头码头在海图上的标记：走到这儿按 F 返航 / 上岸，一眼看得见该去哪儿
 func _build_dock_marks() -> void:
-	var tex := _dock_tex()
-	var holder := Node2D.new()
-	holder.name = "DockMarks"
-	add_child(holder)
-	for p in [dock_island, dock_continent]:
-		var s := Sprite2D.new()
-		s.texture = tex
-		s.position = p + Vector2(0, -6)
-		holder.add_child(s)
-
-func _dock_tex() -> ImageTexture:
-	var img := Image.create_empty(16, 14, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var wood := Color(0.58, 0.40, 0.23)
-	var wood_d := Color(0.43, 0.29, 0.16)
-	for x in 14:                            # 桥面横板（每 4 像素一条板缝）
-		img.set_pixel(x + 1, 4, wood if x % 4 != 3 else wood_d)
-		img.set_pixel(x + 1, 5, wood_d)
-	for y in range(6, 12):                  # 两根桩
-		img.set_pixel(3, y, wood_d)
-		img.set_pixel(12, y, wood_d)
-	return ImageTexture.create_from_image(img)
-
-# 河上的木桥：三条河（出发岛小河 + 中部东西长河 + 西部南北河）的桥线豁出的格子
-# 盖一层木板桥面，跟岛上（game.gd）两座桥的规矩对上。
-func _bridge_cells() -> Array:
-	var out: Array = []
-	# 出发岛小河：南北河道, 桥是东西走向的整行
-	for y in ISLAND_BRIDGE_ROWS:
-		var rc := float(ISLAND_CENTER.x) \
-			+ sin(float(y) * ISLAND_RIVER_FREQ + ISLAND_RIVER_PHASE) * ISLAND_RIVER_WOBBLE
-		for x in range(int(floor(rc - 1.6)), int(ceil(rc + 1.6))):
-			var c := Vector2i(x, y)
-			if _land.has(c):
-				out.append(c)
-	# 中部东西长河：东西河道, 桥是南北走向的整列
-	for x in RIVER_EW_BRIDGE_COLS:
-		var ry := RIVER_EW_Y \
-			+ sin(float(x) * RIVER_EW_FREQ + RIVER_EW_PHASE) * RIVER_EW_WOBBLE
-		for y in range(int(floor(ry - RIVER_EW_HALF)), int(ceil(ry + RIVER_EW_HALF))):
-			var c := Vector2i(x, y)
-			if _land.has(c):
-				out.append(c)
-	# 西部南北河：南北河道, 桥是东西走向的整行
-	for y in RIVER_W_BRIDGE_ROWS:
-		var cx := RIVER_W_X \
-			+ sin(float(y) * RIVER_W_FREQ + RIVER_W_PHASE) * RIVER_W_WOBBLE
-		for x in range(int(floor(cx - RIVER_W_HALF)), int(ceil(cx + RIVER_W_HALF))):
-			var c := Vector2i(x, y)
-			if _land.has(c):
-				out.append(c)
-	return out
+	_decor.setup(self)
+	_decor.build_dock_marks()
 
 func _build_bridges() -> void:
-	var tex := _bridge_tex()
-	var holder := Node2D.new()
-	holder.name = "Bridges"
-	add_child(holder)
-	for c in _bridge_cells():
-		var s := Sprite2D.new()
-		s.texture = tex
-		s.position = _cell_center(c)
-		holder.add_child(s)
+	_decor.setup(self)
+	_decor.build_bridges()
 
-func _bridge_tex() -> ImageTexture:
-	var img := Image.create_empty(16, 16, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var wood := Color(0.58, 0.40, 0.23)
-	var wood_d := Color(0.43, 0.29, 0.16)
-	for y in 16:
-		for x in 16:
-			var c := wood if y % 4 != 3 else wood_d    # 横板缝（板东西向铺）
-			if x <= 1 or x >= 14:
-				c = wood_d                              # 东西两侧栏杆
-			img.set_pixel(x, y, c)
-	for y in range(2, 16, 5):               # 几颗铆钉点缀
-		img.set_pixel(0, y, wood)
-		img.set_pixel(15, y, wood)
-	return ImageTexture.create_from_image(img)
 
 # ---------------- 城镇标记 ----------------
 # 大陆上 12 座城镇按 kind 拼出不同的城（素材跟岛上同一套 Tiny Asset Pack）：

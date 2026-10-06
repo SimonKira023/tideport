@@ -101,6 +101,9 @@ func _ready() -> void:
 	_shadow = preload("res://scene/shadow_util.gd").make_shadow(18, 7, 0.30)
 	_shadow.position = Vector2(0, -7)
 	add_child(_shadow)
+	# q1 光影追踪：身体当遮挡体 —— 路灯/篝火/太阳的光都会被人体真实挡住，
+	#   走到光源另一侧时影子拉长扫动。矩形按身体可见像素 (x -6..5 / y -26..-7) 内缩 1px
+	add_child(preload("res://scene/light_util.gd").occluder_rect(Rect2(-5, -25, 10, 18)))
 	# g3: 主角提灯已整个删掉 —— 用户不要身边的光圈, 夜里跟着 CanvasModulate 一起暗
 	_build_body_frames()
 	_build_action_frames()
@@ -111,7 +114,8 @@ func _ready() -> void:
 # 太阳低的时候影子拉长、还偏向一边；正午收成一小团；深夜淡得快看不见。
 # g3: 提灯光圈整个删掉了（用户要求）—— 昼夜明暗全归 CanvasModulate 管。
 func _process(delta: float) -> void:
-	var h: float = TimeManager.hour
+	# 影子随太阳走, 用「色调钟」(真实钟 + TONE_ADVANCE), 跟 sun_light/昼夜色调同一套基准
+	var h: float = TimeManager.hour + TimeManager.TONE_ADVANCE
 	var k := minf(2.5 * delta, 1.0)
 	if _shadow != null:
 		var m := absf(h - 12.5)                                # 离正午多远

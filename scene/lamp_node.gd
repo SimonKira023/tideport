@@ -16,8 +16,8 @@ const RECT_LIT := Rect2(36, 1, 25, 37)     # 图集右半边：点着
 const IMG_W := 25.0
 const IMG_H := 37.0
 
-const ON_HOUR := 18.5      # 天擦黑就点灯
-const OFF_HOUR := 6.5      # 天亮了熄灯
+const ON_HOUR := 18.5      # 天擦黑就点灯（色调钟；实际约真实 16:30, 见 _sync_lamp 的 TONE_ADVANCE）
+const OFF_HOUR := 6.5      # 天亮了熄灯（色调钟；实际约真实 4:30）
 
 var cell := Vector2i.ZERO     # 所在格子
 var kind := "lamp"            # Structures.KIND_LAMP
@@ -53,6 +53,10 @@ func _ready() -> void:
 
 	add_child(preload("res://scene/shadow_util.gd").make_shadow(20, 7, 0.22))
 
+	# q1 光影追踪：灯柱当遮挡体。❗只放光心 (0,-27) 以下（y=-24 起往下）——
+	#   遮挡体若包住光心，整盏灯会把自己罩黑全场。
+	add_child(preload("res://scene/light_util.gd").occluder_rect(Rect2(-2.5, -24, 5, 24)))
+
 	# 灯下那圈暖光。e36e 定下来的亮度：光斑 128*1.15≈147，只在灯下留一圈亮，
 	# 走出去就暗下来 —— 路灯是一片而不是一盏大灯。
 	_light = preload("res://scene/light_util.gd").make_light(Color(1.0, 0.72, 0.40), 0.9, 1.15, 2.2)
@@ -80,7 +84,8 @@ func _ready() -> void:
 
 # 天黑点灯 / 天亮熄灯（force=true 时立刻切，刚放下那一下用）
 func _sync_lamp(force: bool) -> void:
-	var h := TimeManager.hour + TimeManager.minute / 60.0
+	# 跟着「色调钟」走: 昼夜色提前两小时, 路灯也提前点/熄, 免得天色已暮灯还黑着
+	var h: float = TimeManager.hour + TimeManager.minute / 60.0 + TimeManager.TONE_ADVANCE
 	var want := h >= ON_HOUR or h < OFF_HOUR
 	if want == _lit and not force:
 		return

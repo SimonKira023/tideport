@@ -537,7 +537,7 @@ func _process(delta: float) -> void:
 func _sync_post(delta: float) -> void:
 	if _post_mat == null:
 		return
-	var want := _night_at(fmod(TimeManager.hour + 2.0 + TimeManager.minute / 60.0, 24.0))
+	var want := _night_at(fmod(TimeManager.hour + 2.0 + TimeManager.TONE_ADVANCE + TimeManager.minute / 60.0, 24.0))
 	_post_night = move_toward(_post_night, want, delta * 0.5)
 	_post_mat.set_shader_parameter("night", _post_night)
 	# 雨夜湿地反光：亮源往下淌光晕（风暴更湿），雨停后地面慢慢"晾干"
@@ -552,7 +552,8 @@ func _sync_post(delta: float) -> void:
 	_post_mat.set_shader_parameter("ca", clampf(_post_night * 0.7 + _post_wet * 0.4, 0.0, 1.0))
 
 # 夜度曲线：8~17 点纯白天；17~21 点天在暗；21~5 点最暗；5~8 点天在亮
-# 色调钟比真实钟快 2 小时 —— 6 点就亮成白天, 15 点开始擦黑, 19 点全黑, 凌晨 3 点开始蒙蒙亮
+# 色调钟比真实钟快 4 小时（原 2 小时 + TONE_ADVANCE 2 小时）—— 6 点就亮成白天,
+# 13 点开始擦黑, 17 点全黑, 凌晨 1 点开始蒙蒙亮。_night_at 只认「色调钟」, 偏移在调用处加。
 func _night_at(h: float) -> float:
 	if h >= 8.0 and h < 17.0:
 		return 0.0
