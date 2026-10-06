@@ -71,6 +71,10 @@ __pycache__/
 /tools/_chk*.txt
 /tools/_lines.txt
 /tools/_probe_*_log.txt
+# 自检 / UI 导出的一次性日志（多会话并行时改用独立文件名，避免共用 _st.txt 互相覆盖）
+/tools/_st_*.txt
+/tools/_uidump*.txt
+/tools/_restore*.txt
 # 主文件拆分前的手工备份（拆分重构期间留一份，确认无误后可删）
 /_game_gd*.bak
 /_world_map_gd*.bak

@@ -215,6 +215,31 @@ func _ready() -> void:
 	Slaves.research_admin = radmin_backup
 	Research.changed.emit()
 	await get_tree().process_frame
+	# ---------- 场景 4.6：物品制作页（个人 / 工作台 / 铁匠铺 三档分段） ----------
+	# 制作页三档配方叠起来比屏幕还高, 靠**页内滚动**兜底 —— 三档各来一张, 看底边有没有被面板裁掉。
+	Inventory.add_item(load("res://item/potato.tres"), 8)
+	Inventory.add_item(load("res://item/carrot.tres"), 8)
+	Inventory.add_item(load("res://item/wood.tres"), 30)
+	var bp46: Control = load("res://backpack_ui.gd").new()
+	root.add_child(bp46)
+	await get_tree().process_frame
+	bp46.open()
+	bp46._select_module("craft")
+	for i in 3:
+		await get_tree().process_frame
+	_dump(bp46, "craft_base")
+	bp46._select_craft_sub("wb")
+	for i in 3:
+		await get_tree().process_frame
+	_dump(bp46, "craft_wb")
+	bp46._select_craft_sub("smith")
+	for i in 3:
+		await get_tree().process_frame
+	_dump(bp46, "craft_smith")
+	bp46.close()
+	bp46.queue_free()
+	await get_tree().process_frame
+
 	# 留两个人在研究里，好让派活面板的 [科]/[行] 标记出现在预览图上
 	Slaves.research_tech = [1]
 	Slaves.research_admin = [3]
