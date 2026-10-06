@@ -257,7 +257,6 @@ var _post_mat: ShaderMaterial = null   # e31 全屏后处理材质（每帧喂 n
 var _post_night := 0.0                 # 平滑过的夜度: 0=白天 1=深夜
 var _post_wet := 0.0                   # 平滑过的湿地反光度（雨天渐入/雨停慢慢干）
 var shore_layer: TileMapLayer      # 池塘浅滩色带（水面之上、草地之下）
-var decor_layer: TileMapLayer      # 草地上的花草点缀（草地之上、耕地之下）
 var border_layer: TileMapLayer     # 耕地四周的过渡地形（田埂/土路，草地之上、耕地之下）
 var backpack_panel: Control = null # 背包面板（按 B 开关）
 var shop_panel: Control = null     # 商人交易面板（走近商人按 F 打开）
@@ -2227,93 +2226,19 @@ func _blend_px(img: Image, x: int, y: int, col: Color) -> void:
 		+ Vector3(old.r, old.g, old.b) * old.a * (1.0 - col.a)) / a
 	img.set_pixel(x, y, Color(rgb.x, rgb.y, rgb.z, a))
 
-# ---------------- 草地上的花草点缀 ----------------
-# 遍历每一格草地，按概率撒草丛 / 小花 / 蘑菇。
-# 跳过水面（池塘）和耕地 —— 田里长草会很怪。
+# ---------------- 草地花草点缀（阶段 1-1：实现已搬到 scene/game/decor_layer.gd）----------------
+# 模块负责遍历草地撒草丛/花/蘑菇，并把 DecorTileMapLayer 挂到 Game 下。
+# 下面两个是门面：_build_critters 拿花格当蝴蝶锚点、_build_border 按它排层。
+var _decor = preload("res://scene/game/decor_layer.gd").new()
+
+# 兼容旧字段名：_build_critters / _build_border 都在读 game.decor_layer。
+var decor_layer: TileMapLayer:
+	get:
+		return _decor.decor_layer
+
 func _build_decor() -> void:
-	var tex: Texture2D = SoftRes.tex(PROP_SHEET)
-	if tex == null or grid_layer.tile_set == null:
-		return
-	var grass_cells := grid_layer.get_used_cells()
-	if grass_cells.is_empty():
-		return
-
-	var atlas := TileSetAtlasSource.new()
-	atlas.texture = tex
-	var palette: Array = []
-	palette.append_array(DECOR_MUSHROOM)
-	palette.append_array(DECOR_FLOWER)
-	palette.append_array(DECOR_TUFT)
-	for t in palette:
-		if not atlas.has_tile(t):
-			atlas.create_tile(t)
-	var ts := TileSet.new()
-	ts.tile_size = grid_layer.tile_set.tile_size
-	ts.add_source(atlas, DECOR_SRC)
-
-	decor_layer = TileMapLayer.new()
-	decor_layer.name = "DecorTileMapLayer"
-	decor_layer.tile_set = ts
-	decor_layer.position = grid_layer.position
-	add_child(decor_layer)
-	move_child(decor_layer, grid_layer.get_index() + 1)     # 草地之上、耕地之下
-
-	var rng := RandomNumberGenerator.new()
-	rng.seed = DECOR_SEED
-	# 低频噪声：这一步是「好看」的关键 —— 均匀撒出来像花毯，有了疏密才像野地
-	var noise := FastNoiseLite.new()
-	noise.seed = DECOR_SEED
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = DECOR_NOISE_FREQ
-	# 花圃噪声：更低频的一层, 高值区整片是花（花海）, 低值区几乎只有草丛
-	var field_noise := FastNoiseLite.new()
-	field_noise.seed = DECOR_SEED + 7
-	field_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	field_noise.frequency = DECOR_FIELD_FREQ
-	var placed := 0
-	var n_mushroom := 0
-	var n_flower := 0
-	var n_tuft := 0
-	for c in grass_cells:
-		if water_layer.get_cell_source_id(c) != -1:
-			continue
-		if beach_layer != null and beach_layer.get_cell_source_id(c) != -1:
-			continue       # 沙滩是过渡带，上面不长花
-		if Farm.tilled.has(c):
-			continue
-		var n := (noise.get_noise_2d(float(c.x), float(c.y)) + 1.0) * 0.5      # 0~1
-		# 基础密度收紧（留白更多）; 花圃区里用花圃强度兜底, 疏密对比更强
-		var density := smoothstep(0.34, 0.92, n) * DECOR_MAX_DENSITY
-		var field := smoothstep(0.66, 0.90,
-			(field_noise.get_noise_2d(float(c.x), float(c.y)) + 1.0) * 0.5)
-		if field > 0.0:
-			density = maxf(density, field * DECOR_FIELD_DENSITY)
-		if rng.randf() >= density:
-			continue
-		# 花圃里花的占比被拉高、蘑菇近乎绝迹; 区外回归「草丛为主, 花是点缀」
-		var flower_share := lerpf(DECOR_FLOWER_SHARE, 0.72, field)
-		var mush_share := lerpf(DECOR_MUSHROOM_SHARE, 0.015, field)
-		var tuft_band := 1.0 - (mush_share + flower_share)
-		var r := rng.randf()
-		var pick := Vector2i(-1, -1)
-		var kind := ""
-		if r < tuft_band:
-			pick = DECOR_TUFT[rng.randi() % DECOR_TUFT.size()]
-			kind = "草丛"
-		elif r < tuft_band + flower_share:
-			pick = DECOR_FLOWER[rng.randi() % DECOR_FLOWER.size()]
-			kind = "花"
-		else:
-			pick = DECOR_MUSHROOM[rng.randi() % DECOR_MUSHROOM.size()]
-			kind = "蘑菇"
-		decor_layer.set_cell(c, DECOR_SRC, pick)
-		placed += 1
-		match kind:
-			"蘑菇": n_mushroom += 1
-			"花": n_flower += 1
-			"草丛": n_tuft += 1
-	print("[点缀] 草地 %d 格里撒了 %d 处(约 %.0f%%):草丛 %d / 花 %d / 蘑菇 %d"
-		% [grass_cells.size(), placed, 100.0 * placed / grass_cells.size(), n_tuft, n_flower, n_mushroom])
+	_decor.setup(self)
+	_decor.build()
 
 # ---------------- 草地小动物（鸽子 / 蝴蝶，e29e） ----------------
 # 素材包盘点的产出：鸽子在草地上啄食溜达、玩家靠近惊飞；蝴蝶绕着花丛飘。
