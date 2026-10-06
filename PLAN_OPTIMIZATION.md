@@ -7,7 +7,7 @@
 > ~~已知噪音：light_util.gd:67 的 `canvas_occluder_polygon_set_shape` 报错~~
 > → **2026-10-06 已修（A1）**，自检日志里该报错 0 行。
 >
-> **已完成**：A1、E1（含收尾）、E2、A2（3/5）、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
+> **已完成**：A1、E1（含收尾）、E2、A2（4/5）、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
 
 ---
 
@@ -120,13 +120,17 @@
       ✅ 2026-10-06：`light_util.make_occluder` 加退化保护；`tree_node.gd` 改成一次给全八边形。
       自检日志里该报错 **0 行**（改前刷几百行）。
 - [~] **A2** 拆 `scene/game.gd` → `scene/game/` 子模块：地形生成 / 建筑 / 派活接线 / 植被 / 水与游泳，game.gd 只留总控
-      ⏳ 2026-10-06 **进度 3/5**：
+      ⏳ 2026-10-06 **进度 4/5**：
       · ①「树木」→ `scene/game/tree_layer.gd`（208 行实现，game.gd 只留 38 行门面）
       · ②「岩石 / 铁矿」→ `scene/game/rock_layer.gd`（开局撒石 / 敲石结算 / 掉落 / 每夜补石 / 读档重建）
       · ③「花草点缀」→ `scene/game/decor_layer.gd`（84 行实现；`decor_layer` 走属性转发，`DECOR_*` 常量留 game）
+      · ④「岸线（沙滩 + 浅滩）」→ `scene/game/coast_layer.gd`（_build_beach / _build_shore / 三个掩码 /
+        `_draw_band_tile` / `_blend_px`；图层节点仍挂 Game 下，因 `_apply_layer_z` 与 `_build_bridges`
+        要按**层序**插层。`_edge_mask` / `_grass_sand_mask` / `_blend_px` 留门面给自检与田埂复用）
       · 顺手把「每夜补植」里属于树/石的 `_respawn_trees` / `_respawn_rocks` 也搬进各自模块
-      game.gd **4594 → 4175 行**（累计净减 419 行）；显示节点仍直接挂 Game 下保 y_sort。
-      剩余两块照同一套模式搬：水与游泳 → 地形生成。
+      game.gd **4594 → 4003 行**（累计净减 591 行）；显示节点仍直接挂 Game 下保 y_sort。
+      ⚠️ 剩余最后一块「水与地形生成」：水碰撞 / 游泳判定 / 水面绘制都读 `_water_set`，而它由地形生成产出，
+      又横跨桥 / 码头 / `is_bridge_cell` —— **整块缠在一起**，建议单独一轮专门做，别和别的混。
 - [ ] **A3** 拆 `backpack_ui.gd`（2923 行）：背包 / 箱子 / 赠礼 / 商店按面板分开
 - [ ] **A4** 拆 `scene/world_map.gd`（3013 行）：航海移动 / 事件 / 渲染分开
 - [ ] **A5** 根目录几十个 `*_ui.gd` 收进 `ui/` 目录，同步修 .tscn 引用

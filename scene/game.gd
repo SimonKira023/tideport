@@ -1925,161 +1925,24 @@ func _merge_water_rects(lookup: Dictionary) -> Array:
 # 在角点先判定能否左转：
 #   左手边格子还是水 → 左转（facing = 左转后的方向），再走 16 像素
 #   不是水           → 直走 16 像素后右转
-# ---------------- 岸：草地 <-> 水 的过渡 ----------------
-# 只在水里画浅滩是不够的 —— 草地上还是一条硬边。真正的岸得两边都收：
-#   beach（陆地侧）：贴水的草地格上，朝水那侧铺一条沙色渐变
-#   shore（水面侧）：贴岸的水格上，朝岸那侧铺一条由浅到深的浅滩
-# 两层拼起来就是「草地 -> 沙 -> 浅水 -> 深水」，硬边藏在渐变了。
-#
-# 另外之前的写法有个致命 bug：它拿「草地层」判断哪边是岸，可草地铺满了整张图
-# （水下也有），于是每格水都被当成四面环岸、描了一圈白边 —— 看着就是材质不连贯。
-# 现在统一用 _water_set 判断。
+# ---------------- 岸：草地 <-> 水 的过渡（阶段 1-1：实现已搬到 scene/game/coast_layer.gd）----------------
+# 模块负责两层：beach（陆地侧沙色渐变）+ shore（水面侧浅滩），拼成
+# 「草地 -> 沙 -> 浅水 -> 深水」，硬边藏在渐变了。
+# [!] 图层节点照旧 add_child 到 Game 下 —— _apply_layer_z 要按 z 收口、
+#     _build_bridges 要按**节点顺序**把桥插在 shore_layer 之后，所以节点与
+#     字段都留在 Game 上，模块只负责建节点 + 铺格（原因见 coast_layer.gd 头部）。
+var _coast = preload("res://scene/game/coast_layer.gd").new()
+
+# 旧字段名保留：_apply_layer_z 读 beach_layer / shore_layer 收 z_index。
 var beach_layer: TileMapLayer    # 陆地侧沙滩（草地之上、水面之下）
 
 func _build_beach() -> void:
-	if grid_layer.tile_set == null:
-		return
-	var tsz := grid_layer.tile_set.tile_size
-	# 生成陆地侧沙滩：
-	#   (i, 0) i=0..15  透明底渐变带（草地格朝水侧的湿沙）
-	#   (i, 1) i=0..15  实心沙底 + 朝水湿沙带（沙滩格贴水的一侧）
-	#   (16,1)/(17,1)   纯沙两种变体（沙滩内格：一种带杂点）
-	#   (i, 2) i=0..15  实心沙底 + 朝草地淡出带（沙滩和草地的交界）
-	#   (i, 3) i=0..15  透明底 + 朝沙侧的沙色淡入带（贴沙的草地格, 草地↔沙地的第二级过渡）
-	var sheet := Image.create_empty(18 * tsz.x, 4 * tsz.y, false, Image.FORMAT_RGBA8)
-	sheet.fill(Color(0, 0, 0, 0))
-	for i in 16:
-		_draw_band_tile(sheet, i * tsz.x, 0, i, tsz, BEACH_BAND)
-	for i in 16:
-		_fill_sand_tile(sheet, i * tsz.x, tsz.y, tsz, i)   # 先铺沙底
-		_draw_band_tile(sheet, i * tsz.x, tsz.y, i, tsz, BEACH_BAND)
-	for v in 2:
-		_fill_sand_tile(sheet, (16 + v) * tsz.x, tsz.y, tsz, -1, v)
-	for i in 16:
-		_fill_sand_tile(sheet, i * tsz.x, 2 * tsz.y, tsz, i)
-		_draw_band_tile(sheet, i * tsz.x, 2 * tsz.y, i, tsz, SAND_FADE)
-	for i in 16:
-		_draw_band_tile(sheet, i * tsz.x, 3 * tsz.y, i, tsz, SAND_FADE)
-
-	var atlas := TileSetAtlasSource.new()
-	atlas.texture = ImageTexture.create_from_image(sheet)
-	for y in 4:
-		for i in 18:
-			if y == 0 and i >= 16:
-				continue
-			if y == 3 and i >= 16:
-				continue
-			atlas.create_tile(Vector2i(i, y))
-	var ts := TileSet.new()
-	ts.tile_size = tsz
-	ts.add_source(atlas, BEACH_SRC)
-
-	beach_layer = TileMapLayer.new()
-	beach_layer.name = "BeachTileMapLayer"
-	beach_layer.tile_set = ts
-	beach_layer.position = grid_layer.position
-	add_child(beach_layer)
-	move_child(beach_layer, water_layer.get_index())   # 插到水面之前
-
-	var painted := 0
-	for c in _land_set.keys():
-		if _sand_set.has(c):
-			var wmask := _edge_mask(c, false)          # 哪几边挨着水
-			if wmask != 0:
-				beach_layer.set_cell(c, BEACH_SRC, Vector2i(wmask, 1))
-			elif _sand_grass_mask(c) != 0:
-				beach_layer.set_cell(c, BEACH_SRC, Vector2i(_sand_grass_mask(c), 2))
-			else:
-				beach_layer.set_cell(c, BEACH_SRC, Vector2i(16 + _hash2(c) % 2, 1))
-			painted += 1
-			continue
-		var idx := _edge_mask(c, false)          # 哪几边挨着水
-		if idx != 0:
-			beach_layer.set_cell(c, BEACH_SRC, Vector2i(idx, 0))
-			painted += 1
-			continue
-		var gmask := _grass_sand_mask(c)         # 哪几边挨着沙地
-		if gmask != 0:
-			beach_layer.set_cell(c, BEACH_SRC, Vector2i(gmask, 3))
-			painted += 1
-	print("[岸] 陆地侧沙滩 %d 格(其中沙地 %d 格)" % [painted, _sand_set.size()])
-
-# 铺一块实心沙底：variant=-1 无杂点；variant>=0 撒几个杂点/亮点
-# idx>=0 时朝掩码方向先空出湿沙带再铺沙（给 band 让位，免得盖住渐变）——简化：直接整格铺，
-# band 会用 alpha 混合叠上去（_blend_px），湿沙色不透明度高，盖得住。
-func _fill_sand_tile(sheet: Image, ox: int, oy: int, tsz: Vector2i, idx: int, variant: int = -1) -> void:
-	for y in tsz.y:
-		for x in tsz.x:
-			sheet.set_pixel(ox + x, oy + y, SAND_BASE)
-	if variant < 0:
-		return
-	# 杂点：固定 pattern（不随格子变，同一变体看起来一致）
-	var dots := [Vector2i(3, 4), Vector2i(11, 2), Vector2i(6, 12), Vector2i(13, 9), Vector2i(2, 9)]
-	var lites := [Vector2i(9, 6), Vector2i(4, 14), Vector2i(14, 13)]
-	for d in dots:
-		sheet.set_pixel(ox + d.x, oy + d.y, SAND_DOT)
-	for l in lites:
-		sheet.set_pixel(ox + l.x, oy + l.y, SAND_LITE)
-
-# 沙滩格四周哪些方向挨着「非沙滩的陆地」（要画朝草地的淡出带）
-func _sand_grass_mask(c: Vector2i) -> int:
-	var dirs := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
-	var bits := [1, 2, 4, 8]
-	var idx := 0
-	for i in 4:
-		var nb: Vector2i = c + dirs[i]
-		if not _in_yard(nb):
-			continue
-		if _land_set.has(nb) and not _sand_set.has(nb):
-			idx |= bits[i]
-	return idx
-
-# 草地格四周哪些方向挨着沙地（要画朝沙侧的淡入带, 与 _sand_grass_mask 互为镜像）
-func _grass_sand_mask(c: Vector2i) -> int:
-	var dirs := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
-	var bits := [1, 2, 4, 8]
-	var idx := 0
-	for i in 4:
-		if _sand_set.has(c + dirs[i]):
-			idx |= bits[i]
-	return idx
+	_coast.setup(self)      # 幂等：开局与开新档都走这里，保证模块拿到 Game
+	_coast.build_beach()
 
 func _build_shore() -> void:
-	if grid_layer.tile_set == null:
-		return
-	var tsz := grid_layer.tile_set.tile_size
-	if _water_set.is_empty():
-		return
-
-	# 16 格岸线并排拼成一张 16x1 的小图集，图块号 = 那一边挨着陆地（1上 2下 4左 8右）
-	var sheet := Image.create_empty(16 * tsz.x, tsz.y, false, Image.FORMAT_RGBA8)
-	sheet.fill(Color(0, 0, 0, 0))
-	for i in 16:
-		_draw_band_tile(sheet, i * tsz.x, 0, i, tsz, SHORE_BANDS)
-
-	var atlas := TileSetAtlasSource.new()
-	atlas.texture = ImageTexture.create_from_image(sheet)
-	for i in 16:
-		atlas.create_tile(Vector2i(i, 0))
-	var ts := TileSet.new()
-	ts.tile_size = tsz
-	ts.add_source(atlas, SHORE_SRC)
-
-	shore_layer = TileMapLayer.new()
-	shore_layer.name = "ShoreTileMapLayer"
-	shore_layer.tile_set = ts
-	shore_layer.position = grid_layer.position
-	add_child(shore_layer)
-	move_child(shore_layer, water_layer.get_index() + 1)   # 水面之上
-
-	var painted := 0
-	for c in _water_set.keys():
-		var idx := _edge_mask(c, true)           # 哪几边挨着陆地
-		if idx == 0:
-			continue                             # 四面都是水：纯深水，不用画
-		shore_layer.set_cell(c, SHORE_SRC, Vector2i(idx, 0))
-		painted += 1
-	print("[岸] 水面 %d 格,其中 %d 格贴到岸边(浅滩)" % [_water_set.size(), painted])
+	_coast.setup(self)
+	_coast.build_shore()
 
 # 岸边白浪：独立一层（scene/waves_layer.gd），要排在浅滩层之后 add_child 才盖得住浅滩
 func _build_waves() -> void:
@@ -2180,51 +2043,20 @@ func _on_thunder() -> void:
 	tw.tween_property(flash, "color:a", 0.0, 0.35)
 
 # 某格四周的方位掩码。want_land=true 时统计「邻居是陆地」的方向，false 统计「邻居是水」。
-# 地图外不算陆地（否则地图边界会被当成岸、描一圈假的浅滩）。
+# 实现已搬到 scene/game/coast_layer.gd；自检直接调 g._edge_mask / g._grass_sand_mask，
+# 所以这里保留门面（只转调，不放逻辑）。
 func _edge_mask(c: Vector2i, want_land: bool) -> int:
-	var dirs := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
-	var bits := [1, 2, 4, 8]
-	var idx := 0
-	for i in 4:
-		var nb: Vector2i = c + dirs[i]
-		if not _in_yard(nb):
-			continue                 # 地图外：既不算陆地也不算水，不要在那边描过渡
-		var nb_land: bool = not _water_set.has(nb)
-		if nb_land == want_land:
-			idx |= bits[i]
-	return idx
+	return _coast.edge_mask(c, want_land)
 
-# 画第 idx 号渐变图块（左上角在 ox,oy）：朝掩码指定的那几条边铺 bands 色带
-func _draw_band_tile(sheet: Image, ox: int, oy: int, idx: int, tsz: Vector2i, bands: Array) -> void:
-	var w := tsz.x
-	var h := tsz.y
-	if idx & 1:                                # 上边 -> 从第 0 行往下
-		for d in bands.size():
-			for x in w:
-				_blend_px(sheet, ox + x, oy + d, bands[d])
-	if idx & 2:                                # 下边
-		for d in bands.size():
-			for x in w:
-				_blend_px(sheet, ox + x, oy + h - 1 - d, bands[d])
-	if idx & 4:                                # 左边
-		for d in bands.size():
-			for y in h:
-				_blend_px(sheet, ox + d, oy + y, bands[d])
-	if idx & 8:                                # 右边
-		for d in bands.size():
-			for y in h:
-				_blend_px(sheet, ox + w - 1 - d, oy + y, bands[d])
+func _sand_grass_mask(c: Vector2i) -> int:
+	return _coast.sand_grass_mask(c)
 
-# 把 col 叠到 (x,y) 上（正常的 alpha 混合，因为同一条边可能被两边各画一次）
+func _grass_sand_mask(c: Vector2i) -> int:
+	return _coast.grass_sand_mask(c)
+
+# alpha 混合助手：岸线（已搬走）与田埂 _draw_border_tile 共用一份实现，这里留门面。
 func _blend_px(img: Image, x: int, y: int, col: Color) -> void:
-	var old := img.get_pixel(x, y)
-	var a := col.a + old.a * (1.0 - col.a)
-	if a <= 0.0:
-		img.set_pixel(x, y, Color(0, 0, 0, 0))
-		return
-	var rgb := (Vector3(col.r, col.g, col.b) * col.a
-		+ Vector3(old.r, old.g, old.b) * old.a * (1.0 - col.a)) / a
-	img.set_pixel(x, y, Color(rgb.x, rgb.y, rgb.z, a))
+	_coast.blend_px(img, x, y, col)
 
 # ---------------- 草地花草点缀（阶段 1-1：实现已搬到 scene/game/decor_layer.gd）----------------
 # 模块负责遍历草地撒草丛/花/蘑菇，并把 DecorTileMapLayer 挂到 Game 下。
