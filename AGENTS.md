@@ -54,10 +54,15 @@ Get-Content tools\_selftest_result.txt -Encoding UTF8      # 只认这行：SELF
 ```
 scene/          场景与游戏逻辑（game.gd 是岛上总控；main_menu.tscn 是入口）
   game.gd       岛屿场景总控（地形/碰撞/建筑/派活接线）
+  game/         岛屿场景拆出来的模块（RefCounted，不挂场景树）：
+                tree_layer 树木 / rock_layer 岩石 / decor_layer 花草点缀 /
+                coast_layer 岸线（沙滩+浅滩）/ water_layer 水面绘制+水碰撞。
+                调用方留门面转发，节点仍直接挂 Game 下（y_sort 不许套容器）。
+  world_map.gd  航海大地图    mainland.gd  大陆据点
+  world_map/    海图拆出来的模块：sky_layer = 天色系统（色键/昼夜刷新/远帆剪影）
   slave_npc.gd  伙伴像素外观唯一真相源（MODELS / MODEL_MALE / model_for / tint_for）
   troop.gd      战役地图通用兵种单位（含哥布林/魔物）
   battle_map.gd 战役地图
-  world_map.gd  航海大地图    mainland.gd  大陆据点
 resources/      素材（font / texture / audio / cards_art ...）
 item/           物品定义 .tres
 tools/          自测、素材生成、导出打包、临时探针
