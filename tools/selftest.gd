@@ -7366,11 +7366,16 @@ func _ready() -> void:
 	var src69 := "" if fs69 == null else fs69.get_as_text()
 	if fs69 != null:
 		fs69.close()
-	var w69a := src69.find("func _build_water_collision")
-	var w69b := src69.find("func _merge_water_rects")
+	# a2: 「水碰撞构建」随水面模块搬到了 scene/game/water_layer.gd，查处跟着走。
+	var fw69 := FileAccess.open("res://scene/game/water_layer.gd", FileAccess.READ)
+	var wsrc69 := "" if fw69 == null else fw69.get_as_text()
+	if fw69 != null:
+		fw69.close()
+	var w69a := wsrc69.find("func build_water_collision")
+	var w69b := wsrc69.find("func merge_water_rects")
 	chk(w69a >= 0 and w69b > w69a
-			and src69.substr(w69a, w69b - w69a).find("is_swim_water") >= 0,
-		"水碰撞构建时跳过能下水的水格（最深色照旧挡）")
+			and wsrc69.substr(w69a, w69b - w69a).find("is_swim_water") >= 0,
+		"水碰撞构建时跳过能下水的水格（最深色照旧挡；a2 后实现搬到 water_layer.gd）")
 	chk(src69.find("func is_deck_cell") >= 0
 			and src69.find("is_swim_water(c: Vector2i)") >= 0
 			and src69.substr(src69.find("func is_swim_water"),
@@ -9016,8 +9021,11 @@ func _ready() -> void:
 	chk(sh_ok90, "11 个实体脚本都接了 shadow_util.gd")
 	# 90c game.gd 四件套都在源码里
 	var gg90 := FileAccess.get_file_as_string("res://scene/game.gd")
-	chk(gg90.contains("_tick_water_ripple") and gg90.contains("WATER_ANIM_PERIOD"),
-		"game.gd: 水澜分桶轮换")
+	# a2: 水面绘制/碰撞的实现搬到了 scene/game/water_layer.gd，game.gd 只留转调门面。
+	var wl90 := FileAccess.get_file_as_string("res://scene/game/water_layer.gd")
+	chk(gg90.contains("_tick_water_ripple") and gg90.contains("WATER_ANIM_PERIOD")
+		and wl90.contains("func paint_water") and wl90.contains("make_water_tileset"),
+		"game.gd: 水澜分桶轮换 + 水面模块 (a2 后绘制/碰撞在 water_layer.gd)")
 	# a2: 「树倒那一下震屏」随树木模块搬到了 scene/game/tree_layer.gd，查处跟着走。
 	var tl90 := FileAccess.get_file_as_string("res://scene/game/tree_layer.gd")
 	chk(gg90.contains("func shake_screen") and gg90.contains("shake_screen(2.5, 0.4)")

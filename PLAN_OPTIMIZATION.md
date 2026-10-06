@@ -2,12 +2,12 @@
 
 > 2026-10-06 体检基线：194 个 .gd / 59760 行；自检全部通过 ✔。
 > 大文件实测（`Measure-Object` 口径，比 AGENTS.md 里的旧数字靠谱）：
-> `scene/game.gd` **4594 行**（拆分前）→ 4424 行（拆掉树木块后）、
+> `scene/game.gd` **4594 行**（拆分前）→ **3819 行**（A2 拆完 5 块模块后，累计净减 775 行）、
 > `tools/selftest.gd` 10553+ 行、`backpack_ui.gd` 2923 行、`scene/world_map.gd` 3013 行。
 > ~~已知噪音：light_util.gd:67 的 `canvas_occluder_polygon_set_shape` 报错~~
 > → **2026-10-06 已修（A1）**，自检日志里该报错 0 行。
 >
-> **已完成**：A1、E1（含收尾）、E2、A2（4/5）、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
+> **已完成**：A1、E1（含收尾）、E2、**A2（5/5 完成）**、A7、B2——见第五、六节。自检状态：**全部通过 ✔**。
 
 ---
 
@@ -119,18 +119,23 @@
 - [x] **A1** 修复 `light_util.gd:67` 遮挡多边形点数不足的报错（自检日志噪音源头）
       ✅ 2026-10-06：`light_util.make_occluder` 加退化保护；`tree_node.gd` 改成一次给全八边形。
       自检日志里该报错 **0 行**（改前刷几百行）。
-- [~] **A2** 拆 `scene/game.gd` → `scene/game/` 子模块：地形生成 / 建筑 / 派活接线 / 植被 / 水与游泳，game.gd 只留总控
-      ⏳ 2026-10-06 **进度 4/5**：
+- [x] **A2** 拆 `scene/game.gd` → `scene/game/` 子模块：地形生成 / 建筑 / 派活接线 / 植被 / 水与游泳，game.gd 只留总控
+      ✅ 2026-10-06 **完成 5/5**：
       · ①「树木」→ `scene/game/tree_layer.gd`（208 行实现，game.gd 只留 38 行门面）
       · ②「岩石 / 铁矿」→ `scene/game/rock_layer.gd`（开局撒石 / 敲石结算 / 掉落 / 每夜补石 / 读档重建）
       · ③「花草点缀」→ `scene/game/decor_layer.gd`（84 行实现；`decor_layer` 走属性转发，`DECOR_*` 常量留 game）
       · ④「岸线（沙滩 + 浅滩）」→ `scene/game/coast_layer.gd`（_build_beach / _build_shore / 三个掩码 /
         `_draw_band_tile` / `_blend_px`；图层节点仍挂 Game 下，因 `_apply_layer_z` 与 `_build_bridges`
         要按**层序**插层。`_edge_mask` / `_grass_sand_mask` / `_blend_px` 留门面给自检与田埂复用）
+      · ⑤「水面（绘制 + 碰撞）」→ `scene/game/water_layer.gd`（`paint_water` 水图集生成 + 离岸 BFS 深浅分档 /
+        `build_water_collision` 贪心矩形合并 + 桥沿薄墙；`water_layer` 节点与微澜动画状态
+        `_water_anim_cells` / `_water_anim_lv` 仍留 Game —— `_apply_layer_z` 按 z 收口、
+        `_tick_water_ripple` 每帧要轮换波纹变体）
       · 顺手把「每夜补植」里属于树/石的 `_respawn_trees` / `_respawn_rocks` 也搬进各自模块
-      game.gd **4594 → 4003 行**（累计净减 591 行）；显示节点仍直接挂 Game 下保 y_sort。
-      ⚠️ 剩余最后一块「水与地形生成」：水碰撞 / 游泳判定 / 水面绘制都读 `_water_set`，而它由地形生成产出，
-      又横跨桥 / 码头 / `is_bridge_cell` —— **整块缠在一起**，建议单独一轮专门做，别和别的混。
+      game.gd **4594 → 3819 行**（累计净减 775 行）；显示节点仍直接挂 Game 下保 y_sort。
+      ⚠️ 仍留 game.gd 的「地形生成」（`_build_terrain` / `_compute_terrain` / `_align_pond` / `_smooth_coast`）
+      与三个小判定（`_in_yard` / `_is_water_like` / `_at_map_edge`）：前者是**所有模块的上游**
+      （`_land_set` / `_water_set` 由它产出），后者是热路径 + 自检直接读 —— 硬拆收益低、风险高，故意不拆。
 - [ ] **A3** 拆 `backpack_ui.gd`（2923 行）：背包 / 箱子 / 赠礼 / 商店按面板分开
 - [ ] **A4** 拆 `scene/world_map.gd`（3013 行）：航海移动 / 事件 / 渲染分开
 - [ ] **A5** 根目录几十个 `*_ui.gd` 收进 `ui/` 目录，同步修 .tscn 引用
@@ -206,12 +211,14 @@
 
 ## 六、这块之后怎么接着干
 
-本次是「本周就做」的四件套落地，**下一刀建议按这个顺序**（一条一验收，别贪）：
+A2（拆 game.gd）**已收口 5/5**：game.gd 从 4594 行降到 3819 行，拆出 tree / rock / decor / coast / water 五个模块。
+下一刀建议按这个顺序（一条一验收，别贪）：
 
-1. **A2 收尾**：照 `tree_layer.gd` 这套模式继续搬 game.gd —— 下一个最肥的是「岩石/矿石」
-   （`_build_rocks` / `hit_rock` / `pick_rock_cell` / `_respawn_rocks`，跟树几乎同构，可以照抄）
-2. **E1 收尾**：把 `tools/_st.txt` 这个靠 shell 重定向的日志彻底退役，验证/CI 一律读
-   `tools/_selftest_result.txt`；AGENTS.md 第 2 节的命令也改成只看结论文件
-3. **A7**：全项目扫 `:=` 类型推断隐患（红线坑 1）——纯分析活，适合 dsf，不碰 UI
-4. **B2**：给 selftest 补「探针不污染真档」的强制断言（`SaveManager` 路径重定向检查）
+1. **A3**：拆 `backpack_ui.gd`（2923 行）——背包 / 箱子 / 赠礼 / 商店按面板分开。
+   这是剩余三个「胖子」里最肥的一个，套用同一套模式：侦查引用面 → 建模块（RefCounted + `setup()`）
+   → game/调用方留门面转发 → 全量自检拿凭证。
+2. **A4 / A6**：`scene/world_map.gd`（3013 行）、`tools/selftest.gd`（10553 行）同法拆。
+   注意 selftest 有大量**按源码文字 grep** 的断言，拆文件时必须同步把查处指到新文件（A2 已踩过两次）。
+3. **A5**：根目录 `*_ui.gd` 收进 `ui/` 目录（同步改 .tscn 引用与 autoload 路径）。
+4. **B1 / B3 / B4**：存档版本迁移、`DirAccess.open("user://")` 误用排查、敌人 AI 卡死超时兜底复查。
 
