@@ -49,12 +49,16 @@ const SHEETS := {
 # opts: flip 镜像 / hue 发色带改色{band,to,vmul,smin,smax,vmin,smul,sset} / skin 肤色调整 / acc 配件
 # 配件(e24b): 头上只许王冠 —— 草帽/头盔已按用户要求全部移除;
 # e56: 花名册缩编 8 人后原始格天然全不同, 精修给 8 人各配**专属**配件拉开个性
-#   (布恩疤/娜雅左耳环/珞琳额巾/咪露眼罩/塔洛胡茬/海莉右耳环/珂丹额饰/雪莱毛领);
+#   (布恩疤/娜雅左耳环/珞琳额巾/咪露眼罩/塔洛胡茬/汐月右耳环/珂丹额饰/雪莱毛领);
 # 通用保留 王冠/耳环/疤/胡茬/领巾/毛领。
 # e28h: 背景**全角色统一** BG_UNI —— 用户反馈有的头像底色发绿, 全部拉齐一个底;
 # e29d: 伙伴头像**一格一人摊匀**(仅 Alex 男脸 4 张不够, s6(0,0) 复用一次靠 flip+发色差),
 # 发色带对齐 slave_npc.gd RECIPES 的目标色(整层 tint 染色已按用户要求废除)。
 const BG_UNI := ["28303a", "e8c060"]
+# e53b: 出场顺序调换 —— 序号 1 与 3 互换（咪露坐第 2 把交椅, 娜雅退到第 4）。
+# 跟 scene/slave_npc.gd 的 ART_SWAP 是同一张表: SPECS 仍按**像素模型**分组
+# （方便跟 MODELS/RECIPES 对账）, 只在落盘时把文件名换成对应序号。
+const ART_SWAP := {1: 3, 3: 1}
 const SPECS := {
 	# ============================================================
 	# 伙伴头像按**像素模型**分组（唯一真相源 = slave_npc.gd 的 MODELS/MODEL_MALE）:
@@ -82,7 +86,7 @@ const SPECS := {
 	"slave_16": {"cell": ["s7", 2, 0], "ht": 0.05, "ey": 0.30, "ch": 0.55, "rx": 0.22,
 		"hue": {"band": [0.55, 0.90], "to": 0.80, "vmul": 0.90, "smul": 0.75}},
 	# ---- Lyria 组(女·棕红卷发): 01 本色 / 05 金 / 09 青 / 13 紫 / 17 暗红褐 ----
-	# e56: 娜雅(农妇)左耳金环 / 海莉(水手)右耳金环 —— 一对耳环分挂两边
+	# e56: 娜雅(农妇)左耳金环 / 汐月(水手)右耳金环 —— 一对耳环分挂两边
 	"slave_01": {"cell": ["s3", 0, 0], "ht": 0.06, "ey": 0.33, "ch": 0.58, "rx": 0.24,
 		"acc": ["ear_l"]},
 	"slave_05": {"cell": ["s3", 1, 0], "ht": 0.06, "ey": 0.33, "ch": 0.58, "rx": 0.24,
@@ -192,10 +196,17 @@ const CANCHOR := {
 func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(OUT_DIR)
 	for nm in SPECS:
-		_make(nm, SPECS[nm])
+		_make(_slot_name(nm), SPECS[nm])
 	_save("goblin", _goblin())
 	print("[头像] 画完 %d 张 -> " % (SPECS.size() + 1), OUT_DIR)
 	quit(0)
+
+# 落盘文件名：伙伴序号走 ART_SWAP（领主/百夫长/主角原样）。
+func _slot_name(nm: String) -> String:
+	if not nm.begins_with("slave_"):
+		return nm
+	var i := int(nm.substr(6))
+	return "slave_%02d" % int(ART_SWAP.get(i, i))
 
 func _save(nm: String, img: Image) -> void:
 	var err := img.save_png("%s/%s.png" % [OUT_DIR, nm])

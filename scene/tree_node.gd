@@ -42,8 +42,10 @@ var _spr: Sprite2D = null
 var _cs: CollisionShape2D = null
 var _tw: Tween = null
 var _shadow: Sprite2D = null   # e33 树脚下的影子（随阶段缩放）
+var _occ_top: LightOccluder2D = null   # q1 树冠遮挡体（随阶段换多边形）
 var _anim_lock := false        # 摇晃/倒下动画接管期间, 风摆让位
 var _wind_t := -1.0            # 风摆相位（<0 = 还没初始化, _process 里按格子错开）
+var _leaf_cd := -1.0           # q4 偶发飘叶倒计时（<0 = 还没初始化, 每棵树错开）
 var _sheet_warned := false     # 第三方树贴图缺失只警告一次, 不重复刷
 
 func _ready() -> void:
@@ -101,6 +103,22 @@ func apply_stage(s: int) -> void:
 	if _shadow != null:
 		var k := 0.55 if (s == Trees.ST_SAPLING or s == Trees.ST_STUMP) else 1.0
 		_shadow.scale = Vector2(k, k)
+	# q1 光影追踪：树冠当遮挡体（八边形近似圆），太阳/灯光被树冠挡住,
+	#   树后拖出一大片影子。遮挡体随阶段缩放：成树树冠 r=13@(0,-27) /
+	#   小树 r=8@(0,-18) / 幼苗 r=5@(0,-9) / 树桩 r=4@(0,-4)
+	var lu := preload("res://scene/light_util.gd")
+	# 按 s 索引 [ST_SAPLING..ST_STUMP] → (圆心, 半径): 幼苗/小树/成树/树桩
+	var crowns := [[Vector2(0, -9), 5.0], [Vector2(0, -18), 8.0],
+		[Vector2(0, -27), 13.0], [Vector2(0, -4), 4.0]]
+	var cc: Array = crowns[clampi(s, 0, 3)]
+	if _occ_top == null:
+		# ❗多边形要一次性给全（八边形 8 个点）。先 make_occluder(空数组) 建壳、
+		#   回头再补 polygon 的写法会让每棵树在建壳那一刻就刷一条
+		#   canvas_occluder_polygon_set_shape 报错（a1 修复）。
+		_occ_top = lu.make_occluder(lu.circle_pts(cc[0], cc[1]))
+		add_child(_occ_top)
+	else:
+		_occ_top.occluder.polygon = lu.circle_pts(cc[0], cc[1])
 
 # e33 树梢风摆：树冠随时间轻轻左右晃（正弦拨 _spr.position.x 一两个像素）,
 # 每棵树相位错开、风雨天摆得更凶。摇晃/倒下动画接管期间（_anim_lock）让位。
@@ -116,6 +134,15 @@ func _process(delta: float) -> void:
 	if Weather.is_storm() or Weather.is_rain():
 		amp = 2.4
 	_spr.position.x = -FRAME_W / 2.0 + sin(_wind_t * 1.3) * amp
+	# q4 灵动：成树隔一阵子自己从树冠飘一片叶子下来（风雨天掉得勤些）
+	if stage == Trees.ST_MATURE:
+		if _leaf_cd < 0.0:
+			_leaf_cd = randf_range(18.0, 46.0)   # 每棵树错开, 全场平均几秒一片
+		_leaf_cd -= delta
+		if _leaf_cd <= 0.0:
+			_leaf_cd = randf_range(18.0, 46.0) \
+				* (0.5 if (Weather.is_storm() or Weather.is_rain()) else 1.0)
+			_drift_leaf()
 
 # 砍中了但没倒：树晃两下 + 崩几片叶子
 func shake() -> void:
@@ -178,6 +205,41 @@ func leaf_burst() -> void:
 	add_child(p)
 	p.emitting = true
 	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
+# q4 灵动：从树冠里飘下一片叶子 —— 打着旋慢慢悠悠落下来，随全场风往左带一点
+func _drift_leaf() -> void:
+	var p := CPUParticles2D.new()
+	p.amount = 1
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.lifetime = 2.8
+	p.texture = _leaf_tex()
+	p.direction = Vector2(0, 1)
+	p.spread = 32.0
+	p.gravity = Vector2(-10, 30)         # 下坠 + 微风往左带（跟云/烟同一风向）
+	p.initial_velocity_min = 5.0
+	p.initial_velocity_max = 11.0
+	p.angular_velocity_min = -150.0
+	p.angular_velocity_max = 150.0
+	p.scale_amount_min = 1.0
+	p.scale_amount_max = 1.4
+	p.color = LEAF_COLORS[clampi(variant, 0, LEAF_COLORS.size() - 1)]
+	p.position = Vector2(randf_range(-9.0, 9.0), -randf_range(16.0, 30.0))   # 树冠里
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(3.2).timeout.connect(p.queue_free)
+
+# 落叶小片 2x2（白色，_drift_leaf 里按树种染色；static 缓存一张全场共用）
+static var _leaf_tex_cache: ImageTexture = null
+func _leaf_tex() -> ImageTexture:
+	if _leaf_tex_cache != null:
+		return _leaf_tex_cache
+	var img := Image.create_empty(2, 2, false, Image.FORMAT_RGBA8)
+	for y in 2:
+		for x in 2:
+			img.set_pixel(x, y, Color(1, 1, 1, 1))
+	_leaf_tex_cache = ImageTexture.create_from_image(img)
+	return _leaf_tex_cache
 
 # 倒下：先抖几下 -> 绕树干底（节点原点）转 90° 砸地 -> 弹一下 -> 淡出 -> 通知 game 补树桩
 func play_fell() -> void:

@@ -43,12 +43,14 @@ const CARDSD := preload("res://scene/cards_data.gd")
 const CARDSB := preload("res://scene/battle_cards.gd")
 
 var fails := 0
+var failed_msgs: Array[String] = []   # 失败断言原文（收尾时落盘，见 _write_result）
 
 func chk(ok: bool, msg: String) -> void:
 	if ok:
 		print("  [OK] ", msg)
 	else:
 		fails += 1
+		failed_msgs.append(msg)
 		print("  [!!] ", msg)
 
 func find_sprite(soil: Node2D, pos: Vector2i) -> Sprite2D:
@@ -1252,32 +1254,45 @@ func _ready() -> void:
 			if c is StaticBody2D:
 				rail_bodies += 1
 		chk(rail_bodies == 0, "Bridges 下没有护栏碰撞体（RailBodies 已拆, 剩 %d 个）" % rail_bodies)
-		# h2/h3/b7: 前层护栏 + 栏杆孔 —— 每座桥两张 sprite: 整贴 (z=Z_BRIDGE) +
-		#     底 16px region 前层 (z=0 参与 y_sort): 走下桥带的角色在护栏后面,
-		#     下护栏素材挖了柱间竖缝, 透过栏杆孔看得见人。
+		# k1: 前层护栏 + 真栏杆缝 —— 每座桥两张 sprite: 整贴 (z=Z_BRIDGE) +
+		#     南护栏带 region 前层 (z=0 参与 y_sort): 走南桥带的角色在护栏后面,
+		#     南护栏是北护栏的镜像, 透空栏杆朝桥面, 透过真栏杆缝看得见人。
 		chk(bridges2.y_sort_enabled,
 			"Bridges 容器开了 y_sort, 前层护栏借此进根节点排序池 (b7)")
 		for by in g.BRIDGE_ROWS:
 			var bmain: Sprite2D = g.get_node_or_null("Bridges/Bridge%d" % by)
 			var bfront: Sprite2D = g.get_node_or_null("Bridges/BridgeFront%d" % by)
-			chk(bmain != null and bfront != null, "桥 %d 有整贴 + 前层护栏两张 sprite (h2)" % by)
+			chk(bmain != null and bfront != null, "桥 %d 有整贴 + 前层护栏两张 sprite (k1)" % by)
 			if bmain == null or bfront == null:
 				continue
 			chk(bfront.region_enabled
-				and bfront.region_rect == Rect2(0, 32, bmain.texture.get_width(), 16)
+				and bfront.region_rect == Rect2(0, 34, bmain.texture.get_width(), 14)
 				and bfront.z_index == 0
-				and bfront.offset == Vector2(0, -16)
+				and bfront.offset == Vector2(0, -14)
 				and bfront.position == bmain.position + Vector2(0, 48),
-				"桥 %d 前层护栏 z=0 参与 y_sort, 排序点在护栏底边贴图画回原位 (b7)" % by)
-		var bpiece: Image = g._bridge_piece()
-		chk(bpiece != null
-			and bpiece.get_height() == 47
-			and bpiece.get_pixel(10, 41).a < 0.5 and bpiece.get_pixel(30, 41).a < 0.5,
-			"下护栏柱间挖出竖缝, 素材裁到横梁底 47 高 (h3/j7)")
-		chk(bpiece != null
-			and bpiece.get_pixel(2, 42).a > 0.5 and bpiece.get_pixel(2, 46).a > 0.5
-			and bpiece.get_pixel(10, 46).a > 0.5,
-			"下护栏立柱和横梁保留, 柱脚已清 (h3/j7)")
+				"桥 %d 前层护栏 z=0 参与 y_sort, region 取南护栏带贴图画回原位 (k1/b7)" % by)
+		# k1: 栏杆条 = 素材北护栏 (13 高, 带真透空栏杆缝); 拼装贴图 =
+		#     北护栏(16) + 程序化桥面(18) + 南护栏镜像(14), 共 48。
+		var rail: Image = g._bridge_rail_piece()
+		chk(rail != null and rail.get_height() == g.BRIDGE_RAIL_SRC_H,
+			"栏杆条裁自素材北护栏, 高 %d (k1)" % g.BRIDGE_RAIL_SRC_H)
+		if rail != null:
+			chk(rail.get_pixel(6, 8).a < 0.5 and rail.get_pixel(0, 8).a > 0.5
+				and rail.get_pixel(10, 4).a > 0.5,
+				"栏杆条自带真透空栏杆缝 (x=6 透, 立柱/扶手梁实) (k1)")
+		var btex: Image = g._make_bridge_texture(112, 48).get_image()
+		chk(btex.get_height() == 48 and btex.get_pixel(50, 25).a > 0.5,
+			"拼装贴图 48 高, 程序化桥面实心 (k1)")
+		var see_through := 0
+		var solid := 0
+		for sx in range(0, 20):
+			for sy in range(34, 48):
+				if btex.get_pixel(sx, sy).a < 0.5:
+					see_through += 1
+				else:
+					solid += 1
+		chk(see_through > 20 and solid > 80,
+			"南护栏带透空栏杆生效 (透 %d px / 实 %d px) (k1)" % [see_through, solid])
 		player.global_position = bsaved
 
 	# 17.3 室内：房子节点下 Interior 默认不可见（避免地图下方露出地板）
@@ -2063,14 +2078,16 @@ func _ready() -> void:
 		var want_tex23: Texture2D = npc23.sheet_texture(npc23.model_for(n_before), "Idle.png", n_before)
 		chk(vis_at != null and vis_at.atlas == want_tex23,
 			"火边站着的那位用的是第 %d 号的脸（%s）" % [n_before, npc23.model_for(n_before)])
-	# 23.4c 上前搭话: 播剧情对话 -> 诉求达成当场入队（23.1 招了布恩, 火边是第 2 位娜雅:
-	# 第 2 天窗口开, 交出 6 份作物当场入伙）
+	# 23.4c 上前搭话: 播剧情对话 -> 诉求达成当场入队（23.1 招了布恩, 火边是第 2 位咪露:
+	# 第 2 天窗口开, 主角历练到 2 级当场入伙）
 	var y_bak23: int = TimeManager.year
 	var s_bak23: int = TimeManager.season
 	var d_bak23: int = TimeManager.day
+	var lv_bak23: int = Legion.level
 	TimeManager.year = 1
 	TimeManager.season = 0
-	TimeManager.day = 2      # 娜雅的花名册到访日
+	TimeManager.day = 2      # 咪露的花名册到访日
+	Legion.level = 2         # 咪露的诉求: 主角历练达到 2 级
 	var sd23: Node = g.get_tree().get_first_node_in_group("story_dialogue")
 	chk(sd23 != null, "场景里挂着剧情对话框 (story_dialogue)")
 	# 保险: 若前面的测试留了没收的对话, 先替他按完
@@ -2082,8 +2099,6 @@ func _ready() -> void:
 		ev23a.pressed = true
 		sd23._input(ev23a)
 		await get_tree().process_frame
-	var potato23: ItemData = load("res://item/potato.tres")   # type=作物, 娜雅只认作物
-	Inventory.add_item(potato23, 8)   # 娜雅的诉求: 6 份作物
 	# 入伙现在是导演模式长演出（cg_view 场景 + 台词）: 加速时间 + 按够次数让它播完
 	Engine.time_scale = 20.0
 	cp23._talk()
@@ -2095,14 +2110,11 @@ func _ready() -> void:
 		sd23._input(ev23)
 		await get_tree().process_frame
 	Engine.time_scale = 1.0
-	chk(Slaves.count == n_before + 1, "聊定了, 娜雅入伙（%d -> %d）" % [n_before, Slaves.count])
+	chk(Slaves.count == n_before + 1, "聊定了, 咪露入伙（%d -> %d）" % [n_before, Slaves.count])
 	TimeManager.year = y_bak23
 	TimeManager.season = s_bak23
 	TimeManager.day = d_bak23
-	# 把没用完的作物收走, 还原背包（诉求扣 6, 剩多少清多少）
-	var left23 := Inventory.count_item(potato23)
-	if left23 > 0:
-		Inventory.remove_item(potato23, left23)
+	Legion.level = lv_bak23
 	# 一堆火只招一个人，招完那位坐到火边
 	chk(bool(g.campfire.recruited), "招完之后这堆火标记为「已招过」")
 	chk(g.campfire.get_node_or_null("Sitter") != null, "火边坐着一个人")
@@ -2781,7 +2793,7 @@ func _ready() -> void:
 	Slaves.count = 0
 	Slaves.changed.emit()    # 触发 _sync_slaves 把残留节点销毁
 	await get_tree().process_frame
-	# 花名册连招 3 人（布恩 / 娜雅 / 珞琳）, 分文不取
+	# 花名册连招 3 人（布恩 / 咪露 / 珞琳）, 分文不取
 	Slaves.recruit_roster()
 	Slaves.recruit_roster()
 	Slaves.recruit_roster()
@@ -2794,10 +2806,11 @@ func _ready() -> void:
 		chk(not bool(s["gift_today"]), "新人今天还没送过东西")
 	chk(Slaves.slaves[0]["name"] != "" and Slaves.slaves[1]["name"] != "",
 		"招进来的人名字都不为空")
-	# 生日 / 爱好档案（按花名册: 布恩春7 / 娜雅春19 / 珞琳夏5, 爱好表见 slaves.gd LIKES）
+	# 生日 / 爱好档案（按花名册: 布恩春7 / 咪露夏23 / 珞琳夏5, 爱好表见 slaves.gd LIKES）
 	chk(Slaves.birthday_of(0) == Vector2i(0, 7) and Slaves.birthday_text(0) == "春季 7 日",
 		"布恩生日 = 春季 7 日（%s）" % Slaves.birthday_text(0))
-	chk(Slaves.birthday_of(1) == Vector2i(0, 19), "娜雅生日 = 春季 19 日")
+	chk(String(Slaves.slave_at(1).get("name", "")) == "咪露", "第 2 位是咪露（出场顺序已调换）")
+	chk(Slaves.birthday_of(1) == Vector2i(1, 23), "咪露生日 = 夏季 23 日")
 	chk(Slaves.birthday_of(2) == Vector2i(1, 5), "珞琳生日 = 夏季 5 日")
 	chk(Slaves.like_of(0) == "烤土豆", "布恩最爱: 烤土豆")
 	# 改名
@@ -2820,7 +2833,7 @@ func _ready() -> void:
 	chk(bool(Slaves.slaves[0]["gift_today"]), "今天送过标记打开")
 	chk(Inventory.count_item(item_baked) == baked_have - 1, "背包里少一份烤土豆")
 	chk(Slaves.give(0, item_pie) == 0, "今天再送 = 0（不重复加）")
-	# 非爱好的东西 = 基础好感（娜雅最爱胡萝卜, 南瓜派不是）
+	# 非爱好的东西 = 基础好感（第 2 位咪露最爱河鲈, 南瓜派不是）
 	var gain30b: int = Slaves.give(1, item_pie)
 	if gain30b > 0:
 		Inventory.remove_item(item_pie, 1)
@@ -7548,7 +7561,8 @@ func _ready() -> void:
 	Slaves.expedition.clear()
 	chk(String(g72._crew_sheet(1)).contains("Alex"), "名单空时 1 号座也画得出同伴 (Alex)")
 	Slaves.expedition.append(1)
-	chk(String(g72._crew_sheet(1)).contains("Lyria"), "同伴按名单序号取模型 (Lyria)")
+	# e53b: 序号 1 与 3 调换后, 第 2 位(咪露)用的是 Tori 模型
+	chk(String(g72._crew_sheet(1)).contains("Tori"), "同伴按名单序号取模型 (Tori)")
 	var c72: Sprite2D = g72._crew_sprite(0)
 	var creg: Rect2 = (c72.texture as AtlasTexture).region
 	chk(creg.position.y == 64.0 and c72.scale.x < 1.0,
@@ -7558,16 +7572,16 @@ func _ready() -> void:
 	chk(s72.modulate.is_equal_approx(Slaves.ARMOR_TINT_ROOKIE),
 		"同伴 modulate 只剩装甲色 (新兵档), 个人配色烘在贴图里")
 	# 第三方素材不入库(见 README), 缺失时跳过改色断言
-	var lyria72: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Lyria/Idle.png")
-	if lyria72 == null:
+	var Tori72: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Tori/Idle.png")
+	if Tori72 == null:
 		print("  - skip: 缺少第三方素材包, 跳过改色断言 (见 README)")
 	else:
-		var lyria_img: Image = lyria72.get_image()
+		var Tori_img: Image = Tori72.get_image()
 		var tinted72: Image = ((s72.texture as AtlasTexture).atlas as Texture2D).get_image()
-		lyria_img.convert(Image.FORMAT_RGBA8)
+		Tori_img.convert(Image.FORMAT_RGBA8)
 		tinted72.convert(Image.FORMAT_RGBA8)
-		var n72 := _img_diff_count(tinted72, lyria_img)
-		var op72 := _img_opaque_count(lyria_img)
+		var n72 := _img_diff_count(tinted72, Tori_img)
+		var op72 := _img_opaque_count(Tori_img)
 		chk(n72 > 0 and n72 * 2 < op72,
 			"船员贴图是改色版: %d/%d 像素变了色 (局部染色, 不到一半)" % [n72, op72])
 	Slaves.expedition = exp72
@@ -8961,8 +8975,11 @@ func _ready() -> void:
 	var gg90 := FileAccess.get_file_as_string("res://scene/game.gd")
 	chk(gg90.contains("_tick_water_ripple") and gg90.contains("WATER_ANIM_PERIOD"),
 		"game.gd: 水澜分桶轮换")
+	# a2: 「树倒那一下震屏」随树木模块搬到了 scene/game/tree_layer.gd，查处跟着走。
+	var tl90 := FileAccess.get_file_as_string("res://scene/game/tree_layer.gd")
 	chk(gg90.contains("func shake_screen") and gg90.contains("shake_screen(2.5, 0.4)")
-		and gg90.contains("shake_screen(2.0, 0.25)"), "game.gd: 震屏 + 雷击/树倒挂钩")
+		and tl90.contains("shake_screen(2.0, 0.25)"),
+		"game.gd: 震屏 + 雷击/树倒挂钩(a2 后树倒那下在 tree_layer.gd)")
 	chk(gg90.contains("_grass_alt_of") and gg90.contains("GRASS_ALT_LITE"),
 		"game.gd: 草地杂色变体")
 	chk(gg90.contains("RainRipples"), "game.gd: 雨涟漪已接线")
@@ -10932,7 +10949,7 @@ func _ready() -> void:
 	# ===== 105. 婚恋系统 =====
 	print("\n=== 105. 婚恋系统 ===")
 	# 105.1 数据层
-	chk(Marriage.is_bride("rq_01") and not Marriage.is_bride("rq_00"), "只有女性可结婚（娜雅可, 布恩不可）")
+	chk(Marriage.is_bride("rq_01") and not Marriage.is_bride("rq_00"), "只有女性可结婚（咪露可, 布恩不可）")
 	chk(Marriage.BRIDES.size() == 6 and Marriage.HEART_STEPS == [2, 4, 6, 8, 10],
 		"婚恋数据层: 6 位可结婚 + 5 段心意门槛 2/4/6/8/10")
 	chk(not Marriage.can_heart_talk("rq_01", 0) and Marriage.can_heart_talk("rq_01", 2),
@@ -10945,10 +10962,11 @@ func _ready() -> void:
 		and Marriage.can_propose("rq_01", 10, true),
 		"求婚条件: 满好感 10 + 有戒指, 缺一不可")
 	Marriage.marry("rq_01", 33)
-	chk(Marriage.is_married_to("rq_01") and Marriage.wife_name() == "娜雅", "能娶娜雅")
-	chk(absf(Marriage.perk_mult("crop") - 1.15) < 0.001
+	chk(Marriage.is_married_to("rq_01") and Marriage.wife_name() == "咪露", "能娶咪露")
+	chk(absf(Marriage.perk_mult("atk") - 2.0) < 0.001
+		and Marriage.ally_atk_bonus() == 2
 		and absf(Marriage.perk_mult("voyage") - 1.0) < 0.001,
-		"婚联 perk: 娜雅 crop 1.15, 未婚键 1.0")
+		"婚联 perk: 咪露 atk 2.0 / 伙伴攻击 +2, 未婚键 1.0")
 	chk(not Marriage.can_heart_talk("rq_01", 99) and not Marriage.can_propose("rq_01", 99, true),
 		"婚后不再触发心里话/求婚")
 	var sv54: Dictionary = Marriage.to_dict()
@@ -10959,7 +10977,7 @@ func _ready() -> void:
 	for i54 in 5:
 		Marriage.do_heart_talk("rq_03")
 	Marriage.marry("rq_03", 40)
-	chk(Marriage.ally_atk_bonus() == 2, "咪露婚联: 伙伴攻击 +2")
+	chk(absf(Marriage.perk_mult("crop") - 1.15) < 0.001, "娜雅婚联: 作物产量 +15%")
 	Marriage.reset()
 	# 105.2 银戒
 	var ring54: ItemData = load("res://item/ring.tres")
@@ -11047,7 +11065,7 @@ func _ready() -> void:
 	var pv106: TextureRect = g._wedding_badge.get_node("Row/WifePortrait")
 	var rn106: TextureRect = g._wedding_badge.get_node("Row/RingIcon")
 	chk(g._wedding_badge.visible and pv106.texture != null and rn106.texture != null
-		and String((g._wedding_badge.get_node("Row/WifeName") as Label).text) == "娜雅",
+		and String((g._wedding_badge.get_node("Row/WifeName") as Label).text) == "咪露",
 		"结婚瞬间徽章亮出: 头像+戒指+妻子名齐")
 	chk(String(g._wedding_badge.tooltip_text).contains("加成"), "徽章悬停显示婚后加成")
 	Marriage.reset()
@@ -11194,13 +11212,212 @@ func _ready() -> void:
 	chk(iw_i5.contains("tween_callback(_fire_all)") and iw_i5.contains("_queue"),
 		"转场黑窗契约保持: mid 只在全黑窗口放 (i5)")
 
+	# ===== 107. 恋爱线: 心动值 + 恋爱互动 =====
+	print("\n=== 107. 恋爱线: 心动值 + 恋爱互动 ===")
+	Marriage.reset()
+	# 107.1 数据层: 心动从 0 起, 非可婚对象与未开线都被挡
+	chk(Marriage.love_of("rq_01") == 0, "心动值从 0 开始")
+	chk(not Marriage.romance_open("rq_01"), "心里话没开段, 恋爱线未开放")
+	chk(Marriage.do_romance("rq_00", "walk")["ok"] == false, "布恩非可婚对象, 恋爱互动被拒")
+	# 107.2 开线: 第 1 段心里话 -> 牵手散步解锁, 每天一次
+	Marriage.do_heart_talk("rq_01")
+	chk(Marriage.romance_open("rq_01"), "第 1 段心里话讲完, 恋爱线开启")
+	chk(not Marriage.romance_action_ok(Marriage.ROMANCE_ACTIONS[1], "rq_01"),
+		"并肩看云要第 2 段心里话, 还锁着")
+	var r107a: Dictionary = Marriage.do_romance("rq_01", "walk")
+	chk(bool(r107a["ok"]) and int(r107a["gain"]) == 1 and String(r107a["line"]) != "",
+		"牵手散步: 心动 +1, 带台词反馈")
+	chk(Marriage.romance_done_today("rq_01"), "今天互动标记打开")
+	chk(String(Marriage.do_romance("rq_01", "cloud")["reason"]) == "done_today",
+		"每天一次: 第二次互动被拦")
+	# 107.3 新一天重置 + 门槛把关
+	Marriage._on_new_day(1)
+	chk(not Marriage.romance_done_today("rq_01"), "新一天互动次数重置")
+	chk(String(Marriage.do_romance("rq_01", "night")["reason"]) == "not_married",
+		"灯下夜话是婚后专属, 未婚被拒")
+	chk(String(Marriage.do_romance("rq_01", "cloud")["reason"]) == "locked",
+		"并肩看云没到第 2 段, 判 locked")
+	Marriage.do_heart_talk("rq_01")
+	chk(bool(Marriage.do_romance("rq_01", "cloud")["ok"]), "第 2 段心里话讲完, 并肩看云解锁")
+	# 107.4 封顶: 心动满 10 后实加归 0 并标 full
+	for i107 in 3:
+		Marriage.do_heart_talk("rq_01")   # 2 -> 5 段
+	chk(Marriage.stage("rq_01") == 5, "心里话推满 5 段")
+	Marriage.love["rq_01"] = Marriage.LOVE_MAX - 1
+	Marriage._on_new_day(2)
+	var r107b: Dictionary = Marriage.do_romance("rq_01", "kiss")   # 标称 +2, 实加 1
+	chk(bool(r107b["ok"]) and int(r107b["gain"]) == 1 and bool(r107b["full"]),
+		"心动 9 + 额头轻吻: 封顶实加 1, full 标记")
+	chk(Marriage.love_of("rq_01") == Marriage.LOVE_MAX,
+		"心动封顶 %d" % Marriage.LOVE_MAX)
+	# 107.5 婚后专属: 娶咪露 -> 灯下夜话开放
+	Marriage.marry("rq_01", 33)
+	Marriage.love["rq_01"] = 0
+	Marriage._on_new_day(3)
+	var r107c: Dictionary = Marriage.do_romance("rq_01", "night")
+	chk(bool(r107c["ok"]) and int(r107c["gain"]) == 2, "婚后「灯下夜话」开放: 心动 +2")
+	# 107.6 恋爱存档往返（love / romance_today 都进 to_dict）
+	var sv107: Dictionary = Marriage.to_dict()
+	Marriage.reset()
+	chk(Marriage.love_of("rq_01") == 0, "reset 连心动值一起清空")
+	Marriage.from_dict(sv107)
+	chk(Marriage.love_of("rq_01") == 2 and Marriage.is_married_to("rq_01"),
+		"恋爱存档往返: 心动值 + 婚姻状态保住")
+	# 107.7 恋爱界面: 非 bride 兜底 / bride 列出 6 个互动
+	var slaves_bak107: Array = Slaves.slaves
+	var count_bak107: int = Slaves.count
+	Slaves.slaves = [
+		{"name": "布恩", "affection": 10, "gift_today": false, "max_hp": 30, "hp": 30,
+			"troop": "刀客", "squad": 1, "labor": "帮工"},
+		{"name": "咪露", "affection": 10, "gift_today": false, "max_hp": 30, "hp": 30,
+			"troop": "刀客", "squad": 1, "labor": "帮工"},
+	]
+	Slaves.count = 2
+	var rui107: Control = load("res://romance_ui.gd").new()
+	add_child(rui107)
+	rui107.open_for(0)
+	chk(rui107.visible
+		and String((rui107.get("_love_label") as Label).text).contains("并肩伙伴"),
+		"恋爱界面: 非可婚对象显好感线兜底")
+	rui107.open_for(1)
+	chk(rui107.visible
+		and String((rui107.get("_love_label") as Label).text).contains("心动"),
+		"恋爱界面: bride 显心动条")
+	Marriage._on_new_day(4)   # 把今天互动标记拨掉, 列表里才有可点行
+	rui107._refresh()
+	await get_tree().process_frame   # 等 queue_free 的旧列表真删掉再数
+	var list107: VBoxContainer = rui107.get("_list_box")
+	var act107 := 0
+	for c107 in list107.get_children():
+		if c107 is Button and not c107.disabled:
+			act107 += 1
+	chk(list107.get_child_count() == Marriage.ROMANCE_ACTIONS.size(),
+		"恋爱界面列出 %d 个互动" % Marriage.ROMANCE_ACTIONS.size())
+	chk(act107 >= 1, "已婚 + 新一天: 至少一个互动可点 (可点 %d)" % act107)
+	rui107.close()
+	rui107.free()
+	# 107.8 双入口接线: 详情页按钮 + 对话窗回调
+	var bp107: Control = g.get_node_or_null("HUD/Backpack")
+	chk(bp107 != null and bp107.get("_romance_btn") is Button
+		and bp107.get("_rom_love_label") != null and bp107.get("_rom_status_label") != null,
+		"队伍详情页恋爱线区块齐: 按钮 + 心动条 + 状态行")
+	var dlg107: Control = load("res://dialogue_ui.gd").new()
+	add_child(dlg107)
+	chk(dlg107.has_method("_on_romance_pressed"), "dialogue_ui._on_romance_pressed 接口在")
+	dlg107.queue_free()
+
+	# ---------------- q1/q2 光影追踪: 太阳 + 遮挡体 ----------------
+	# q1 灯光公用件默认带实时阴影
+	var tl: PointLight2D = preload("res://scene/light_util.gd").make_light(Color.WHITE, 1.0, 1.0)
+	chk(tl.shadow_enabled and tl.shadow_filter == PointLight2D.SHADOW_FILTER_PCF13,
+		"灯光公用件默认开实时阴影 + PCF13 软化滤镜 (q1)")
+	tl.free()
+	# q2 太阳/月亮平行光在场, 且**不开影子**
+	# ❗俯视 2D 下平行光的影子是半无限长条(沿光向拖到屏幕外), 太阳一低就横贯全屏,
+	#   就是玩家报的「影子被拉成长条」; shadow_color 只能调深浅、调不掉形状。
+	#   落地影子交给 shadow_util.make_shadow 的椭圆影; 遮挡体留给点光(路灯/篝火)用。
+	var sun_node: Node = g.get_node_or_null("SunLight")
+	var sun_light: DirectionalLight2D = null
+	if sun_node != null:
+		for c in sun_node.get_children():
+			if c is DirectionalLight2D:
+				sun_light = c
+				break
+	chk(sun_light != null and not sun_light.shadow_enabled,
+		"太阳/月亮平行光在场且不投硬影 (俯视 2D 平行光影子是无限长条) (q2)")
+	# q2 全场遮挡体: 遍历整棵场景树数 LightOccluder2D（玩家/树冠/房身/家具/灯柱/水井）
+	var occ_total := 0
+	var stack: Array = [g]
+	while not stack.is_empty():
+		var nn: Node = stack.pop_back()
+		var lo := nn as LightOccluder2D
+		if lo != null and lo.occluder != null and lo.occluder.polygon.size() >= 3:
+			occ_total += 1
+		for cc in nn.get_children():
+			stack.append(cc)
+	chk(occ_total >= 12, "全场遮挡体就位: 玩家/树冠/房身/家具/灯柱/水井 (共 %d 个)" % occ_total)
+
+	# ---------------- q3 深度美化: 云影 + 炊烟 ----------------
+	var cl: Node2D = g.get_node_or_null("CloudLayer")
+	chk(cl != null and cl.has_method("_spawn_cloud") and cl.has_method("setup"),
+		"云层在场且接了 setup（云影浓度需要 game 引用） (q3)")
+	if cl != null and cl.has_method("_spawn_cloud"):
+		var n0 := cl.get_child_count()
+		cl.call("_spawn_cloud", true)       # 强制塞一朵, 不赌相机/随机时机
+		var cloud: Node2D = null
+		# 取刚强制 spawn 的那朵（add_child 同步追加 = 最后一个 child）；
+		# 老云的影子 alpha 早被 _process 缓动到白天浓度，不能拿来断「初始 0」
+		if cl.get_child_count() == n0 + 1:
+			var last := cl.get_child(cl.get_child_count() - 1)
+			if last is Node2D and last.has_meta("shadow"):
+				cloud = last
+		chk(cloud != null and cl.get_child_count() == n0 + 1,
+			"每朵云脚下带一片软影 (meta shadow) (q3)")
+		if cloud != null:
+			var sh: Sprite2D = cloud.get_meta("shadow")
+			chk(sh != null and sh.texture != null and sh.modulate.a < 0.02
+				and sh.position == Vector2(14, 58),
+				"云影初始淡入起点 0、落在云的右下方 (14,58) (q3)")
+	var houseq: Node2D = g.get_node_or_null("House")
+	var smoke: CPUParticles2D = null
+	if houseq != null:
+		smoke = houseq.get_node_or_null("ChimneySmoke") as CPUParticles2D
+	chk(smoke != null and smoke.amount >= 4 and smoke.position == Vector2(40, -104),
+		"房子烟囱口冒炊烟 (40,-104), 顺风向左斜升 (q3)")
+
+	# ---------------- q4 灵动: 鱼跃 + 树叶飘 ----------------
+	var fj: Node2D = g.get_node_or_null("FishLayer")
+	chk(fj != null and fj.has_method("_try_jump") and "_game" in fj and fj.get("_game") != null,
+		"鱼跃层在场且接了 game 引用 (q4)")
+	var tnode: Node2D = preload("res://scene/tree_node.gd").new()
+	chk(tnode.has_method("_drift_leaf"),
+		"成树会自己飘叶子 (tree_node._drift_leaf) (q4)")
+	tnode.free()
+
+	# 清场
+	Slaves.slaves = slaves_bak107
+	Slaves.count = count_bak107
+	Marriage.reset()
+
 	print("\n========================================")
 	if fails == 0:
 		print("全部通过 ✔")
 	else:
 		print("有 %d 项没通过 ✘" % fails)
 	print("========================================")
+	_write_result()
 	get_tree().quit()
+
+# e1 自检结论落盘（UTF-8）。
+# 背景：控制台输出被 shell 重定向后，中文经常被按 GBK 解读成乱码（「看日志靠猜」）。
+# 这里用 FileAccess 自己写一份结果文件 —— FileAccess 落盘恒为 UTF-8，任何编辑器都读得对；
+# 另外在控制台补一行**纯 ASCII** 的结论，方便 shell 里直接 grep，不用管终端的编码设置。
+func _write_result() -> void:
+	var verdict := "PASS" if fails == 0 else "FAIL"
+	var lines := PackedStringArray()
+	lines.append("SELFTEST VERDICT: %s" % verdict)
+	lines.append("checks_failed: %d" % fails)
+	lines.append("time: %s" % Time.get_datetime_string_from_system())
+	if fails > 0:
+		lines.append("---- failed ----")
+		for m in failed_msgs:
+			lines.append("  [!!] " + m)
+	var body := "\n".join(lines) + "\n"
+	var where := ""
+	# ❗FileAccess.open(WRITE) 不会自动建目录；res://tools 目录本来就存在，直接写。
+	var f := FileAccess.open("res://tools/_selftest_result.txt", FileAccess.WRITE)
+	if f != null:
+		f.store_string(body)
+		f.close()
+		where = "res://tools/_selftest_result.txt"
+	else:
+		# 兜底：项目目录只读时退到 user://（路径见 OS.get_user_data_dir()）
+		var f2 := FileAccess.open("user://_selftest_result.txt", FileAccess.WRITE)
+		if f2 != null:
+			f2.store_string(body)
+			f2.close()
+			where = "user://_selftest_result.txt"
+	print("[SELFTEST] %s  failed=%d  result=%s" % [verdict, fails, where])
 
 func _unhandled_input(_e: InputEvent) -> void:
 	pass

@@ -1661,23 +1661,37 @@ func _draw_water_tile(img: Image, ox: int, oy: int, depth: int, variant: int, ts
 			var col: Color = base.lightened(WATER_RIPPLE) if up else base.darkened(WATER_RIPPLE)
 			img.set_pixel(ox + px, oy + y0, col)
 
-# ---------------- 桥（用美术素材，不再程序化画木板）----------------
+# ---------------- 桥（栏杆用美术素材, 桥面程序化绘制）----------------
 # 素材：`Objects/Exterior/Deep Forest/Bridge.png`，80x256，竖着排了 4 种配色，
 #       每种 80x64。桥是「横向」的：上下各一条护栏（带立柱），中间是红木桥面。
 #
 # 实测这个素材的像素结构（别再猜）：
 #   · 真正有内容的是每种配色里的 x=9..69 / y=4..54（61x51），四周是透明留白
-#   · 护栏立柱在 x = 9-13 / 29-33 / 45-49 / 65-69（间距 16~20 不等，**不是等距的**）
-#     → 所以它**不能当 tileset 平铺**。做法改成：取左收口 + 中间一跨重复 + 右收口
-#       拼到目标宽度，最后整体 resize 到精确像素（差异 <8%，像素风看不出来）
+#   · 北护栏 y=0..12：柱头(y=0..2) + 扶手梁(y=3..5) + 阴影(y=6..7)
+#       + 真透空栏杆(y=8..10, 细立柱每 4px 一根, 中间是真透明缝) + 底梁(y=11..12)
+#   · y=13..30 是侧视桥板（红木色 #8a3625）——俯视平铺会像一堵墙, k1 起弃用
+#   · y=32..50 是南侧实心护板 + 柱脚 —— 俯视更用不上, 弃用
+#   · 栏杆立柱在 x = 0-4 / 21-24 / 37-40 / 57-60（间距不等，**不能当 tileset 平铺**）
+#     → 横向做法：取左收口 + 中间一跨重复 + 右收口 拼到目标宽度
+#
+# k1 造桥法（真实感版）：北护栏原样 + 程序化俯视木板桥面 + 南护栏 = 北护栏竖直镜像
+#   （透空栏杆朝桥面）。南护栏带再由前层 y-sort sprite 叠画一遍：走在南桥带的
+#   角色站在护栏后面, 腿透过真栏杆缝看得见; 桥南的角色盖住护栏。
 const BRIDGE_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Deep Forest/Bridge.png"
 const BRIDGE_VARIANT := 0                                  # 第 0 种配色：棕木 + 米色护栏，最搭
 const BRIDGE_TRIM := Rect2i(9, 4, 61, 51)                  # 那块贴图在 80x64 里的实际范围
 const BRIDGE_CAP_W := 21                                   # 左右收口宽度
 const BRIDGE_BAY_W := 21                                   # 中间可重复的一跨宽度
 const BRIDGE_H_TILES := 3      # 桥贴图在竖直方向铺 3 格 (侧视整贴, 三行桥带全可走)
-
-var _bridge_piece_img: Image = null    # 缓存：裁好的那一块桥贴图
+const BRIDGE_RAIL_SRC_H := 13  # 素材里北护栏的高度 (y=0..12)
+const BRIDGE_RAIL_N_H := 16    # 北护栏带铺多高 (行 y-1)
+const BRIDGE_DECK_H := 18      # 程序化桥面高 (行 y + 行 y+1 上半)
+const BRIDGE_RAIL_S_H := 14    # 南护栏带高 (行 y+1 下半) —— 16+18+14 = 48 = 3 格
+# 桥面木板配色（取自素材护栏的浅木色系, 跟栏杆天然协调）
+const BRIDGE_DECK_A := Color("9a7c60")
+const BRIDGE_DECK_B := Color("a48868")
+const BRIDGE_DECK_SEAM := Color("6b5058")
+const BRIDGE_DECK_EDGE := Color("54403a")
 
 func _build_bridges() -> void:
 	var node := Node2D.new()
@@ -1696,10 +1710,9 @@ func _build_bridges() -> void:
 		var tex := _make_bridge_texture(w * 16, BRIDGE_H_TILES * 16)
 		if tex == null:
 			continue
-		# f3 修: 素材是纯侧视图, 上一版按俯视拆成「护栏/桥面」四层还砌了隐形墙,
-		#      结果桥只许走一行 + 侧视板壁被切成两条假护栏 (贴图错误)。
-		#      改回扁平单层: 每桥一张整贴, 永远压在角色下面 (z=Z_BRIDGE, 不 y-sort),
-		#      三行桥带全可走 (水碰撞豁口见 _build_water_collision, 桥墙已拆)。
+		# k1: 主桥层 = 北护栏 + 程序化桥面 + 南护栏(镜像), 整贴压在角色下面
+		#     (z=Z_BRIDGE, 不 y-sort); 三行桥带全可走 (水碰撞豁口见
+		#     _build_water_collision, 桥墙已拆)。
 		var sp := Sprite2D.new()
 		sp.name = "Bridge%d" % y
 		sp.texture = tex
@@ -1707,30 +1720,31 @@ func _build_bridges() -> void:
 		sp.position = Vector2(x0 * 16, (y - 1) * 16)   # 盖住 y-1..y+1 三行
 		sp.z_index = Z_BRIDGE
 		node.add_child(sp)
-		# h2: 前层护栏 —— 桥贴图最下 16px (南护栏带) 再叠一张同纹理的 region sprite,
-		#     走在下桥带 (y+1) 的角色就在护栏后面, 被 h3 挖出栏杆孔的前层护栏
-		#     半遮半露。上/中桥带的角色不与这条带重叠, 不受影响。
-		# b7: 护栏不再恒抬 z=+1 —— 那会把蹚水走到桥南侧 (y 更大, 明明在护栏
-		#     前面) 的玩家也压在护栏底下。改成 z=0 参与 y_sort: 排序点落在
-		#     护栏带底边 ((y+2)*16), 贴图用 offset 画回 y+1 行 —— 玩家在桥上
-		#     (脚 y 更小) 时护栏照旧盖住玩家, 走到桥南时玩家盖住护栏。
+		# 前层护栏 —— 南护栏带 (拼装贴图 y=34..47) 再叠一张同纹理的 region sprite,
+		#     走在南桥带 (y+1) 的角色就在护栏后面, 透过真栏杆缝半遮半露。
+		#     上/中桥带的角色不与这条带重叠, 不受影响。
+		# b7: 护栏 z=0 参与 y_sort: 排序点落在护栏带底边 ((y+2)*16), 贴图用
+		#     offset 画回 y+1 行 —— 玩家在桥上 (脚 y 更小) 时护栏盖住玩家,
+		#     走到桥南时玩家盖住护栏。
 		var rf := Sprite2D.new()
 		rf.name = "BridgeFront%d" % y
 		rf.texture = tex
 		rf.centered = false
 		rf.region_enabled = true
-		rf.region_rect = Rect2(0, (BRIDGE_H_TILES - 1) * 16, w * 16, 16)
+		rf.region_rect = Rect2(0, BRIDGE_RAIL_N_H + BRIDGE_DECK_H, w * 16, BRIDGE_RAIL_S_H)
 		rf.position = Vector2(x0 * 16, (y + 2) * 16)   # y_sort 排序点 = 护栏带底边
-		rf.offset = Vector2(0, -16)                    # 贴图画回 y+1 行, 位置不变
+		rf.offset = Vector2(0, -BRIDGE_RAIL_S_H)         # 贴图画回 y+1 行下半, 世界位置不变
 		rf.z_index = 0                                 # 跟角色同层, 交给 y_sort 排
 		node.add_child(rf)
 
 	print("[桥] 架了 %d 座(行 %s),每座跨 %d 格,扁平单层贴桥面(z=%d),三行桥带全可走" % [BRIDGE_ROWS.size(), str(BRIDGE_ROWS), 2 * BRIDGE_HALF + 1, Z_BRIDGE])
 
-# 裁出素材里的那一块桥（去掉四周透明留白），缓存起来
-func _bridge_piece() -> Image:
-	if _bridge_piece_img != null:
-		return _bridge_piece_img
+# 裁出素材里的北护栏条（y=0..12, 带真透空栏杆），缓存起来
+var _bridge_rail_img: Image = null
+
+func _bridge_rail_piece() -> Image:
+	if _bridge_rail_img != null:
+		return _bridge_rail_img
 	var tex: Texture2D = SoftRes.tex(BRIDGE_SHEET)
 	if tex == null:
 		return null
@@ -1740,56 +1754,69 @@ func _bridge_piece() -> Image:
 	if img.is_compressed():
 		img.decompress()
 	var cell := Rect2i(0, BRIDGE_VARIANT * 64, 80, 64)
-	_bridge_piece_img = img.get_region(Rect2i(cell.position + BRIDGE_TRIM.position, BRIDGE_TRIM.size))
-	# h3: 前层护栏带 (piece y=32..46 → 拼装贴图最下 16px, 画在角色之上) 素材是
-	#     一整块实心护板, 走在桥上的角色会被它整个挡住。按真实俯视桥的样子
-	#     改成「一排栏杆柱」: 保留四根立柱全高 + 底缘收边 (y=45..46), 柱间
-	#     y=32..44 连顶梁一起整段挖透 —— 没有栅栏缝、没有穿腰横杠, 主角
-	#     全身都看得见, 透出的就是桥下的水。y=30..31 顶梁上沿留在主桥层
-	#     (角色之下), 正好当桥面的边梁纹, 桥面保持连续。
-	for gap in [Vector2i(5, 19), Vector2i(25, 35), Vector2i(41, 55)]:
-		for gy in range(32, 45):
-			for gx in range(gap.x, gap.y + 1):
-				_bridge_piece_img.set_pixel(gx, gy, Color(0, 0, 0, 0))
-	# j7: 素材是纯侧视图, 底部 y=47..50 是支撑柱脚 —— 扁平铺在俯视地图上,
-	#     柱脚悬空看着像桥下面的多余贴图。清掉全宽柱脚, 桥体止于下护栏
-	#     横梁 (y=46), 再把 piece 裁到 47 高, 拼装时 47->48 正好填满。
-	for gy in range(47, 51):
-		for gx in range(0, _bridge_piece_img.get_width()):
-			_bridge_piece_img.set_pixel(gx, gy, Color(0, 0, 0, 0))
-	_bridge_piece_img = _bridge_piece_img.get_region(Rect2i(0, 0, _bridge_piece_img.get_width(), 47))
-	return _bridge_piece_img
+	var piece: Image = img.get_region(Rect2i(cell.position + BRIDGE_TRIM.position, BRIDGE_TRIM.size))
+	_bridge_rail_img = piece.get_region(Rect2i(0, 0, piece.get_width(), BRIDGE_RAIL_SRC_H))
+	return _bridge_rail_img
 
-# 拼一张桥：左收口 + 中间若干跨 + 右收口，最后缩放到目标尺寸
+# 程序化画俯视桥面木板：横板每 6px 一块, 板间横缝 + 板端竖缝 (逐板错位),
+# 上下 1px 压边当栏杆投影。配色取自素材护栏的浅木系, 跟栏杆天然协调。
+func _paint_bridge_deck(img: Image, y0: int, h: int) -> void:
+	var w: int = img.get_width()
+	for dy in h:
+		var yy: int = y0 + dy
+		var plank: int = dy / 6
+		var in_seam: bool = (dy % 6) == 5
+		for x in w:
+			var col: Color = BRIDGE_DECK_A if plank % 2 == 0 else BRIDGE_DECK_B
+			if in_seam or (x + plank * 13) % 28 == 0:
+				col = BRIDGE_DECK_SEAM
+			else:
+				var n: int = (x * 7349 + yy * 15153) % 997      # 轻噪点, 板面不死板
+				col = col.darkened(float(n % 8) * 0.012)
+			img.set_pixel(x, yy, col)
+	for x in w:
+		img.set_pixel(x, y0, BRIDGE_DECK_EDGE)
+		img.set_pixel(x, y0 + h - 1, BRIDGE_DECK_EDGE)
+
+# 拼一张桥：横向「左收口 + 中段重复 + 右收口」拼栏杆条,
+# 再竖直组装 = 北护栏(原样) + 程序化桥面 + 南护栏(栏杆条镜像, 透空朝桥面)
 func _make_bridge_texture(target_w: int, target_h: int) -> ImageTexture:
-	var piece := _bridge_piece()
-	if piece == null:
+	var rail := _bridge_rail_piece()
+	if rail == null:
 		return null
-	var src_h := piece.get_height()
-	var full_w := piece.get_width()
+	var src_h: int = rail.get_height()
+	var full_w: int = rail.get_width()
 	var cap: int = mini(BRIDGE_CAP_W, full_w / 2)
 	var bay: int = mini(BRIDGE_BAY_W, full_w - cap * 2)
 
-	var out := Image.create_empty(target_w, src_h, false, Image.FORMAT_RGBA8)
-	out.fill(Color(0, 0, 0, 0))
-
-	# j7: piece 素材 x=20 / x=40 两列是整高的分段描边线, 收口各裁掉一列
-	#     (cw = cap - 1), 中段只取 src 21..39 无描边区, 桥面就不会再出现黑竖缝。
+	# 横向拼一条全宽栏杆（素材 x=20 / x=40 是整高分段描边线, 收口各裁一列,
+	# 中段只取 src 21..39 无描边区, 栏杆就不会出现黑竖缝）
 	var cw: int = cap - 1
-	# 左收口 (src 0..19)
-	out.blit_rect(piece, Rect2i(0, 0, cw, src_h), Vector2i.ZERO)
-	# 中间：一跨一跨重复铺满 (每跨最多 19 宽, 避开描边线)
+	var strip := Image.create_empty(target_w, src_h, false, Image.FORMAT_RGBA8)
+	strip.fill(Color(0, 0, 0, 0))
+	strip.blit_rect(rail, Rect2i(0, 0, cw, src_h), Vector2i.ZERO)
 	var x := cw
 	while x < target_w - cw and bay > 0:
-		var w: int = mini(bay, target_w - cw - x)
-		out.blit_rect(piece, Rect2i(cap, 0, w, src_h), Vector2i(x, 0))
-		x += w
-	# 右收口 (src 41..60, 落在 target_w - cw 起)
-	out.blit_rect(piece, Rect2i(full_w - cap + 1, 0, cw, src_h), Vector2i(target_w - cw, 0))
+		var bw: int = mini(bay, target_w - cw - x)
+		strip.blit_rect(rail, Rect2i(cap, 0, bw, src_h), Vector2i(x, 0))
+		x += bw
+	strip.blit_rect(rail, Rect2i(full_w - cap + 1, 0, cw, src_h), Vector2i(target_w - cw, 0))
 
-	# 缩放到精确尺寸（宽度本来就是准的，主要压一下高度 47 -> 48）
-	if out.get_width() != target_w or out.get_height() != target_h:
-		out.resize(target_w, target_h, Image.INTERPOLATE_NEAREST)
+	var out := Image.create_empty(target_w, target_h, false, Image.FORMAT_RGBA8)
+	out.fill(Color(0, 0, 0, 0))
+	# 北护栏带 13 -> 16
+	var north: Image = strip.duplicate()
+	north.resize(target_w, BRIDGE_RAIL_N_H, Image.INTERPOLATE_NEAREST)
+	out.blit_rect(north, Rect2i(0, 0, target_w, BRIDGE_RAIL_N_H), Vector2i.ZERO)
+	# 程序化桥面
+	_paint_bridge_deck(out, BRIDGE_RAIL_N_H, BRIDGE_DECK_H)
+	# 南护栏带 = 栏杆条竖直镜像 (透空栏杆朝桥面), 13 -> 14
+	var south := Image.create_empty(target_w, src_h, false, Image.FORMAT_RGBA8)
+	south.fill(Color(0, 0, 0, 0))
+	for k in src_h:
+		south.blit_rect(strip, Rect2i(0, src_h - 1 - k, target_w, 1), Vector2i(0, k))
+	south.resize(target_w, BRIDGE_RAIL_S_H, Image.INTERPOLATE_NEAREST)
+	out.blit_rect(south, Rect2i(0, 0, target_w, BRIDGE_RAIL_S_H), Vector2i(0, BRIDGE_RAIL_N_H + BRIDGE_DECK_H))
 	return ImageTexture.create_from_image(out)
 
 # ---------------- 水碰撞 ----------------
@@ -2067,6 +2094,16 @@ func _build_waves() -> void:
 	glint.name = "WaterGlint"
 	add_child(glint)
 	glint.setup(self)
+	# q2 太阳/月亮：全场平行光 + 实时影子（scene/sun_light.gd），影子随时刻扫动
+	var sun: Node2D = preload("res://scene/sun_light.gd").new()
+	sun.name = "SunLight"
+	add_child(sun)
+	sun.setup(self)
+	# q4 灵动：深水区偶尔有鱼跃出水面（scene/fish_jump.gd）—— 起跳/落水各荡一圈涟漪
+	var fish: Node2D = preload("res://scene/fish_jump.gd").new()
+	fish.name = "FishLayer"
+	add_child(fish)
+	fish.setup(self)
 
 # 唯美氛围（王国新大陆观感）：全屏后处理滤镜。萤火虫/光尘粒子层已整体删除
 # （多次调渐隐玩家仍见白点，直接消去）。滤镜垫在 HUD 第 0 位 —— 只调世界画面，
@@ -2100,9 +2137,11 @@ func _build_fx() -> void:
 	amb.name = "AmbienceFX"
 	add_child(amb)
 	# 天上的半透明白云：几块长方形拼一朵，整层慢飘、跟着缩放走（云是氛围不糊地图）
+	# q3: setup 挂上 game 引用 —— 云脚下要拖影子（昼夜/天气淡出）、雨云要染色
 	var clouds := preload("res://scene/cloud_layer.gd").new()
 	clouds.name = "CloudLayer"
 	add_child(clouds)
+	clouds.setup(self)
 	# e33e 雨天地面涟漪：雨点砸地的一圈圈小扩散（风暴更密）, 垫在实体下面
 	var ripples := preload("res://scene/rain_ripples.gd").new()
 	ripples.name = "RainRipples"
@@ -2749,214 +2788,44 @@ func _build_floor_layer() -> void:
 	layer.name = "FloorLayer"
 	add_child(layer)
 
-# ---------------- 树木 ----------------
-# Trees autoload 存数据，这里负责摆节点 + 砍树结算 + 掉落。
-# 节点直接挂在 Game 下参与 y_sort（跟伙伴一个套路，不套容器）。
-var tree_nodes := {}        # cell -> tree_node
-var _falling_cells := {}    # 正在播「倒下动画」的格子：这期间的贴图更新先挂起（cell -> 待换的 stage）
+# ---------------- 树木（阶段 1-1：实现已搬到 scene/game/tree_layer.gd）----------------
+# Trees autoload 存数据；模块负责摆显示节点 + 砍树结算 + 掉落调度。
+# [!] 显示节点仍然**直接挂在 Game 下**参与根节点的 y_sort —— 模块内部用
+#     _game.add_child() 挂节点，没有套容器（原因见 tree_layer.gd 头部说明）。
+# 下面这几个函数是给 player.gd / 自检 / 读档用的门面，只做转调，不放逻辑。
+var _trees = preload("res://scene/game/tree_layer.gd").new()
 
-# 开局撒树。固定种子 -> 每次开局树长在同样的地方，方便对照改动。
+# 兼容旧字段名：自检与历史代码都在读 game.tree_nodes / game._falling_cells。
+# 只读属性转发到模块持有的那本字典（Dictionary 是引用类型，两边读写同一份）。
+var tree_nodes: Dictionary:
+	get:
+		return _trees.tree_nodes
+
+var _falling_cells: Dictionary:
+	get:
+		return _trees._falling_cells
+
 func _build_trees() -> void:
-	# ❗这个函数可能被调多次（开局一次、开新档 reset 后再补一次）—— 必须幂等：
-	#   旧信号连接要断掉（不然 tree_changed 发两次），旧节点要真拆掉
-	#   （tree_nodes.clear() 只清字典，屏幕上的树会变成"看得见砍不着"的幽灵）。
-	if Trees.tree_changed.is_connected(_on_tree_changed):
-		Trees.tree_changed.disconnect(_on_tree_changed)
-	if Trees.tree_removed.is_connected(_on_tree_removed):
-		Trees.tree_removed.disconnect(_on_tree_removed)
-	for n in tree_nodes.values():
-		if is_instance_valid(n):
-			n.queue_free()
-	Trees.reset()
-	tree_nodes.clear()
-	_falling_cells.clear()
-	Trees.tree_changed.connect(_on_tree_changed)
-	Trees.tree_removed.connect(_on_tree_removed)
+	_trees.setup(self)      # 幂等：开局与开新档都走这里，保证模块拿到 Game
+	_trees.build()
 
-	# 建筑锚点：附近 4 格不种树。屋身有 5x7 格那么大，给它两个锚点（屋根 + 门口）。
-	var anchors: Array = []
-	for n: Node2D in [$House, $Merchant, $ShippingBin, $Player]:
-		anchors.append(_world_to_cell(n.global_position))
-	anchors.append(_world_to_cell($House.to_global(Vector2(40, -100))))
-	anchors.append(_world_to_cell($House.to_global(Vector2(50, 28))))
-	# ❗室内那块「屋子」在**世界坐标里是真实存在的野地**（屋下 288px 起），
-	#   树要是长在那儿，进屋后会有一棵树穿墙画在房间里。整块都避开。
-	var inner_from := _world_to_cell($House.global_position + Vector2(-16, 272))
-	var inner_to := _world_to_cell($House.global_position + Vector2(304, 496))
-
-	var noise := FastNoiseLite.new()
-	noise.seed = TREE_SEED
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = TREE_NOISE_FREQ
-	var rng := RandomNumberGenerator.new()
-	rng.seed = TREE_SEED
-	var placed := 0
-	for c in _land_set.keys():
-		if Trees.trees.size() >= TREE_MAX:
-			break
-		if not _tree_spot_ok(c, anchors, inner_from, inner_to):
-			continue
-		var nv := (noise.get_noise_2d(float(c.x), float(c.y)) + 1.0) * 0.5
-		var density: float = smoothstep(0.35, 0.9, nv) * TREE_DENSITY
-		if rng.randf() >= density:
-			continue
-		var r := rng.randf()
-		var stage := Trees.ST_MATURE
-		if r < 0.12:
-			stage = Trees.ST_SAPLING
-		elif r < 0.32:
-			stage = Trees.ST_YOUNG
-		Trees.plant(c, _hash2(c + Vector2i(7, 13)) % 2, stage)
-		placed += 1
-	print("[树] 全岛种了 %d 棵(上限 %d)" % [placed, TREE_MAX])
-
-# 这格能不能长树：非田、离桥远、四邻都是陆地（树冠 32 宽，悬到水里很怪）、
-# 离建筑锚点 4 格开外、不压室内。
 func _tree_spot_ok(c: Vector2i, anchors: Array, inner_from: Vector2i, inner_to: Vector2i) -> bool:
-	if Farm.tilled.has(c) or is_bridge_cell(c):
-		return false
-	if _sand_set.has(c):          # 沙滩上不长树
-		return false
-	for nb in [c + Vector2i.UP, c + Vector2i.DOWN, c + Vector2i.LEFT, c + Vector2i.RIGHT]:
-		if not _land_set.has(nb) or is_bridge_cell(nb):
-			return false
-	for a in anchors:
-		var ac: Vector2i = a
-		if maxi(absi(c.x - ac.x), absi(c.y - ac.y)) < 4:
-			return false
-	if c.x >= inner_from.x and c.x <= inner_to.x and c.y >= inner_from.y and c.y <= inner_to.y:
-		return false
-	return true
+	return _trees.spot_ok(c, anchors, inner_from, inner_to)
 
 func _on_tree_changed(c: Vector2i) -> void:
-	if not Trees.trees.has(c):
-		return
-	var t: Dictionary = Trees.trees[c]
-	if _falling_cells.has(c):
-		_falling_cells[c] = int(t.stage)     # 倒下动画播完再换贴图（见 hit_tree）
-		return
-	var n: Node2D = tree_nodes.get(c)
-	if n == null:
-		n = preload("res://scene/tree_node.gd").new()
-		n.name = "Tree%d_%d" % [c.x, c.y]
-		n.cell = c
-		n.variant = int(t.variant)
-		n.position = _cell_tree_pos(c)
-		add_child(n)
-		tree_nodes[c] = n
-	n.apply_stage(int(t.stage))
+	_trees.on_changed(c)
 
 func _on_tree_removed(c: Vector2i) -> void:
-	var n: Node2D = tree_nodes.get(c)
-	if n == null:
-		return
-	tree_nodes.erase(c)
-	n.play_pop()      # 幼苗被刨走 / 树桩被敲碎：小跳一下消失
+	_trees.on_removed(c)
 
-# 鼠标指着的是哪棵树（player 挥斧头前先问这一句）。
-#
-# ❗树的贴图是 32x48、底边对齐节点原点，也就是**视觉上比它注册的那一格高出近 3 格**
-#   （树冠悬在格子上方）。玩家对着树冠点下去，坐标换算出来的是树顶上方的空格，
-#   于是"这里没有能砍的树" —— 树明明就在眼前。
-#   所以判定不能拿「鼠标 -> 格子」的格子去查表，得按贴图矩形命中，所见即所砍。
-#
-# 依次退让：① 鼠标压在哪棵树上 ② 鼠标那一格有树（幼苗/树桩贴图贴地，这步接得住）
-#          ③ 鼠标格和玩家格周围一圈里最近的树（接住"站在树前面直接按使用键"）
-# 都没找到就原样返回 fallback，让 hit_tree 老实报 MISS。
 func pick_tree_cell(mouse_world: Vector2, fallback: Vector2i) -> Vector2i:
-	# 鼠标就搁在自己身上时，"指哪砍哪"没有指向性 —— 玩家按使用键常常压根没挪鼠标。
-	# 这时跳过①直接看身边那棵，免得被"头顶上悬着的那棵（别人）的树冠"截胡。
-	var on_self := has_node("Player") \
-		and mouse_world.distance_to($Player.global_position) < float(Farm.TILE_SIZE)
+	return _trees.pick_cell(mouse_world, fallback)
 
-	var best := fallback
-	var best_d := INF
-	if not on_self:
-		for key in tree_nodes.keys():
-			var n: Node2D = tree_nodes[key]
-			if n == null or not is_instance_valid(n):
-				continue
-			var base: Vector2 = n.global_position
-			# 贴图范围：节点原点在树干底部（TRUNK_BASE_Y=45 那行），
-			# 于是向上 45、向下 3、左右各 16（见 tree_node.FRAME_W/H、TRUNK_BASE_Y）
-			if not Rect2(base + Vector2(-16.0, -45.0), Vector2(32.0, 48.0)).has_point(mouse_world):
-				continue
-			var d: float = base.distance_squared_to(mouse_world)
-			if d < best_d:
-				best_d = d
-				best = key
-		if best_d < INF:
-			return best
-
-	if Trees.has_tree(fallback):
-		return fallback
-
-	var pc: Vector2i = _world_to_cell($Player.global_position)
-	var near := Vector2i.ZERO
-	var nd := INF
-	for around in [fallback, pc]:
-		var b: Vector2i = around
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				var c: Vector2i = b + Vector2i(dx, dy)
-				if not Trees.has_tree(c):
-					continue
-				var d2: float = Vector2(c - pc).length_squared()
-				if d2 < nd:
-					nd = d2
-					near = c
-	if nd < INF:
-		return near
-	return fallback
-
-# 砍一下（player 手持斧头点树时调）。返回 Trees.hit 的结算，掉落物在这里生成。
 func hit_tree(c: Vector2i) -> Dictionary:
-	var was_mature: bool = Trees.has_tree(c) and int(Trees.trees[c].stage) == Trees.ST_MATURE
-	if was_mature:
-		# ❗先挂起再砍：Trees.hit 里会发 tree_changed（换成树桩贴图），
-		#   挂起让那条更新先记着，等倒下动画播完再补树桩节点。
-		_falling_cells[c] = Trees.ST_STUMP
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var res: Dictionary = Trees.hit(c, rng, Research.chop_power())
-	if int(res.result) != Trees.RESULT_FELLED:
-		_falling_cells.erase(c)              # 没砍倒（RESULT_HIT / MISS），挂起作废
-	match int(res.result):
-		Trees.RESULT_HIT:
-			var n: Node2D = tree_nodes.get(c)
-			if n != null:
-				n.shake()
-				n.chip_burst()       # 木屑带黑描边，受重力掉下来
-		Trees.RESULT_FELLED:
-			var n2: Node2D = tree_nodes.get(c)
-			if was_mature and n2 != null:
-				tree_nodes.erase(c)
-				n2.fell_done.connect(_on_tree_fell_done)
-				n2.play_fell()
-				shake_screen(2.0, 0.25)   # e33d 树倒震屏
-	# 科技树加成：锻铁斧 +1 / 木匠行会 +2（见 research.gd）—— 必须放在 match 之外
-	var wood: int = int(res.wood)
-	if wood > 0:
-		wood += Research.wood_bonus()
-	var seeds: int = int(res.seeds)
-	if wood > 0 or seeds > 0:
-		_spawn_tree_drops(c, wood, seeds)
-	return res
+	return _trees.hit(c)
 
-func _on_tree_fell_done(c: Vector2i) -> void:
-	_falling_cells.erase(c)
-	_on_tree_changed(c)      # 补上树桩节点
-
-func _spawn_tree_drops(c: Vector2i, wood: int, seeds: int) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var wood_item: ItemData = load("res://item/wood.tres")
-	var seed_item: ItemData = load("res://item/tree_seed.tres")
-	var base := _cell_tree_pos(c)
-	for i in wood:
-		_spawn_pickup(wood_item, base + Vector2(rng.randf_range(-12.0, 12.0), rng.randf_range(-4.0, 10.0)))
-	for i in seeds:
-		_spawn_pickup(seed_item, base + Vector2(rng.randf_range(-12.0, 12.0), rng.randf_range(-4.0, 10.0)))
+func rebuild_trees_from_save() -> void:
+	_trees.rebuild_from_save()
 
 # 掉落物：item_pickup.gd 没有 tscn，代码把 Area2D + 贴图 + 碰撞拼起来。
 # ❗item 要在 add_child **之前**赋值 —— _ready 里就要用它设贴图。
@@ -4520,16 +4389,7 @@ func _sync_current_item() -> void:
 # ---------------- 存档（读档还原用） ----------------
 # _build_trees 是「程序化撒树」（固定种子），读档时树的数据被换成了存档里的，
 # 显示节点必须跟着重建：先全拆，再逐格补。
-# ❗_apply 里已经调过一次；这里做成幂等（重复调用不炸也不翻倍），自检里会连调验证。
-func rebuild_trees_from_save() -> void:
-	for c in tree_nodes.keys():
-		var n: Node = tree_nodes[c]
-		if is_instance_valid(n):
-			n.queue_free()
-	tree_nodes.clear()
-	_falling_cells.clear()
-	for c in Trees.trees.keys():
-		_on_tree_changed(c)      # 走正常信号路径建节点，跟开局撒树同一套代码
+# 实现在 scene/game/tree_layer.gd 的 rebuild_from_save（幂等，自检里会连调验证）。
 
 # 岩石的读档还原（save_manager._apply 里调）：数据已被换成存档的，
 # 显示节点重建一遍。做成幂等（重复调用不炸也不翻倍），跟 rebuild_trees_from_save 对齐。

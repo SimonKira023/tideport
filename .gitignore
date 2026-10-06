@@ -58,3 +58,13 @@ __pycache__/
 /tools/_probe_out/
 /tools/_trailer/*
 !/tools/_trailer/*.txt
+
+# ===== tools 一次性探针归档（E2 清理产物）=====
+# 历史探针 / 调试截图 / 旧日志都堆在这儿，带 .gdignore（Godot 跳过）。
+# 清单见 tools/_archive/MANIFEST.txt。要复活某个文件就移回 tools/。
+/tools/_archive/
+
+# ===== 自检输出（每跑一次就重写，别入库）=====
+/tools/_st.txt
+/tools/_selftest_result.txt
+/_game_gd.bak
