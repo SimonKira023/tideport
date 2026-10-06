@@ -27,9 +27,10 @@
 ## 2. 怎么跑、怎么验（每次改完必做）
 
 ```powershell
-# 全量回归自测 —— 改完代码必须跑，末行出现「全部通过 ✔」才算没坏
-& "D:\平台\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe" --headless --path . res://tools/selftest.tscn *> tools\_st.txt
-# 然后看 tools\_st.txt 最后一行
+# 全量回归自测 —— 改完代码必须跑。跑完**读结论文件**，别看 _st.txt
+# （_st.txt 尾部中文在 PowerShell 默认 GBK 下会读成乱码，那是错觉，文件本身是 UTF-8）
+& "D:\平台\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe" --headless --path . res://tools/selftest.tscn > tools\_st.txt 2>&1
+Get-Content tools\_selftest_result.txt -Encoding UTF8      # 只认这行：SELFTEST VERDICT: PASS / FAIL
 
 # 只查语法（最快）
 & "<EXE>" --headless --path . --check-only --script res://scene/xxx.gd
@@ -39,7 +40,10 @@
 ```
 
 - 自检脚本 `tools/selftest.gd` 有**上百节、上千条断言**，是本项目唯一的回归底线。
-- 断言失败会打印 `[X]` 之类的行，末尾汇总「有 N 项没通过 ✘」；全绿时是「全部通过 ✔」。
+- **验收只认结论文件 `tools/_selftest_result.txt`**（UTF-8，含失败断言的原始文本）：
+  末行 `SELFTEST VERDICT: PASS` / `FAIL`。控制台另有一行纯 ASCII 的
+  `[SELFTEST] PASS/FAIL failed=N`。`tools/_st.txt` 只是完整日志备份（已 .gitignore），
+  只在排查细节时才翻它 —— 别再拿它的「末行」当验收凭证。
 - **探针/自检绝不能污染玩家真档**：跑自检前把 `SaveManager.enabled = false`，或把
   `SaveManager.save_path / history_dir / slot_dir` 重定向到 `user://_selftest_slots` 之类的临时目录。
 - 要**截图**的探针**不能加 `--headless`**（headless 是 dummy 渲染器，`get_viewport().get_texture()` 返回 null）。

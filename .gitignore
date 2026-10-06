@@ -67,4 +67,5 @@ __pycache__/
 # ===== 自检输出（每跑一次就重写，别入库）=====
 /tools/_st.txt
 /tools/_selftest_result.txt
-/_game_gd.bak
+# game.gd 拆分前的手工备份（拆分重构期间留一份，确认无误后可删）
+/_game_gd*.bak

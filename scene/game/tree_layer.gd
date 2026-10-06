@@ -247,3 +247,35 @@ func rebuild_from_save() -> void:
 	_falling_cells.clear()
 	for c in Trees.trees.keys():
 		on_changed(c)      # 走正常信号路径建节点，跟开局撒树同一套代码
+
+# 每夜补树：复用开局让位判定（spot_ok），再避开耕田周边两格、玩家建筑周边两格。
+# 锚点与「耕田/建筑附近判定」是树/岩石共用的工具，留在 Game 上，这里回问 _game。
+func respawn() -> void:
+	if Trees.trees.size() >= _game.TREE_MAX:
+		return
+	var anchors: Array = _game._nature_anchors()
+	var house: Node2D = _game.get_node("House")
+	var inner_from: Vector2i = _game._world_to_cell(house.global_position + Vector2(-16, 272))
+	var inner_to: Vector2i = _game._world_to_cell(house.global_position + Vector2(304, 496))
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var land: Array = _game._land_set.keys()
+	if land.is_empty():
+		return
+	var spawned := 0
+	for _try in _game.RESPAWN_TRIES:
+		if spawned >= _game.RESPAWN_TREES_PER_DAY or Trees.trees.size() >= _game.TREE_MAX:
+			break
+		var c: Vector2i = land[rng.randi() % land.size()]
+		if Trees.is_blocked(c) or OreVein.is_blocked(c) or Floor.is_floored(c):
+			continue
+		if not spot_ok(c, anchors, inner_from, inner_to):
+			continue
+		if _game._near_tilled(c, 2) or _game._near_structures(c, 2):
+			continue
+		# 一半幼苗一半小树：小树两天就能成材，更新节奏快一点
+		var stage: int = Trees.ST_SAPLING if rng.randf() < 0.5 else Trees.ST_YOUNG
+		if Trees.plant(c, _game._hash2(c + Vector2i(7, 13)) % 2, stage):
+			spawned += 1
+	if spawned > 0:
+		print("[树] 清晨补种了 %d 棵(全岛 %d)" % [spawned, Trees.trees.size()])

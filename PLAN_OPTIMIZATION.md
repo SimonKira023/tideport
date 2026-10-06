@@ -120,9 +120,12 @@
       ✅ 2026-10-06：`light_util.make_occluder` 加退化保护；`tree_node.gd` 改成一次给全八边形。
       自检日志里该报错 **0 行**（改前刷几百行）。
 - [~] **A2** 拆 `scene/game.gd` → `scene/game/` 子模块：地形生成 / 建筑 / 派活接线 / 植被 / 水与游泳，game.gd 只留总控
-      ⏳ 2026-10-06 **试点完成 1/5**：「树木」整块已搬进 `scene/game/tree_layer.gd`
-      （208 行实现 → game.gd 只留 38 行门面，净减 170 行；显示节点仍直接挂 Game 下保 y_sort）。
-      剩余四块照同一套模式搬：岩石/矿石 → 植被装饰 → 水与游泳 → 地形生成。
+      ⏳ 2026-10-06 **进度 2/5**：
+      · ①「树木」→ `scene/game/tree_layer.gd`（208 行实现，game.gd 只留 38 行门面）
+      · ②「岩石 / 铁矿」→ `scene/game/rock_layer.gd`（开局撒石 / 敲石结算 / 掉落 / 每夜补石 / 读档重建）
+      · 顺手把「每夜补植」里属于树/石的 `_respawn_trees` / `_respawn_rocks` 也搬进各自模块
+      game.gd **4594 → 4250 行**（累计净减 344 行）；显示节点仍直接挂 Game 下保 y_sort。
+      剩余三块照同一套模式搬：植被装饰 → 水与游泳 → 地形生成。
 - [ ] **A3** 拆 `backpack_ui.gd`（2923 行）：背包 / 箱子 / 赠礼 / 商店按面板分开
 - [ ] **A4** 拆 `scene/world_map.gd`（3013 行）：航海移动 / 事件 / 渲染分开
 - [ ] **A5** 根目录几十个 `*_ui.gd` 收进 `ui/` 目录，同步修 .tscn 引用
@@ -153,6 +156,8 @@
       ✅ 2026-10-06：真凶不是文件编码（日志本来就是合法 UTF-8），是读取端按 GBK 猜。
       现在 selftest 自己用 FileAccess 写 `tools/_selftest_result.txt`（UTF-8 + 失败断言原文），
       并打印一行纯 ASCII 的 `[SELFTEST] PASS/FAIL failed=N`。
+      ✅ 收尾：`AGENTS.md` 第 2 节的验收入口已从 `_st.txt` 改成读结论文件；
+      `_st.txt` 降级为「只排查细节才翻」的日志备份（两者都进 .gitignore）。
 - [x] **E2** tools/ 探针清理：一次性 `_probe_*` 删除或归档
       ✅ 2026-10-06：顶层 396 → 65 文件，329 个归档进 `tools/_archive/`（附 `.gdignore` + MANIFEST）。
       保留：selftest、素材生成管线（`make_*`）、打包/体检/预览脚本、文案管线、
@@ -173,6 +178,7 @@
 
 > ✅ **2026-10-06 全部完成（4/4）**，全量自检「全部通过 ✔」。
 > 结论文件：`tools/_selftest_result.txt`（E1 的产物，UTF-8，机器可读）。
+> 已提交：`50904d5`（227 文件，+2797 / −9137 —— 大头是 tools 归档带来的删除）。
 
 - [x] 修 light_util 遮挡报错（阶段 0-1）—— 根因是 `tree_node.gd` 拿空数组建遮挡体；
       已加退化保护 + 改成一次给全八边形。日志里 `canvas_occluder_polygon_set_shape` 从刷屏 → **0 行**
