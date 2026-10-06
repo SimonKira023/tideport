@@ -230,7 +230,6 @@ const RESPAWN_TRIES := 400        # 每夜随机找空位的尝试上限
 const MINE_DOOR_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Mine and Dungeon/Mine/Door Mine.png"
 const MINE_ORE_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Mine and Dungeon/stone with minerals.png"
 var mine_cell := Vector2i(9999, 9999)   # 矿井所在格（_ready 里最先定，树/岩石都给它让位）
-var rock_nodes := {}              # cell -> rock_node（跟 tree_nodes 一个套路）
 var station_nodes := {}           # cell -> station_node（玩家摆的工作台/熔炉，跟 rock_nodes 一个套路）
 var _site_node: Node2D = null     # 建筑工地脚手架（Structures.site 有内容时挂着）
 # 建造模式（背包「建造」页选好建筑进入）：半透明 ghost 跟着鼠标走，左键放下 / 右键或 Esc 取消
@@ -2846,65 +2845,39 @@ func _spawn_pickup(item: ItemData, pos: Vector2) -> void:
 	pk.position = pos
 	add_child(pk)
 
-# ---------------- 岩石 / 铁矿露头 ----------------
-# 和树一个套路：OreVein 只存数据发信号，这里摆 rock_node 显示节点、处理掉落。
-# 固定种子程序化撒；镐子敲碎普通岩石掉石头、铁矿露头掉铁矿（见 ore_data.gd）。
+# ---------------- 岩石 / 铁矿露头（阶段 1-1：实现已搬到 scene/game/rock_layer.gd）----------------
+# OreVein autoload 存数据；模块负责摆显示节点 + 敲石结算 + 掉落调度 + 每夜补石。
+# [!] 显示节点仍然**直接挂在 Game 下**参与根节点的 y_sort —— 模块内部用
+#     _game.add_child() 挂节点，没有套容器（原因见 tree_layer.gd 头部说明）。
+# 下面这些是给 player.gd / 自检 / 读档用的门面，只做转调，不放逻辑。
+var _rocks = preload("res://scene/game/rock_layer.gd").new()
+
+# 兼容旧字段名（自检 / 历史代码读 game.rock_nodes）。只读属性转发到模块持有的字典。
+var rock_nodes: Dictionary:
+	get:
+		return _rocks.rock_nodes
+
 func _build_rocks() -> void:
-	# ❗这个函数可能被调多次（开局一次、开新档 reset 后再补一次）—— 必须幂等
-	if OreVein.rock_changed.is_connected(_on_rock_changed):
-		OreVein.rock_changed.disconnect(_on_rock_changed)
-	if OreVein.rock_removed.is_connected(_on_rock_removed):
-		OreVein.rock_removed.disconnect(_on_rock_removed)
-	for n in rock_nodes.values():
-		if is_instance_valid(n):
-			n.queue_free()
-	OreVein.reset()
-	rock_nodes.clear()
-	OreVein.rock_changed.connect(_on_rock_changed)
-	OreVein.rock_removed.connect(_on_rock_removed)
+	_rocks.setup(self)      # 幂等：开局与开新档都走这里，保证模块拿到 Game
+	_rocks.build()
 
-	# 让位锚点：建筑附近 + 矿井 + 码头 + 屋内那块野地，都不摆石头
-	var anchors: Array = []
-	for n: Node2D in [$House, $Merchant, $ShippingBin, $Player]:
-		anchors.append(_world_to_cell(n.global_position))
-	anchors.append(mine_cell)
-	anchors.append(_dock_cell())
-	var inner_from := _world_to_cell($House.global_position + Vector2(-16, 272))
-	var inner_to := _world_to_cell($House.global_position + Vector2(304, 496))
-
-	var rng := RandomNumberGenerator.new()
-	rng.seed = ROCK_SEED
-	var placed := 0
-	for c in _land_set.keys():
-		if OreVein.rocks.size() >= ROCK_MAX:
-			break
-		if not _rock_spot_ok(c, anchors, inner_from, inner_to):
-			continue
-		if rng.randf() >= ROCK_DENSITY:
-			continue
-		var kind := OreVein.KIND_ROCK
-		if rng.randf() < ROCK_IRON_RATIO:
-			kind = OreVein.KIND_IRON
-		OreVein.place(c, kind, _hash2(c + Vector2i(3, 11)) % 4)
-		placed += 1
-	print("[矿] 全岛撒了 %d 处岩石/铁矿(上限 %d)" % [placed, ROCK_MAX])
-
-# 这格能不能摆石头：非田、没树、离锚点 3 格开外、四邻都是陆地（三石堆 22 宽会悬到邻格）。
 func _rock_spot_ok(c: Vector2i, anchors: Array, inner_from: Vector2i, inner_to: Vector2i) -> bool:
-	if Farm.tilled.has(c) or is_bridge_cell(c) or Trees.is_blocked(c) or OreVein.is_blocked(c):
-		return false
-	if _sand_set.has(c):          # 沙滩上不长石头
-		return false
-	for nb in [c + Vector2i.UP, c + Vector2i.DOWN, c + Vector2i.LEFT, c + Vector2i.RIGHT]:
-		if not _land_set.has(nb) or is_bridge_cell(nb):
-			return false
-	for a in anchors:
-		var ac: Vector2i = a
-		if maxi(absi(c.x - ac.x), absi(c.y - ac.y)) < 3:
-			return false
-	if c.x >= inner_from.x and c.x <= inner_to.x and c.y >= inner_from.y and c.y <= inner_to.y:
-		return false
-	return true
+	return _rocks.spot_ok(c, anchors, inner_from, inner_to)
+
+func _on_rock_changed(c: Vector2i) -> void:
+	_rocks.on_changed(c)
+
+func _on_rock_removed(c: Vector2i) -> void:
+	_rocks.on_removed(c)
+
+func pick_rock_cell(mouse_world: Vector2, fallback: Vector2i) -> Vector2i:
+	return _rocks.pick_cell(mouse_world, fallback)
+
+func hit_rock(c: Vector2i) -> Dictionary:
+	return _rocks.hit(c)
+
+func rebuild_rocks_from_save() -> void:
+	_rocks.rebuild_from_save()
 
 # ---------------- 每夜自然补植 ----------------
 # 用户要求：树和石头要"较快"更新，但别长在耕田与建筑附近。
@@ -2941,152 +2914,13 @@ func _near_structures(c: Vector2i, radius: int) -> bool:
 				return true
 	return false
 
+# 树的每夜补树：实现在 scene/game/tree_layer.gd 的 respawn（幂等）。
 func _respawn_trees() -> void:
-	if Trees.trees.size() >= TREE_MAX:
-		return
-	var anchors := _nature_anchors()
-	var inner_from := _world_to_cell($House.global_position + Vector2(-16, 272))
-	var inner_to := _world_to_cell($House.global_position + Vector2(304, 496))
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var land: Array = _land_set.keys()
-	if land.is_empty():
-		return
-	var spawned := 0
-	for _try in RESPAWN_TRIES:
-		if spawned >= RESPAWN_TREES_PER_DAY or Trees.trees.size() >= TREE_MAX:
-			break
-		var c: Vector2i = land[rng.randi() % land.size()]
-		if Trees.is_blocked(c) or OreVein.is_blocked(c) or Floor.is_floored(c):
-			continue
-		if not _tree_spot_ok(c, anchors, inner_from, inner_to):
-			continue
-		if _near_tilled(c, 2) or _near_structures(c, 2):
-			continue
-		# 一半幼苗一半小树：小树两天就能成材，更新节奏快一点
-		var stage := Trees.ST_SAPLING if rng.randf() < 0.5 else Trees.ST_YOUNG
-		if Trees.plant(c, _hash2(c + Vector2i(7, 13)) % 2, stage):
-			spawned += 1
-	if spawned > 0:
-		print("[树] 清晨补种了 %d 棵(全岛 %d)" % [spawned, Trees.trees.size()])
+	_trees.respawn()
 
+# 岩石的每夜补石：实现在 scene/game/rock_layer.gd 的 respawn（幂等）。
 func _respawn_rocks() -> void:
-	if OreVein.rocks.size() >= ROCK_MAX:
-		return
-	var anchors := _nature_anchors()
-	var inner_from := _world_to_cell($House.global_position + Vector2(-16, 272))
-	var inner_to := _world_to_cell($House.global_position + Vector2(304, 496))
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var land: Array = _land_set.keys()
-	if land.is_empty():
-		return
-	var spawned := 0
-	for _try in RESPAWN_TRIES:
-		if spawned >= RESPAWN_ROCKS_PER_DAY or OreVein.rocks.size() >= ROCK_MAX:
-			break
-		var c: Vector2i = land[rng.randi() % land.size()]
-		if not _rock_spot_ok(c, anchors, inner_from, inner_to):
-			continue
-		if _near_tilled(c, 1) or _near_structures(c, 1):
-			continue
-		var kind := OreVein.KIND_ROCK
-		if rng.randf() < ROCK_IRON_RATIO:
-			kind = OreVein.KIND_IRON
-		if OreVein.place(c, kind, _hash2(c + Vector2i(3, 11)) % 4):
-			spawned += 1
-	if spawned > 0:
-		print("[矿] 清晨长回了 %d 处岩石(全岛 %d)" % [spawned, OreVein.rocks.size()])
-
-func _on_rock_changed(c: Vector2i) -> void:
-	if not OreVein.rocks.has(c):
-		return
-	var r: Dictionary = OreVein.rocks[c]
-	var n: Node2D = rock_nodes.get(c)
-	if n == null:
-		n = preload("res://scene/rock_node.gd").new()
-		n.name = "Rock%d_%d" % [c.x, c.y]
-		n.cell = c
-		n.kind = int(r.kind)
-		n.variant = int(r.variant)
-		n.position = _cell_tree_pos(c)   # 跟树一样：底部踩在格子底边（y_sort 排序点）
-		add_child(n)
-		rock_nodes[c] = n
-
-func _on_rock_removed(c: Vector2i) -> void:
-	var n: Node2D = rock_nodes.get(c)
-	if n == null:
-		return
-	rock_nodes.erase(c)
-	n.play_broken()      # 原地小跳 + 淡出，掉落由 hit_rock 生成
-
-# 鼠标指的是哪块石头（player 挥镐前先问这句）。跟 pick_tree_cell 同一套退让：
-# ① 按贴图矩形命中（1:1 视觉最高 22x16，留点余量好点中）② 鼠标那一格 ③ 玩家身边一圈。
-func pick_rock_cell(mouse_world: Vector2, fallback: Vector2i) -> Vector2i:
-	var on_self := has_node("Player") \
-		and mouse_world.distance_to($Player.global_position) < float(Farm.TILE_SIZE)
-	var best := fallback
-	var best_d := INF
-	if not on_self:
-		for key in rock_nodes.keys():
-			var n: Node2D = rock_nodes[key]
-			if n == null or not is_instance_valid(n):
-				continue
-			var base: Vector2 = n.global_position
-			# 石头矩形：原点在石头底部（三石堆 22x16），向上 18、向下 2、左右各 11
-			if not Rect2(base + Vector2(-11.0, -18.0), Vector2(22.0, 20.0)).has_point(mouse_world):
-				continue
-			var d: float = base.distance_squared_to(mouse_world)
-			if d < best_d:
-				best_d = d
-				best = key
-		if best_d < INF:
-			return best
-	if OreVein.has_rock(fallback):
-		return fallback
-	var pc: Vector2i = _world_to_cell($Player.global_position)
-	var near := fallback
-	var nd := INF
-	for around in [fallback, pc]:
-		var b: Vector2i = around
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				var c: Vector2i = b + Vector2i(dx, dy)
-				if not OreVein.has_rock(c):
-					continue
-				var d2: float = Vector2(c - pc).length_squared()
-				if d2 < nd:
-					nd = d2
-					near = c
-	if nd < INF:
-		return near
-	return fallback
-
-# 敲一下（player 手持镐子点石头时调）。返回 OreVein.hit 的结算，掉落物在这里生成。
-func hit_rock(c: Vector2i) -> Dictionary:
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var res: Dictionary = OreVein.hit(c, rng)
-	match int(res.result):
-		OreVein.RESULT_HIT:
-			var n: Node2D = rock_nodes.get(c)
-			if n != null:
-				n.shake()
-				n.chip_burst()   # 石屑带黑描边，受重力掉下来
-		OreVein.RESULT_BROKEN:
-			_spawn_rock_drops(c, int(res.stone), int(res.iron))
-	return res
-
-func _spawn_rock_drops(c: Vector2i, stone: int, iron: int) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var stone_item: ItemData = load("res://item/stone.tres")
-	var iron_item: ItemData = load("res://item/iron_ore.tres")
-	var base := _cell_tree_pos(c)
-	for i in stone:
-		_spawn_pickup(stone_item, base + Vector2(rng.randf_range(-12.0, 12.0), rng.randf_range(-4.0, 10.0)))
-	for i in iron:
-		_spawn_pickup(iron_item, base + Vector2(rng.randf_range(-12.0, 12.0), rng.randf_range(-4.0, 10.0)))
+	_rocks.respawn()
 
 # ---------------- 工作台 / 熔炉（玩家摆放的设施） ----------------
 # 和岩石一个套路：Structures 只存数据发信号，这里摆 station_node 显示节点。
@@ -4391,16 +4225,8 @@ func _sync_current_item() -> void:
 # 显示节点必须跟着重建：先全拆，再逐格补。
 # 实现在 scene/game/tree_layer.gd 的 rebuild_from_save（幂等，自检里会连调验证）。
 
-# 岩石的读档还原（save_manager._apply 里调）：数据已被换成存档的，
-# 显示节点重建一遍。做成幂等（重复调用不炸也不翻倍），跟 rebuild_trees_from_save 对齐。
-func rebuild_rocks_from_save() -> void:
-	for c in rock_nodes.keys():
-		var n: Node = rock_nodes[c]
-		if is_instance_valid(n):
-			n.queue_free()
-	rock_nodes.clear()
-	for c in OreVein.rocks.keys():
-		_on_rock_changed(c)
+# 岩石的读档还原：实现在 scene/game/rock_layer.gd 的 rebuild_from_save
+# （幂等，跟 rebuild_trees_from_save 对齐，save_manager._apply 里调）。
 
 # 工作台/熔炉的读档还原（save_manager._apply 里调）：数据已被换成存档的，
 # 显示节点重建一遍。幂等，跟 rebuild_rocks_from_save 对齐。
