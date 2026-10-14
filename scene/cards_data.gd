@@ -86,20 +86,25 @@ const BASIC_COPIES := 3        # 每张基础牌固定带 3 张（开局 9 张 +
 
 # ---------------- 出征卡组：解锁牌（研究行政/科技后在「出征编组」里编入） ----------------
 #   req    = 解锁条件（行政树 ADMINS 或科技树 TECHS 的 id）
+#   bld    = 2026-10-06 新增：还必须**盖好某座建筑**才能编入（"" = 不看建筑）。
+#            部队牌统一要求军营（军营把「出兵」这件事从纯研究里切割出来了）；
+#            法术牌在 deck_entry_unlocked 里统一要求书院。
 #   rarity = strong 强力卡（同名牌最多 4 张）/ elite 精英卡（最多 2 张）
 #   cls    = 卡面立绘走的职业名（复用现有 u_my_<职业> 美术, 不新画图）
+const BARRACKS := "barracks"      # = Structures.KIND_BARRACKS（这里写字符串, const 里不能用 autoload）
+const ACADEMY := "academy"        # = Structures.KIND_ACADEMY
 const DECK_MAX := {"strong": 4, "elite": 2}
 const UNLOCK := {
-	"u_axeman":   {"name": "持斧客",   "cost": 2, "atk": 3, "hp": 1, "kw": "",       "cls": "刀客",  "rarity": "strong", "req": "axe"},
-	"u_levy":     {"name": "持械民壮", "cost": 2, "atk": 2, "hp": 2, "kw": "",       "cls": "民兵",  "rarity": "strong", "req": "admin_hu"},
-	"u_spear":    {"name": "长矛手",   "cost": 2, "atk": 2, "hp": 3, "kw": "guard",  "cls": "刀客",  "rarity": "strong", "req": "admin_militia"},
-	"u_merc":     {"name": "佣剑客",   "cost": 3, "atk": 3, "hp": 3, "kw": "",       "cls": "剑士",  "rarity": "strong", "req": "admin_trade"},
-	"u_archer":   {"name": "游哨弓手", "cost": 2, "atk": 2, "hp": 2, "kw": "ranged", "cls": "弓手",  "rarity": "strong", "req": "admin_drill"},
-	"u_outrider": {"name": "驿骑",     "cost": 3, "atk": 3, "hp": 2, "kw": "cav",    "cls": "骑兵",  "rarity": "strong", "req": "admin_road"},
-	"u_marine":   {"name": "艨艟水手", "cost": 3, "atk": 2, "hp": 4, "kw": "guard",  "cls": "刀客",  "rarity": "strong", "req": "admin_navy"},
-	"u_ballista": {"name": "床弩车",   "cost": 4, "atk": 3, "hp": 4, "kw": "ranged", "cls": "神射手", "rarity": "elite",  "req": "steam"},
-	"u_marksman": {"name": "神机弩手", "cost": 4, "atk": 4, "hp": 3, "kw": "ranged", "cls": "神射手", "rarity": "elite",  "req": "admin_cabinet"},
-	"u_knight":   {"name": "甲骑",     "cost": 4, "atk": 4, "hp": 4, "kw": "cav",    "cls": "重骑兵", "rarity": "elite",  "req": "admin_cabinet"},
+	"u_axeman":   {"name": "持斧客",   "cost": 2, "atk": 3, "hp": 1, "kw": "",       "cls": "刀客",  "rarity": "strong", "req": "axe", "bld": BARRACKS},
+	"u_levy":     {"name": "持械民壮", "cost": 2, "atk": 2, "hp": 2, "kw": "",       "cls": "民兵",  "rarity": "strong", "req": "admin_hu", "bld": BARRACKS},
+	"u_spear":    {"name": "长矛手",   "cost": 2, "atk": 2, "hp": 3, "kw": "guard",  "cls": "刀客",  "rarity": "strong", "req": "admin_militia", "bld": BARRACKS},
+	"u_merc":     {"name": "佣剑客",   "cost": 3, "atk": 3, "hp": 3, "kw": "",       "cls": "剑士",  "rarity": "strong", "req": "admin_trade", "bld": BARRACKS},
+	"u_archer":   {"name": "游哨弓手", "cost": 2, "atk": 2, "hp": 2, "kw": "ranged", "cls": "弓手",  "rarity": "strong", "req": "admin_drill", "bld": BARRACKS},
+	"u_outrider": {"name": "驿骑",     "cost": 3, "atk": 3, "hp": 2, "kw": "cav",    "cls": "骑兵",  "rarity": "strong", "req": "admin_road", "bld": BARRACKS},
+	"u_marine":   {"name": "艨艟水手", "cost": 3, "atk": 2, "hp": 4, "kw": "guard",  "cls": "刀客",  "rarity": "strong", "req": "admin_navy", "bld": BARRACKS},
+	"u_ballista": {"name": "床弩车",   "cost": 4, "atk": 3, "hp": 4, "kw": "ranged", "cls": "神射手", "rarity": "elite",  "req": "steam", "bld": BARRACKS},
+	"u_marksman": {"name": "神机弩手", "cost": 4, "atk": 4, "hp": 3, "kw": "ranged", "cls": "神射手", "rarity": "elite",  "req": "admin_cabinet", "bld": BARRACKS},
+	"u_knight":   {"name": "甲骑",     "cost": 4, "atk": 4, "hp": 4, "kw": "cav",    "cls": "重骑兵", "rarity": "elite",  "req": "admin_cabinet", "bld": BARRACKS},
 }
 
 # ---------------- 敌方卡组素材 ----------------
@@ -145,7 +150,8 @@ static func player_deck(seed_val: int) -> Array:
 				continue
 			deck.append(partner_card(idx))
 		elif id.begins_with("m_"):
-			if SPELLS.has(id):
+			# 2026-10-06: 法术牌要书院已建成才会真的进牌库（跟编组界面的门槛一致）
+			if SPELLS.has(id) and deck_entry_unlocked(id):
 				deck.append(spell_card_of(id))
 		elif UNLOCK.has(id):
 			if deck_unlocked(id):
@@ -155,14 +161,20 @@ static func player_deck(seed_val: int) -> Array:
 			deck.append(basic_card(String(key)))
 	return shuffled(deck, seed_val)
 
-# 解锁牌是否已可编入（req 先查行政树, 不在行政树就去科技树找）
+# 解锁牌是否已可编入（req 先查行政树, 不在行政树就去科技树找）。
+# 2026-10-06: 部队牌还要**军营已建成**（军营把"出兵"从纯研究里切割出来）——
+#   两条都满足才解锁：研究给你"知道怎么打", 军营给你"能拉起队伍"。
 static func deck_unlocked(id: String) -> bool:
 	if not UNLOCK.has(id):
 		return false
 	var req := String(UNLOCK[id]["req"])
-	if Research.ADMINS.has(req):
-		return Research.has_admin(req)
-	return Research.has_tech(req)
+	var researched := Research.has_admin(req) if Research.ADMINS.has(req) else Research.has_tech(req)
+	if not researched:
+		return false
+	var bld := String(UNLOCK[id].get("bld", ""))
+	if bld != "" and not Structures.has_built_kind(bld):
+		return false
+	return true
 
 # 同名牌携带上限: 强力卡 4 张 / 精英卡 2 张
 static func deck_max_of(id: String) -> int:
@@ -175,7 +187,11 @@ static func deck_entry_unlocked(id: String) -> bool:
 		return not Slaves.slave_at(int(s.substr(2))).is_empty()
 	if s.begins_with("m_"):
 		var rid := s.substr(2)
-		return Research.has_tech(rid) or Research.has_admin(rid)
+		# 2026-10-06: 法术牌还要**书院已建成**（书院是法术的来源）。
+		# 研究解锁了法术的"配方", 书院才是"把法术写进战阵"的地方。
+		if not (Research.has_tech(rid) or Research.has_admin(rid)):
+			return false
+		return Structures.has_built_kind(ACADEMY)
 	return deck_unlocked(s)
 
 # 编组条目的同名牌上限: p_/m_ 各 1 张, u_ 按稀有度（强力 4 / 精英 2）
@@ -382,6 +398,7 @@ static func shuffled(arr: Array, seed_val: int) -> Array:
 #                tools/make_card_art.gd -> resources/cards_art/<key>_card.png(76x84) / _icon.png(40x44)
 # 键规则: 法术 = s_<key>(drill/fire/...); 部队 = u_<阵营>_<兵种>(u_my_刀客 / u_foe_山贼)
 const ART_DIR := "res://resources/cards_art/"
+const PIXEL_ART_DIR := "res://resources/cards_pixel/"
 
 static func art_key(card: Dictionary, side: String) -> String:
 	if String(card.get("type", "unit")) == "spell":
@@ -390,13 +407,26 @@ static func art_key(card: Dictionary, side: String) -> String:
 
 # 手牌立绘（大图）
 static func art_of(card: Dictionary, side: String) -> Texture2D:
+	# 正式伙伴保留自己的脸, 不因转职变成通用兵种立绘。
+	if side != "foe" and String(card.get("type", "unit")) == "unit":
+		var portraits := preload("res://scene/mood_portrait.gd")
+		var src: int = int(card.get("src", -1))
+		if src >= 0:
+			return portraits.portrait_texture("slave_%02d" % src)
+		if String(card.get("key", "")) == "hero":
+			return portraits.portrait_texture("player")
 	return _art_load(art_key(card, side) + "_card.png")
 
 # 战场槽位小图
 static func art_icon_of(card: Dictionary, side: String) -> Texture2D:
+	if side != "foe" and (int(card.get("src", -1)) >= 0 or String(card.get("key", "")) == "hero"):
+		return art_of(card, side)
 	return _art_load(art_key(card, side) + "_icon.png")
 
 static func _art_load(file: String) -> Texture2D:
+	var pixel_path := PIXEL_ART_DIR + file
+	if ResourceLoader.exists(pixel_path):
+		return load(pixel_path) as Texture2D
 	var p := ART_DIR + file
 	return load(p) as Texture2D if ResourceLoader.exists(p) else null
 

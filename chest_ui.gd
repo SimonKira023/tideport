@@ -8,6 +8,7 @@ signal opened
 signal closed
 
 const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
+const IRIS := preload("res://scene/iris_wipe.gd")   # P4: 微转场池（开箱金光带）
 
 var _visible := false
 var _cell := Vector2i(9999, 9999)     # 开着的那座储物箱
@@ -402,6 +403,7 @@ func open(cell: Vector2i) -> void:
 	show()
 	TimeManager.push_ui_pause()      # 翻箱子的时候时间停住
 	Audio.play_sfx("ui_open")
+	IRIS.micro("gold")               # P4: 微转场池 —— 开箱一道金光带扫过, 不必全屏黑幕
 	_flash_label.text = ""
 	_refresh()
 	opened.emit()

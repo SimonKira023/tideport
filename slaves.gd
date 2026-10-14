@@ -110,21 +110,24 @@ const CLASS_RENAMED := {"剑豪": "咏剑士"}
 #   req  = 任务栏 / 篝火面板里给玩家看的一句话要求
 # 名字按模型性别对齐（slave_npc.gd model_for: idx%4==0 是男模型 Alex, 其余女模型）:
 # 布恩/塔洛是男名, 其余六位都是女名 —— 火边看到的脸、名字、对话头像永远同一人。
-# 初始职业都偏低: 多数是起点的新兵/帮工, 咪露/海莉自带一手。
-# ❗六位女性（娜雅/珞琳/咪露/海莉/珂丹/雪莱）全部是可结婚对象, 婚恋系统见 marriage.gd。
+# 初始职业都偏低: 多数是起点的新兵/帮工, 咪露/汐月自带一手。
+# ❗六位女性（娜雅/珞琳/咪露/汐月/珂丹/雪莱）全部是可结婚对象, 婚恋系统见 marriage.gd。
 # ❗need 里 "flag" 对应 quests.gd 指引链的完成记录, "level" 看主角历练（Legion.level）。
 const ROSTER := [
-	{"id": "rq_00", "name": "布恩", "troop": "新兵", "labor": "帮工", "day": 1,
-		"req": "请他到火边坐坐", "need": {}},
-	{"id": "rq_01", "name": "娜雅", "troop": "新兵", "labor": "帮工", "day": 2,
-		"req": "交给她 6 份作物", "need": {"crops": 6}},
+	# e94: 咪露提到第一把交椅（用户指定第一个出场角色是咪露）;
+	# 原第 1 天的免费招募位让给咪露, 布恩退到第 2 天接手「历练 2 级」门槛。
+	# 序章里失踪的旧伴: 桅断那天被浪抛上坡, 第一天就在火边等你认人。
+	{"id": "rq_00", "name": "咪露", "troop": "刀客", "labor": "帮工", "day": 1,
+		"req": "坡上有个从浪里上来的人", "need": {}},
+	{"id": "rq_01", "name": "布恩", "troop": "新兵", "labor": "帮工", "day": 2,
+		"req": "主角历练达到 2 级", "need": {"level": 2}},
 	{"id": "rq_02", "name": "珞琳", "troop": "新兵", "labor": "帮工", "day": 4,
 		"req": "盖起第一座建筑", "need": {"flag": "build_first"}},
-	{"id": "rq_03", "name": "咪露", "troop": "刀客", "labor": "帮工", "day": 6,
-		"req": "主角历练达到 2 级", "need": {"level": 2}},
+	{"id": "rq_03", "name": "娜雅", "troop": "新兵", "labor": "帮工", "day": 6,
+		"req": "交给她 6 份作物", "need": {"crops": 6}},
 	{"id": "rq_04", "name": "塔洛", "troop": "新兵", "labor": "帮工", "day": 8,
 		"req": "替他还清 300 金币的债", "need": {"coin": 300}},
-	{"id": "rq_05", "name": "海莉", "troop": "弓手", "labor": "帮工", "day": 10,
+	{"id": "rq_05", "name": "汐月", "troop": "弓手", "labor": "帮工", "day": 10,
 		"req": "驾驶船只出海过", "need": {"flag": "sail_first"}},
 	{"id": "rq_06", "name": "珂丹", "troop": "新兵", "labor": "园丁", "day": 12,
 		"req": "矿井产出过矿物", "need": {"flag": "mine_first"}},
@@ -136,12 +139,12 @@ const ROSTER := [
 # 一年 4 季 x 28 天, 8 人摊开在四季（同季的错开半个月）。日历页（backpack_ui）会把
 # 有生日的格子标出来; 生日当天赠送的好感增量 x2。
 const BIRTHDAYS := {
-	"rq_00": [0, 7],    # 布恩   春季 7 日
-	"rq_01": [0, 19],   # 娜雅   春季 19 日
+	"rq_00": [1, 23],   # 咪露   夏季 23 日（e94: 咪露提首位, 生日键随 id 走）
+	"rq_01": [0, 7],    # 布恩   春季 7 日
 	"rq_02": [1, 5],    # 珞琳   夏季 5 日
-	"rq_03": [1, 23],   # 咪露   夏季 23 日
+	"rq_03": [0, 19],   # 娜雅   春季 19 日
 	"rq_04": [2, 11],   # 塔洛   秋季 11 日
-	"rq_05": [2, 26],   # 海莉   秋季 26 日
+	"rq_05": [2, 26],   # 汐月   秋季 26 日
 	"rq_06": [3, 9],    # 珂丹   冬季 9 日
 	"rq_07": [3, 21],   # 雪莱   冬季 21 日
 }
@@ -149,12 +152,12 @@ const BIRTHDAYS := {
 # —— e56 爱好 —— 每人最爱的一件东西（物品显示名, 与 item/*.tres 的 display_name 对号）。
 # 赠送栏（gift_picker）会提示 Ta 的爱好; 送中这个东西好感增量 x2。
 const LIKES := {
-	"rq_00": "烤土豆",    # 布恩   灶边烤出来的才有锅气
-	"rq_01": "胡萝卜",    # 娜雅   地里刚拔的最甜
+	"rq_00": "河鲈",      # 咪露   刀客好口福, 爱吃鱼（e94）
+	"rq_01": "烤土豆",    # 布恩   灶边烤出来的才有锅气
 	"rq_02": "鸡蛋",      # 珞琳   鸡窝里还热乎的那种
-	"rq_03": "河鲈",      # 咪露   刀客好口福, 爱吃鱼
+	"rq_03": "胡萝卜",    # 娜雅   地里刚拔的最甜
 	"rq_04": "南瓜派",    # 塔洛   甜食能还债一样治愈他
-	"rq_05": "蜂蜜",      # 海莉   出海人的糖分补给
+	"rq_05": "蜂蜜",      # 汐月   出海人的糖分补给
 	"rq_06": "牛奶",      # 珂丹   园丁喝奶长力气
 	"rq_07": "卷心菜汤",  # 雪莱   研究到半夜喝一口热汤
 }
@@ -1128,3 +1131,25 @@ func cells_of(task: int) -> Array:
 		if int(assignments[c]) == task:
 			out.append(c)
 	return out
+
+# 只提醒计划里的实际缺口, 不把送礼或升级变成每日待办。
+func plan_warnings() -> Array[String]:
+	var notes: Array[String] = []
+	if count == 0:
+		return notes
+	if not Weather.is_tomorrow_rain():
+		var missing := 0
+		for cell in Farm.crops:
+			var crop: Dictionary = Farm.crops[cell]
+			var seed: ItemData = crop.get("seed")
+			if bool(crop.get("dead", false)) or seed == null or int(crop.get("stage", 0)) >= seed.grow_days:
+				continue
+			if int(assignments.get(cell, 0)) != TASK_WATER:
+				missing += 1
+		if missing > 0:
+			notes.append("有 %d 块作物未安排浇水, 也可自己照料" % missing)
+	if (Structures.site_busy() or Voyage.dock_state == Voyage.DOCK_FUNDED) and dock_crew.is_empty():
+		notes.append("工地还没人施工, 可按 T 安排伙伴")
+	if Crafting.smith_busy() and craft_crew.is_empty():
+		notes.append("铁匠铺还没人工作, 可按 T 安排伙伴")
+	return notes

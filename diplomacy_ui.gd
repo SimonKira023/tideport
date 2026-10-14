@@ -104,7 +104,7 @@ func _player_block() -> Control:
 	portrait.custom_minimum_size = Vector2(64, 64)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	portrait.texture = load("res://resources/texture/portraits/player.png")
+	portrait.texture = preload("res://scene/mood_portrait.gd").portrait_texture("player")
 	frame.add_child(portrait)
 	row.add_child(frame)
 
@@ -196,7 +196,7 @@ func _nation_block(n: Dictionary) -> Control:
 	portrait.custom_minimum_size = Vector2(64, 64)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	portrait.texture = load("res://resources/texture/portraits/lord_%s.png" % _capital_of(nid))
+	portrait.texture = preload("res://scene/mood_portrait.gd").portrait_texture("lord_" + _capital_of(nid))
 	frame.add_child(portrait)
 	row.add_child(frame)
 

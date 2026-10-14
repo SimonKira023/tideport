@@ -14,8 +14,17 @@ const SPAWN_GAP := Vector2(2.0, 5.0)  # 补一朵新云的间隔（秒，随机�
 const MARGIN := 96.0                  # 视野外余量：离开视野这么远才算真走了
 const LOITER := 45.0                  # 一直没飘进视野的云，超过这个秒数兜底回收
 
+# q3 云影：太阳在场（scene/sun_light.gd），云也该在地上投一片软影 ——
+# 白云飘过头顶，地面跟着滑过一团柔柔的暗斑，整片世界才「活」。
+const SHADOW_ALPHA := 0.11            # 正午影浓度（夜里/雨天淡出到 0）
+const SHADOW_OFFSET := Vector2(14, 58)  # 影子落在云的右下方（俯视地面）
+
+var _game: Node = null
 var _rng := RandomNumberGenerator.new()
 var _spawn_cd := 0.0
+
+func setup(g: Node) -> void:
+	_game = g
 
 func _ready() -> void:
 	z_index = 20                  # 云在天上：盖过树/屋顶/城镇（HUD 在 CanvasLayer，不受影响）
@@ -30,6 +39,17 @@ func _process(delta: float) -> void:
 	var view := _view_rect()
 	if view.size == Vector2.ZERO:
 		return
+	# 0) q3 氛围档位：夜里影子淡出（月光不足以投云影）、雨天是阴天（漫射光
+	#    没有硬影）影子也淡出，同时云本体染成雨灰色 —— 天上的云跟着天气变脸
+	var night := 0.0
+	if _game != null and "_post_night" in _game:
+		night = _game._post_night
+	var shadow_t := SHADOW_ALPHA * (1.0 - night) * (0.0 if Weather.is_rain() else 1.0)
+	var cloud_tint := Color.WHITE
+	if Weather.is_storm():
+		cloud_tint = Color(0.42, 0.45, 0.52)
+	elif Weather.is_rain():
+		cloud_tint = Color(0.62, 0.66, 0.74)
 	# 1) 整层往一个方向飘 + 回收飘走的云
 	for c in get_children():
 		c.position.x -= float(c.get_meta("speed")) * delta
@@ -39,6 +59,11 @@ func _process(delta: float) -> void:
 		# 回收判定全按旧盒子算：玩家往右走时，屏幕上还看得见的云会被提前回收。
 		c.set_meta("box", box)
 		c.set_meta("age", float(c.get_meta("age")) + delta)
+		# q3: 影子浓度/雨云染色都往目标缓动，天色变化是「渐变」不是「跳变」
+		c.modulate = c.modulate.lerp(cloud_tint, minf(delta * 2.0, 1.0))
+		var sh: Sprite2D = c.get_meta("shadow")
+		if sh != null:
+			sh.modulate.a = lerpf(sh.modulate.a, shadow_t, minf(delta * 2.0, 1.0))
 		# e28a: 「飘出屏幕才删」—— 进视野判定不带余量(真进过屏幕才算 entered),
 		# 且只有从左边界完全飘出屏幕才回收; 玩家走动把云甩出视野不再凭空消失
 		if box.intersects(view):
@@ -78,6 +103,14 @@ func _spawn_cloud(inside: bool) -> void:
 	cloud.set_meta("age", 0.0)
 	cloud.set_meta("entered", false)
 	cloud.set_meta("box", Rect2(Vector2(-6, -8), Vector2(w + 12, 31)))
+	# q3 云影：云脚下那片跟着飘的软影（黑色柔边椭圆，浓度由 _process 按昼夜/天气缓动）
+	var sh := Sprite2D.new()
+	sh.texture = preload("res://scene/light_util.gd").radial_mask(128, 1.6)
+	sh.modulate = Color(0.05, 0.07, 0.12, 0.0)   # 初始 0，_process 里渐入
+	sh.position = SHADOW_OFFSET
+	sh.scale = Vector2(w * 1.55, w * 0.62) / 128.0
+	cloud.add_child(sh)
+	cloud.set_meta("shadow", sh)
 	# 出生点：开场那几朵直接撒在视野里；平时从上风侧视野外飘进来
 	var vy := view.position.y + view.size.y * _rng.randf_range(0.05, 0.8)
 	if inside:

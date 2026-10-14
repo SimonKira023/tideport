@@ -15,11 +15,13 @@
 # 导出模板压缩包（1.2GB —— 换电脑时去官方重新下载，或用 tools/export 里的 tpz 手动装）
 /tools/export/
 
-# 导出产物（exe/pck 只在本机生成）
+# 导出产物（exe/pck 只在本机生成, 发布包走 GitHub Releases）
 /*.exe
 /*.pck
 /*.zip
 /*.mp4
+/_build/
+/_demo/
 
 # ===== 第三方素材包（不入库，见 README「素材放置说明」）=====
 # 代码对它们全部软加载容错: 没放素材游戏照跑, 相关贴图/音乐留空
@@ -56,6 +58,9 @@ __pycache__/
 /tools/*.log
 /tools/*.png
 /tools/_probe_out/
+/tools/_selftest_userdata/
+/tools/_probe_ui_userdata/
+/tools/_probe_ui.txt
 /tools/_trailer/*
 !/tools/_trailer/*.txt
 
@@ -71,6 +76,7 @@ __pycache__/
 /tools/_chk*.txt
 /tools/_lines.txt
 /tools/_probe_*_log.txt
+/tools/_probe_*.txt
 # 自检 / UI 导出的一次性日志（多会话并行时改用独立文件名，避免共用 _st.txt 互相覆盖）
 /tools/_st_*.txt
 /tools/_uidump*.txt

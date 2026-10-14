@@ -1,93 +1,113 @@
-# quest_log.gd —— 任务栏（挂在 HUD 上）
-#
-# 用户要求「esc 增加任务栏」：ESC/B 打开背包时任务栏一并显示，关背包一起收。
-# 数据来自 Quests（autoload），changed 时若正显示就刷新。
-# IPix.ttf 字形有限：文案用半角标点，爱心/箭头等符号用 ASCII 代替。
+# 任务页: 玩家选择一条追踪, 生活经营和可选远征分开呈现。
 extends Control
 
 const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
-
-var _box: PanelContainer
-var _list_label: Label
+var embedded := false
 var _visible := false
-var embedded := false            # e13j: 嵌进背包「任务」页签（铺满页内容, 不再是左侧竖栏）
+var _list_label: Label
+var _goto_btn: Button
+var _rows: VBoxContainer
+var _war_btn: Button
+var _others_expanded := false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE    # 任务栏不挡操作，只展示
-	_build()
-	if embedded:
-		_refresh()     # 嵌进背包页签: 开页就有内容（不再靠 open_panel 触发）
-	else:
-		hide()
-	Quests.changed.connect(_refresh_if_visible)
-
-# 背包「任务」页签里用（e13j）: 内容铺满整个页, 生命周期归背包页管
-func setup_embedded() -> void:
-	embedded = true
-	_visible = true
-	_refresh()
-
-func _build() -> void:
-	_box = PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.10, 0.08, 0.92)
-	style.border_color = Color(0.62, 0.47, 0.28)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(6)
-	style.content_margin_left = 14
-	style.content_margin_right = 14
-	style.content_margin_top = 10
-	style.content_margin_bottom = 12
-	_box.add_theme_stylebox_override("panel", style)
-	# 任务栏只活在背包「任务」页签里（e13j）: 铺满整页; 独立竖栏模式已废
-	_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_box)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_box.add_child(vbox)
-
-	var title := Label.new()
-	title.text = "- 任务 -"
-	title.add_theme_font_override("font", PIXEL_FONT)
-	title.add_theme_font_size_override("font_size", 16)
-	title.add_theme_color_override("font_color", Color(1, 0.92, 0.75))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(title)
-
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	custom_minimum_size = Vector2(680, 330)
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.add_theme_constant_override("separation", 8)
+	add_child(column)
 	_list_label = Label.new()
 	_list_label.add_theme_font_override("font", PIXEL_FONT)
 	_list_label.add_theme_font_size_override("font_size", 13)
-	_list_label.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
-	_list_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_list_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	_list_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_list_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_list_label)
+	_list_label.text = "经营自己的港口. 钓鱼和远征都可以慢慢来."
+	column.add_child(_list_label)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(680, 230)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	_rows = VBoxContainer.new()
+	_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rows.add_theme_constant_override("separation", 8)
+	scroll.add_child(_rows)
+	_goto_btn = _button("查看当前指引")
+	_goto_btn.pressed.connect(_on_goto_pressed)
+	column.add_child(_goto_btn)
+	_war_btn = _button("")
+	_war_btn.pressed.connect(func(): Quests.choose_war_route(not Quests.war_route))
+	column.add_child(_war_btn)
+	Quests.changed.connect(_refresh)
+	_visible = embedded
+	visible = embedded
+	_refresh()
+
+func _button(text: String) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.add_theme_font_override("font", PIXEL_FONT)
+	btn.add_theme_font_size_override("font_size", 13)
+	return btn
+
+func setup_embedded() -> void:
+	embedded = true
+	_visible = true
+	show()
+	_refresh()
 
 func _refresh() -> void:
-	var tasks: Array = Quests.active()
-	if tasks.is_empty():
-		_list_label.text = "暂无任务\n\n努力经营这片田地吧!"
+	if _rows == null:
 		return
-	var lines: Array[String] = []
-	for i in tasks.size():
-		var t: Dictionary = tasks[i]
-		lines.append("%d. %s" % [i + 1, str(t["title"])])
-		lines.append("   %s" % str(t["desc"]))
-		if i < tasks.size() - 1:
-			lines.append(" ")
-	_list_label.text = "\n".join(lines)
+	for child in _rows.get_children():
+		_rows.remove_child(child)
+		child.queue_free()
+	var tracked: Dictionary = Quests.tracked_task()
+	var guide: Dictionary = Quests.guidance()
+	_list_label.text = String(guide["caption"]) + ": " + String(guide["title"])
+	_list_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_list_label.custom_minimum_size.x = 640
+	if not tracked.is_empty():
+		var action := _description(String(guide["action"]), 14)
+		action.visible = not action.text.is_empty()
+		_rows.add_child(action)
+		_rows.add_child(_description(String(guide["detail"]), 12))
+	var other_tasks: Array = Quests.active().filter(func(task: Dictionary) -> bool: return String(task["id"]) != String(tracked.get("id", "")))
+	if not other_tasks.is_empty():
+		var toggle := _button(("收起其他事情" if _others_expanded else "其他事情, 有空再做") + " (%d)" % other_tasks.size())
+		toggle.pressed.connect(func():
+			_others_expanded = not _others_expanded
+			_refresh())
+		_rows.add_child(toggle)
+	for task in other_tasks:
+		if not _others_expanded:
+			break
+		var id: String = String(task["id"])
+		var title := _button("追踪: " + String(task["title"]))
+		title.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		title.pressed.connect(Quests.track.bind(id))
+		_rows.add_child(title)
+		_rows.add_child(_description(String(task["desc"]), 12))
+	_goto_btn.disabled = tracked.is_empty()
+	_goto_btn.text = "打开相关面板" if Quests.page_for_task(String(tracked.get("id", ""))) != "" else "回到地图看指引"
+	_war_btn.visible = Quests.has_done("sail_first") or Quests.war_route
+	_war_btn.text = "暂停远征指引 (经营不受影响)" if Quests.war_route else "主动开启远征指引 (可选挑战)"
 
-func _refresh_if_visible() -> void:
-	if _visible:
-		_refresh()
+func _description(text: String, font_size: int) -> Label:
+	var desc := Label.new()
+	desc.text = text
+	desc.add_theme_font_override("font", PIXEL_FONT)
+	desc.add_theme_font_size_override("font_size", font_size)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size.x = 640
+	return desc
 
-# 由 game.gd 在背包开/合时调（任务栏生命周期跟着背包走）
+func _on_goto_pressed() -> void:
+	if not Quests.goto_active_page():
+		var bp: Node = get_tree().get_first_node_in_group("backpack_panel")
+		if bp != null and bp.has_method("close"):
+			bp.call("close")
+
 func open_panel() -> void:
 	_visible = true
 	show()
@@ -97,10 +117,5 @@ func close_panel() -> void:
 	_visible = false
 	hide()
 
-# 科技/行政/建造/团队页都压住左侧任务栏：这些页开着时收起任务栏，
-# 切回别的页再亮回来（_visible 不动，生命周期仍跟着背包走）。
-func on_backpack_page(key: String) -> void:
-	if key == "tech" or key == "admin" or key == "build" or key == "team":
-		hide()
-	elif _visible:
-		show()
+func on_backpack_page(_key: String) -> void:
+	pass

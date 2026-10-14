@@ -140,22 +140,26 @@ func _build_light() -> void:
 	# 暖橙色的光晕：傍晚在野地里远远就能看见，走近了周围一圈都被烘成暖色。
 	# texture_scale 决定光晕大小（2.4 -> 直径约 300 像素，差不多 19 格的草地都亮起来），
 	# energy 轻微抖动 = 火在跳，不是死灯。
-	_light = LIGHT_UTIL.make_light(Color(1.0, 0.68, 0.36), 1.65, 2.4)
+	# 2026-10-06：泛光推强后原来的亮度会把火堆中心顶成一块饱和黄圆盘（截图里最生硬的一处），
+	# 所以整体收一档、并把可见柔光调散一点 —— 火该是"一团跳动暖光", 不是一块黄饼。
+	_light = LIGHT_UTIL.make_light(Color(1.0, 0.66, 0.34), 1.5, 2.4, 2.0)
 	_light.position = Vector2(0, -6)
 	add_child(_light)
 	# e31 火堆本体的可见柔光（加法混合）：PointLight2D 只把周围"染色"、自己不发光，
 	#   夜里远看根本找不到光源在哪。叠这层加法柔光才像"这儿有一团火"。
-	_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.62, 0.30, 0.30), 3.6, 1.6)
+	# e90: HDR 2D 开启后加法柔光会被 bloom 进一步放大, 基准 alpha 从 0.24 压到 0.15
+	_glow = LIGHT_UTIL.make_glow(Color(1.0, 0.62, 0.30, 0.15), 3.8, 1.9)
 	_glow.position = Vector2(0, -6)
 	add_child(_glow)
 	# 亮度和柔光一起抖：同一条 tween 上并排跑，火苗的明暗才对得上
+	# e90: HDR 2D 后 bloom 放大, 灯强/柔光整体下调一档（火还是跳的, 只是不过曝）
 	_tw = create_tween().set_loops()
-	_tw.tween_property(_light, "energy", 1.15, 0.24).set_trans(Tween.TRANS_SINE)
-	_tw.parallel().tween_property(_glow, "modulate:a", 0.17, 0.24).set_trans(Tween.TRANS_SINE)
-	_tw.tween_property(_light, "energy", 1.6, 0.31).set_trans(Tween.TRANS_SINE)
-	_tw.parallel().tween_property(_glow, "modulate:a", 0.30, 0.31).set_trans(Tween.TRANS_SINE)
-	_tw.tween_property(_light, "energy", 1.32, 0.19).set_trans(Tween.TRANS_SINE)
-	_tw.parallel().tween_property(_glow, "modulate:a", 0.22, 0.19).set_trans(Tween.TRANS_SINE)
+	_tw.tween_property(_light, "energy", 0.75, 0.24).set_trans(Tween.TRANS_SINE)
+	_tw.parallel().tween_property(_glow, "modulate:a", 0.10, 0.24).set_trans(Tween.TRANS_SINE)
+	_tw.tween_property(_light, "energy", 1.05, 0.31).set_trans(Tween.TRANS_SINE)
+	_tw.parallel().tween_property(_glow, "modulate:a", 0.15, 0.31).set_trans(Tween.TRANS_SINE)
+	_tw.tween_property(_light, "energy", 0.90, 0.19).set_trans(Tween.TRANS_SINE)
+	_tw.parallel().tween_property(_glow, "modulate:a", 0.12, 0.19).set_trans(Tween.TRANS_SINE)
 
 # ---------------- 招募之前：火边先站着一个等你的人 ----------------
 # ❗「招之前就能看清他」是这一版的重点之一：火边站着的这位、面板信息卡里的数据
@@ -183,7 +187,8 @@ func _make_person(idx: int) -> Node2D:
 	var holder := Node2D.new()
 	var spr := AnimatedSprite2D.new()
 	spr.name = "Body"
-	spr.position = Vector2(0, -16)               # 原点在脚下，跟主角/伙伴一个约定
+	spr.position = NPC_SCRIPT.BODY_OFFSET
+	spr.scale = NPC_SCRIPT.body_scale_for(idx)
 	spr.sprite_frames = frames
 	holder.add_child(spr)
 	return holder

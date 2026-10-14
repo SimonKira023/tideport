@@ -274,22 +274,16 @@ const BOAT_TEX := preload("res://resources/texture/boat.png")
 const BOAT_HULL_TEX := preload("res://resources/texture/boat_hull.png")
 # e35 光影：跟岛上同一份光源公用件（圆光晕贴图带缓存, 不会每盏灯重画一遍）
 const LIGHT_UTIL := preload("res://scene/light_util.gd")
+const FX_PALETTE := preload("res://scene/fx_palette.gd")   # P5: 飘字色板
 # e35 唯美化：跟岛上同一份全屏后处理（泛光/色温分离/柔光/饱和/晕影）
 const FX_POST := preload("res://scene/fx_post.gdshader")
-const JOSH_IDLE := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Idle.png"
-const JOSH_RUN := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Run.png"
+const CHARACTER_ART := preload("res://scene/slave_npc.gd")
 # 海图上各支队伍的形象池（避开主角的 Josh，别满地图都是同一个人）。
 # 素材包 Pre-made 四个预置角色，各有 Idle.png(4 帧) + Run.png(8 帧) x 3 行。
-const SKIN_DIRS := [
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Alex",
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Manu",
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Lyria",
-	"res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Tori",
-]
-# 队伍 -> 皮肤：海寇 Alex / 山贼 Manu；五国巡逻各分一个，再加国色 tint 就各有其相。
+const SKIN_DIRS := ["generic_pirate", "generic_bandit", "captain_chenxi", "captain_beiling", "captain_xichuan", "captain_tieyan", "captain_canglang"]
 const SKIN_PIRATE := 0
 const SKIN_BANDIT := 1
-const SKIN_OF_NATION := {"chenxi": 2, "beiling": 3, "xichuan": 1, "tieyan": 0, "canglang": 4}
+const SKIN_OF_NATION := {"chenxi": 2, "beiling": 3, "xichuan": 4, "tieyan": 5, "canglang": 6}
 
 # 城镇标记用的素材（跟岛上同一套 Tiny Asset Pack）：首都多间房拼一座城
 # e19: 城镇房子按国家特色配（Houses 1-12 里挑）—— 雪顶「圣诞屋」只留给北岭雪国,
@@ -351,7 +345,7 @@ var _post_night := 0.0                 # 夜度（0 白天 / 1 深夜, 慢慢过
 var _blockers: Array = []              # 建筑碰撞矩形（世界坐标, 主角走位判据）
 var _bounds_cache := {}                # 贴图路径 -> 不透明像素外框（Rect2, 一张只量一次）
 const BODY_R := 6.0                    # 主角脚下碰撞半径（同 player.tscn 的 CircleShape2D）
-const POST_STRENGTH := 0.62            # 后处理浓度（岛上 1.0 全开; 海图压一档, 城名看得清）
+const POST_STRENGTH := 0.35            # 保留昼夜氛围, 地名和像素轮廓保持清晰。
 var _town_light_sprites: Array = []    # 城镇夜灯（加法柔光, 亮度跟夜度走）
 
 func _ready() -> void:
@@ -1635,36 +1629,22 @@ func _build_fleet() -> void:
 	for k in Slaves.expedition.size():
 		var s := Sprite2D.new()
 		s.texture = _crew_tex(k)
+		s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		# 先按「零号座位是主角」的规矩摆一下；真正的每帧位置由 _update_fleet 定
-		s.position = Vector2(_seat_x(k + 1), -9.0)
+		s.position = Vector2(_seat_x(k + 1), -14.0)
 		s.z_index = 1                     # 坐在船面上（比船晚画一层就够，z 只是保险）
 		_fleet.add_child(s)
 		_crew.append(s)
 
-# 海图上的人只有几像素高，用真人物贴图缩下去会糊 —— 直接画个 7x10 的小人
-func _crew_tex(k: int) -> ImageTexture:
-	var w := 7
-	var h := 10
-	var img := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var shirt: Color = CREW_COLORS[k % CREW_COLORS.size()]
-	var skin := Color(0.95, 0.79, 0.61)
-	var hair := Color(0.22, 0.15, 0.10)
-	for y in range(1, 4):
-		for x in range(2, 5):
-			img.set_pixel(x, y, skin)
-	for x in range(2, 5):
-		img.set_pixel(x, 0, hair)
-	for y in range(4, 8):
-		for x in range(1, 6):
-			img.set_pixel(x, y, shirt)
-	# 两条胳膊：比身子深一档，看着有个人形
-	img.set_pixel(1, 5, shirt.darkened(0.2))
-	img.set_pixel(5, 5, shirt.darkened(0.2))
-	for y in range(8, 10):
-		img.set_pixel(2, y, Color(0.30, 0.24, 0.18))
-		img.set_pixel(4, y, Color(0.30, 0.24, 0.18))
-	return ImageTexture.create_from_image(img)
+# 船员直接读取伙伴外观, 不再画所有人共用的简笔小人。
+func _crew_tex(k: int) -> Texture2D:
+	if k < 0 or k >= Slaves.expedition.size():
+		return null
+	var index: int = int(Slaves.expedition[k])
+	var atlas := AtlasTexture.new()
+	atlas.atlas = CHARACTER_ART.sheet_texture(CHARACTER_ART.model_for(index), "Idle.png", index)
+	atlas.region = Rect2(0, 0, 32, 32)
+	return atlas
 
 # 尾迹上第 f 个点 —— f 是**连续下标**（可以是小数）：
 #   -1 = 主角此刻的实时位置, 0 = _trail[0]（最近一次采到的点）,
@@ -1689,36 +1669,78 @@ func _trail_offset() -> float:
 	return clampf(_trail_t / TRAIL_STEP, 0.0, 1.0)
 
 # 每帧把船队摆到尾迹上；上岸（on_water = false）时船藏起来、船员改走路
+# 尾迹重合或跨岸时找同地形的空位. 按格子留间距, 不把完整角色叠在主角身上。
+func _fleet_spot(preferred: Vector2, water: bool, occupied: Array[Vector2], gap_cells: float) -> Vector2:
+	var center: Vector2i = _cell_at(preferred)
+	var candidates: Array[Vector2] = [preferred]
+	for radius in range(1, 9):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if maxi(absi(dx), absi(dy)) == radius:
+					candidates.append(_cell_center(center + Vector2i(dx, dy)))
+	for candidate: Vector2 in candidates:
+		if (not _water.has(_cell_at(candidate)) if water else not _land.has(_cell_at(candidate)) or _hits_building(candidate)):
+			continue
+		var clear: bool = true
+		for point: Vector2 in occupied:
+			if candidate.distance_squared_to(point) < pow(gap_cells * CELL, 2):
+				clear = false
+				break
+		if clear:
+			return candidate
+	return Vector2.INF
+
+# 每帧保留尾迹跟随, 但停步时人和船各自占一个完整的落点。
 func _update_fleet(on_water: bool) -> void:
-	# e40: 海上**只显示船、不显示人** —— 主角贴图收进船里（0 号座位就是他的座船,
-	#   他的「人」由船代替画出来）。上岸立刻放回来, 岛/陆地上走的还是那个 Josh。
-	#   只藏贴图, avatar 节点本身不动 —— 相机挂在它下面, 藏节点会把镜头一起关掉。
 	if _av_sprite != null:
 		_av_sprite.visible = not on_water
-	var off := _trail_offset()                # 连续下标：船在采样点之间平滑滑
+	var off := _trail_offset()
 	var seats := Voyage.BOAT_SEATS
-	for i in _boat_sprites.size():
-		var s: Sprite2D = _boat_sprites[i]
-		s.visible = on_water
-		s.flip_h = _boat_flip        # e40: 往西开时整队镜像（船头画在图的右边）
-		# ❗头船（主角座船）直接钉在主角脚下 —— 不吃尾迹延迟，主角停船就停、
-		#   主角拐弯船就拐，彻底贴住；早先它也走尾迹，永远慢一拍还一顿一顿。
-		#   护卫船才沿尾迹滑行（有插值，照样连贯）。
-		s.position = avatar.position if i == 0 \
-			else _trail_at(i * TRAIL_PER_BOAT + off)
-	for k in _crew.size():
-		var c: Sprite2D = _crew[k]
+	var boat_places: Array[Vector2] = []
+	for index in _boat_sprites.size():
+		var boat: Sprite2D = _boat_sprites[index]
+		var preferred: Vector2 = avatar.position if index == 0 else _trail_at(index * TRAIL_PER_BOAT + off)
+		var point: Vector2 = _fleet_spot(preferred, true, boat_places, 2.0) if on_water else preferred
+		boat.visible = on_water and point != Vector2.INF
+		boat.flip_h = _boat_flip
+		if point != Vector2.INF:
+			boat.position = point
+			boat_places.append(point)
+	var land_places: Array[Vector2] = [avatar.position]
+	for index in _crew.size():
+		var crew: Sprite2D = _crew[index]
+		var previous: Vector2 = crew.position
 		if on_water:
-			# ❗座位号从 1 开始数：0 号座位是主角自己（他的贴图就画在 avatar 上）。
-			#   坐头船的伙伴也直接钉在主角身上算座位偏移 —— 不然船贴住了、
-			#   人还留在尾迹上，看着像坐到船外面漂。
-			var seat: int = k + 1
-			var bi: int = seat / seats
-			var bp := avatar.position if bi == 0 \
-				else _trail_at(bi * TRAIL_PER_BOAT + off)
-			c.position = bp + Vector2(_seat_x(seat), -9.0)
+			var seat: int = index + 1
+			var boat_index: int = seat / seats
+			crew.visible = boat_index < _boat_sprites.size() and _boat_sprites[boat_index].visible
+			if crew.visible:
+				crew.position = _boat_sprites[boat_index].position + Vector2(_seat_x(seat), -14.0)
 		else:
-			c.position = _trail_at(TRAIL_PER_CREW * (k + 1) + off - 1.0) + Vector2(0, -14)
+			var point: Vector2 = _fleet_spot(_trail_at(TRAIL_PER_CREW * (index + 1) + off - 1.0), false, land_places, 1.0)
+			crew.visible = point != Vector2.INF
+			if crew.visible:
+				crew.position = point + Vector2(0, -14)
+				land_places.append(point)
+		if not crew.visible or index >= Slaves.expedition.size():
+			continue
+		# 船上用侧身待机, 上岸用角色自己的行走帧, 不再让完整小人滑着走。
+		var delta_position: Vector2 = crew.position - previous
+		var walking: bool = not on_water and delta_position.length_squared() > 0.001
+		var atlas: AtlasTexture = crew.texture as AtlasTexture
+		var actor: int = int(Slaves.expedition[index])
+		var row: int = 2 if on_water else int(atlas.region.position.y / 32)
+		if walking:
+			if absf(delta_position.x) >= absf(delta_position.y):
+				row = 2
+				crew.flip_h = delta_position.x < 0
+			else:
+				row = 1 if delta_position.y < 0 else 0
+		if on_water:
+			crew.flip_h = _boat_flip
+		atlas.atlas = CHARACTER_ART.sheet_texture(CHARACTER_ART.model_for(actor), "Walk.png" if walking else "Idle.png", actor)
+		var frame: int = (int(Time.get_ticks_msec() / (100 if walking else 150)) + actor) % (6 if walking else 4)
+		atlas.region = Rect2(frame * 32, row * 32, 32, 32)
 
 # 第 seat 号座位坐在船的哪儿：0 号（主角）站船正中，1 号靠左舷，2 号靠右舷。
 # 横向 10 px 是有讲究的 —— 再窄一点，同船的伙伴就会被主角 16 px 宽的贴图挡住脑袋。
@@ -1727,7 +1749,7 @@ func _seat_x(seat: int) -> float:
 	if seat <= 0:
 		return 0.0
 	if seats == 2:
-		return -10.0 if (seat % 2) == 1 else 10.0
+		return -12.0 if (seat % 2) == 1 else 12.0
 	# 以后要是一船三人以上，就沿船舷均匀排开（现在一船两人，走不到这支）
 	return lerpf(-14.0, 14.0, float(seat % seats) / float(seats - 1))
 
@@ -1737,7 +1759,7 @@ func _avatar_frames() -> SpriteFrames:
 		sf.remove_animation(&"default")
 	var rows := {"down": 0, "up": 1, "side": 2}
 	# 站立：Idle.png 4 帧（第三方素材不入库(见 README), 缺失时留空不崩）
-	var idle_tex: Texture2D = SoftRes.tex(JOSH_IDLE)
+	var idle_tex: Texture2D = CHARACTER_ART.player_texture("Idle.png")
 	for d in rows.keys():
 		var an := StringName("idle_%s" % d)
 		sf.add_animation(an)
@@ -1748,16 +1770,16 @@ func _avatar_frames() -> SpriteFrames:
 			at.atlas = idle_tex
 			at.region = Rect2(i * 32, rows[d] * 32, 32, 32)
 			sf.add_frame(an, at)
-	# 走动：Run.png 8 帧 x 3 行（跟岛上 player.gd 同一套行号）。
+	# 走动与岛上共用已确认的六帧行走和主角外观。
 	# ❗出海乘船也是这套 —— 头像在船上一颠一颠地划桨，就是「乘船动画」；
 	#   早先只放了 idle_*，走起来一动不动，看着像被冻住。
-	var run_tex: Texture2D = SoftRes.tex(JOSH_RUN)
+	var run_tex: Texture2D = CHARACTER_ART.player_texture("Walk.png")
 	for d in rows.keys():
 		var an := StringName("walk_%s" % d)
 		sf.add_animation(an)
 		sf.set_animation_loop(an, true)
 		sf.set_animation_speed(an, 10.0)
-		for i in 8:
+		for i in 6:
 			var at := AtlasTexture.new()
 			at.atlas = run_tex
 			at.region = Rect2(i * 32, rows[d] * 32, 32, 32)
@@ -2126,7 +2148,7 @@ func _pick_bottle(idx: int) -> void:
 		var gold := 20 + randi() % 41
 		Wallet.add_money(gold)
 		Audio.play_sfx("coin", -4.0)
-		_float_text(avatar.position, "+%d金币" % gold, Color(1, 0.88, 0.5))
+		_float_text(avatar.position, "+%d金币" % gold, FX_PALETTE.GAIN)
 		announce("捞起漂流瓶: 瓶里塞着 %d 枚金币!" % gold, 3.5)
 	else:
 		var keys := ["perch", "crayfish", "starfish", "wheat", "pumpkin", "egg",
@@ -2198,7 +2220,7 @@ func _make_party(pos: Vector2, type: String, size: int, nation := "",
 	# 骑兵队：整幅「马+骑手」一张图 —— 人和马在同一个像素里, 天生同步,
 	# 不会犯船队那种「马走一步人跟半步」的毛病。48px 帧缩到 2/3, 跟 32px 步兵等高。
 	if mounted and (type == "巡逻" or type == "远征" or type == "商队"):
-		spr.sprite_frames = _horse_frames()
+		spr.sprite_frames = _horse_frames(String(SKIN_DIRS[wrapi(skin, 0, SKIN_DIRS.size())]))
 		spr.scale = Vector2(2.0 / 3.0, 2.0 / 3.0)
 	else:
 		spr.sprite_frames = _party_frames(skin)
@@ -2238,11 +2260,11 @@ func _make_party(pos: Vector2, type: String, size: int, nation := "",
 		# e49: 蛮族绿皮 / 魔物紫皮 —— 跟赤红的野寇一眼分得开
 		spr.sprite_frames = _mob_frames(type)
 		var mcol := Color(0.85, 1.0, 0.8) if type == "哥布林" else Color(0.95, 0.82, 1.0)
-		spr.modulate = mcol
+		spr.modulate = Color.WHITE
 		l.text = "%s x%d" % [type, size]
 		l.add_theme_color_override("font_color", mcol)
 	else:
-		spr.modulate = Color(1.0, 0.55, 0.5)
+		spr.modulate = Color.WHITE
 		l.text = "%s x%d" % [type, size]
 		l.add_theme_color_override("font_color", Color(1, 0.75, 0.7))
 	add_child(node)
@@ -2255,10 +2277,10 @@ func _tint_patrol(pd: Dictionary) -> void:
 	var spr: AnimatedSprite2D = pd["spr"]
 	var lbl: Label = pd["lbl"]
 	if bool(pd["pact"]):
-		spr.modulate = Color(0.55, 1.0, 0.55)
+		spr.modulate = Color.WHITE
 		lbl.add_theme_color_override("font_color", Color(0.55, 1.0, 0.55))
 	else:
-		spr.modulate = ncol.lerp(Color(1, 1, 1), 0.35)
+		spr.modulate = Color.WHITE
 		lbl.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
 
 var _skin_frames := {}      # skin -> SpriteFrames（建一次复用，十来支队伍别各拼一套）
@@ -2266,69 +2288,29 @@ var _skin_frames := {}      # skin -> SpriteFrames（建一次复用，十来支
 # 队伍帧图：Idle 4 帧 x3 向 + Run 8 帧 x3 向（行 0 下 / 1 上 / 2 侧，跟主角同一套行号）。
 # 早先只有 Alex 的 idle_down 一套 —— 用户要前后左右动画 + 各队形象不同。
 func _party_frames(skin: int) -> SpriteFrames:
-	if _skin_frames.has(skin):
-		return _skin_frames[skin]
-	var base: String = SKIN_DIRS[wrapi(skin, 0, SKIN_DIRS.size())]
-	var idle_tex: Texture2D = SoftRes.tex(base + "/Idle.png")
-	var run_tex: Texture2D = SoftRes.tex(base + "/Run.png")
-	var sf := SpriteFrames.new()
-	if sf.has_animation(&"default"):
-		sf.remove_animation(&"default")
-	var rows := {"down": 0, "up": 1, "side": 2}
-	for d in rows.keys():
-		var an := StringName("idle_%s" % d)
-		sf.add_animation(an)
-		sf.set_animation_loop(an, true)
-		sf.set_animation_speed(an, 5.0)
-		for i in 4:
-			var at := AtlasTexture.new()
-			at.atlas = idle_tex
-			at.region = Rect2(i * 32, rows[d] * 32, 32, 32)
-			sf.add_frame(an, at)
-	for d in rows.keys():
-		var an := StringName("walk_%s" % d)
-		sf.add_animation(an)
-		sf.set_animation_loop(an, true)
-		sf.set_animation_speed(an, 10.0)
-		for i in 8:
-			var at := AtlasTexture.new()
-			at.atlas = run_tex
-			at.region = Rect2(i * 32, rows[d] * 32, 32, 32)
-			sf.add_frame(an, at)
-	_skin_frames[skin] = sf
-	return sf
+	if not _skin_frames.has(skin):
+		_skin_frames[skin] = CHARACTER_ART.named_frames(String(SKIN_DIRS[wrapi(skin, 0, SKIN_DIRS.size())]))
+	return _skin_frames[skin]
 
-var _horse_sf: SpriteFrames = null
+var _horse_cache: Dictionary = {}
 
-# 骑兵巡逻队的帧：Alex 马匹图 Horse run.png —— 192x144 = **6 帧 x 3 行的 32x48 网格**
-# (e17c 改 32x48x6; 三行顺序跟人一样是 下/上/侧)。idle = 每行首帧（勒马）, walk = 整行 6 帧（策马）。
-# ❗马和人画在同一帧里 —— 队伍怎么动都不会「人马分家」, 这正是用户点名的重点。
-# ❗侧向帧默认朝**左**（马素材与步兵素材相反）—— flip 在游荡移动里按 mounted 区分。
-func _horse_frames() -> SpriteFrames:
-	if _horse_sf != null:
-		return _horse_sf
-	# 第三方素材不入库(见 README), 缺失时留空不崩
-	var tex: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Alex/Horse/Horse run.png")
+# 原作者的人马图层合成, 每位队长保留头像中的发型与服装, 不再全是 Alex。
+func _horse_frames(key: String = "generic_pirate") -> SpriteFrames:
+	if _horse_cache.has(key):
+		return _horse_cache[key]
+	var tex: Texture2D = CHARACTER_ART.mount_texture(key)
 	var sf := SpriteFrames.new()
-	if sf.has_animation(&"default"):
-		sf.remove_animation(&"default")
-	var rows := {"down": 0, "up": 1, "side": 2}
+	sf.remove_animation(&"default")
 	if tex != null:
-		# e17c: Horse run.png 是 6 帧 x 3 行的 32x48 —— 早期照步兵的 48x48 x 4 帧切,
-		# 马被劈成两半(海图巡逻骑兵贴图碎裂的根源, 战场 troop.gd 的 e16c 同源)。
-		for d in rows.keys():
-			var an_idle := StringName("idle_%s" % d)
-			sf.add_animation(an_idle)
-			sf.set_animation_loop(an_idle, true)
-			sf.set_animation_speed(an_idle, 4.0)
-			sf.add_frame(an_idle, _horse_at(tex, 0, int(rows[d])))
-			var an_walk := StringName("walk_%s" % d)
-			sf.add_animation(an_walk)
-			sf.set_animation_loop(an_walk, true)
-			sf.set_animation_speed(an_walk, 9.0)
-			for i in 6:
-				sf.add_frame(an_walk, _horse_at(tex, i, int(rows[d])))
-	_horse_sf = sf
+		for direction: String in ["down", "up", "side"]:
+			var row: int = {"down": 0, "up": 1, "side": 2}[direction]
+			for action: String in ["idle", "walk"]:
+				var animation := StringName(action + "_" + direction)
+				sf.add_animation(animation)
+				sf.set_animation_speed(animation, 4.0 if action == "idle" else 9.0)
+				for frame in (1 if action == "idle" else 6):
+					sf.add_frame(animation, _horse_at(tex, frame, row))
+	_horse_cache[key] = sf
 	return sf
 
 func _horse_at(tex: Texture2D, col: int, row: int) -> AtlasTexture:
@@ -2784,7 +2766,7 @@ func _physics_process(delta: float) -> void:
 				continue
 		if String(pd["type"]) == "商队":
 			continue      # e26d: 商队不主动开战, 靠近按 F 做买卖
-		if _encounter_cd <= 0.0 and avatar.position.distance_to(pd["pos"]) < ENCOUNTER_DIST:
+		if not Quests.peaceful_voyage and _encounter_cd <= 0.0 and avatar.position.distance_to(pd["pos"]) < ENCOUNTER_DIST:
 			_start_battle(int(pd["id"]))
 			return
 	if remove_gone:
@@ -3130,7 +3112,7 @@ func _open_caravan_panel(cpd: Dictionary) -> void:
 				Inventory.add_item(item, 1)
 			Nations.add_favor(nid, 1)
 			Audio.play_sfx("coin", -4.0)
-			_float_text(avatar.position, "-%d金币" % price, Color(1, 0.62, 0.5))
+			_float_text(avatar.position, "-%d金币" % price, FX_PALETTE.HURT)
 			announce("买下%s, 装进了船舱" % iname, 3.0)
 		else:
 			Audio.play_sfx("error")

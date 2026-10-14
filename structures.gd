@@ -31,6 +31,17 @@ const KIND_MILL := "mill"               # 磨坊：按 F 把背包里的小麦�
 const KIND_FENCE := "fence"             # 围栏：1x1 篱笆, 只是好看和划地盘, 不挡路
 const KIND_BRIDGE := "bridge"           # 木桥：1x1 便桥, 想架在水上得让 game 放行水面判定
 
+# ---------------- 2026-10-06 城镇功能建筑 ----------------
+# 这一批是「有独占功能」的建筑：每一个都把某条既有机制收拢到自己身上（切割），
+# 不再是纯布景。加一座只动 structures.gd 的表 + game 的三处分支 + 一个 F 分支,
+# 地基/预览/存档白名单都是表驱动的（见 is_town_kind / TOWN_FOOT / is_known_kind）。
+const KIND_BARRACKS := "barracks"       # 军营：编组出征的「部队牌」来源（切割自纯研究解锁）
+const KIND_ACADEMY := "academy"         # 书院：编组出征的「法术牌」来源
+const KIND_MARKET := "market"           # 市集：售卖箱的「海外贸易」渠道来源（切割自售卖箱）
+const KIND_LIGHTHOUSE := "lighthouse"   # 灯塔：港口地标(自带旋转光束) + 每天早上 +1 声望
+const KIND_BAKERY := "bakery"           # 面包房：面粉 -> 面包（磨坊的下游）
+const KIND_WEAVER := "weaver"           # 织造坊：羊毛 -> 布
+
 # e44 同伴小屋的一批外形 —— 每盖一座按「已有几座」顺次取下一款, 取完 7 款再从头轮。
 # 每款 = {tex 贴图, rect 裁剪矩形}；rect 是探针量出来的「紧贴不透明内容」的框,
 # 绘制尺寸就是裁剪尺寸(1:1, 像素画不缩放)。文件都取自同一套 Farm RPG 素材包, 风格不打架。
@@ -119,6 +130,100 @@ func is_greenhouse_cell(c: Vector2i) -> bool:
 # 储物箱能装几格（一格 = 一叠；同一件东西自动并叠，叠满了另开一格）
 const CHEST_SLOTS := 20
 
+# ---------------- 2026-10-06 城镇建筑的外观 / 地基 / 发光点 ----------------
+# 外观沿用现成素材（同一套 Farm RPG 房子图集, 风格不打架; 缺失时 soft 留空不崩）。
+# ⚠️ 这几个 rect 直接复用了 HUT_LOOKS 里**探针量过**的框，不再另跑一次量图。
+#    rect 是「紧贴不透明内容」的框, 绘制尺寸 = rect.size（像素画 1:1）。
+const TOWN_LOOKS := {
+	KIND_BARRACKS: {"tex": HUT_SHEET + "NPCS houses/Base houses.png", "rect": Rect2(704, 185, 80, 146)},
+	KIND_ACADEMY: {"tex": HUT_SHEET + "NPCS houses/Base houses.png", "rect": Rect2(672, 57, 95, 104)},
+	KIND_MARKET: {"tex": HUT_SHEET + "NPCS houses/Base houses.png", "rect": Rect2(545, 77, 106, 94)},
+	KIND_BAKERY: {"tex": HUT_SHEET + "7.png", "rect": Rect2(4, 3, 124, 93)},
+	KIND_WEAVER: {"tex": HUT_SHEET + "11.png", "rect": Rect2(4, 9, 124, 87)},
+	# 灯塔没现成塔形素材 -> 走程序化节点 scene/lighthouse_node.gd，这里只登记「没有贴图」
+}
+
+# 地基：anchor = 底边中间那一格，dy 为负向上（跟 game.building_footprint 同一套规矩）。
+# 宽度跟着贴图宽走（80~124px ≈ 5~8 格）。
+const TOWN_FOOT := {
+	KIND_BARRACKS: Rect2i(-2, -1, 5, 2),
+	KIND_ACADEMY: Rect2i(-3, -1, 6, 2),
+	KIND_MARKET: Rect2i(-3, -1, 7, 2),
+	KIND_BAKERY: Rect2i(-4, -1, 8, 2),
+	KIND_WEAVER: Rect2i(-4, -1, 8, 2),
+	KIND_LIGHTHOUSE: Rect2i(-1, -1, 2, 2),
+}
+
+# 夜里的窗火色：不违和的发光点靠「色温按用途分开」——
+# 军营暖黄、书院冷白、市集招牌黄、面包房炉火橘、织造坊昏黄。灯塔单独在节点里做旋转光束。
+#
+# 2026-10-06 主色调定为「暖橘渔村」后重调：整体往琥珀/橘黄推一档（红多蓝少）,
+# 让夜里那几点暖光连成一片"有人烟"的橘调。唯一刻意留冷的是**书院** ——
+# 一排暖窗里夹一扇冷白，冷暖一撞画面才立得住（The Last Night 整张图也只有 3~4 个色相当主角）。
+# ❗这张表是"哪栋楼点什么色的灯"的唯一真相源：farm_building_node 的窗火/招牌照着它取色。
+# ⚠️ 2026-10-06 二次调色：加法混合叠在**浅色窗格**上时，只要 r 先顶到 1 就整片发白
+#    （探针实测：building 区最暖像素 r-b 只有 37, 等于没暖色）。所以这里刻意压 g/b、
+#    把它做成"深橘"——加法叠上去才收得住暖调, 而不是糊成一块白。
+const WINDOW_GLOW_DEFAULT := Color(1.0, 0.62, 0.26)   # 表里没有的（农场那几座）走这盏暖橘
+const TOWN_GLOW := {
+	KIND_BARRACKS: Color(1.0, 0.68, 0.30),      # 军营：营火暖黄
+	KIND_ACADEMY: Color(0.78, 0.88, 1.0),       # 书院：冷白书灯（刻意留冷, 跟满岛暖橘撞色）
+	KIND_MARKET: Color(1.0, 0.70, 0.26),        # 市集：招牌金黄
+	KIND_BAKERY: Color(1.0, 0.56, 0.20),        # 面包房：炉火橘
+	KIND_WEAVER: Color(1.0, 0.72, 0.38),        # 织造坊：昏黄
+}
+
+const TOWN_KINDS := [KIND_BARRACKS, KIND_ACADEMY, KIND_MARKET, KIND_LIGHTHOUSE,
+	KIND_BAKERY, KIND_WEAVER]
+
+func is_town_kind(kind: String) -> bool:
+	return TOWN_KINDS.has(kind)
+
+func town_look(kind: String) -> Dictionary:
+	return TOWN_LOOKS.get(kind, {})
+
+# 统一入口：城镇建筑 + 农场建筑都能查外观（farm_building_node 走这个）
+func bld_look(kind: String) -> Dictionary:
+	if is_town_kind(kind):
+		return TOWN_LOOKS.get(kind, {})
+	return FARM_LOOKS.get(kind, {})
+
+# 统一入口：地基（game.building_footprint 走这个）
+func bld_footprint(anchor: Vector2i, kind: String) -> Array:
+	if is_town_kind(kind):
+		return town_footprint(anchor, kind)
+	return farm_footprint(anchor, kind)
+
+func town_footprint(anchor: Vector2i, kind: String) -> Array:
+	var r: Rect2i = TOWN_FOOT.get(kind, Rect2i(0, 0, 1, 1))
+	var out: Array = []
+	for dy in range(r.position.y, r.position.y + r.size.y):
+		for dx in range(r.position.x, r.position.x + r.size.x):
+			out.append(anchor + Vector2i(dx, dy))
+	return out
+
+# 任何「农场建筑 / 城镇建筑」的通称（game 的三处分支用它一次接住两批）
+func is_bld_kind(kind: String) -> bool:
+	return is_farm_kind(kind) or is_town_kind(kind)
+
+# 某个 kind 是不是本系统认得、能存进存档的建筑（存档白名单走这个, 别再手写一长串 and）。
+# 加新建筑之后这里自动放行 —— 老写法漏一个 kind 会让玩家建筑读档后凭空消失且不报错。
+func is_known_kind(kind: String) -> bool:
+	if kind == KIND_WORKBENCH or kind == KIND_FURNACE:
+		return true
+	return BUILDINGS.has(kind)
+
+# 岛上是否已经盖好了某种建筑（解锁判定用：军营->部队牌 / 书院->法术牌 / 市集->海外贸易）
+func has_built_kind(kind: String) -> bool:
+	for c in stations.keys():
+		if String(stations[c].kind) == kind:
+			return true
+	return false
+
+# 市集建成前, 售卖箱不开放海外贸易渠道
+func can_sea_trade() -> bool:
+	return has_built_kind(KIND_MARKET)
+
 # 建造菜单数据（backpack_ui 建造页 / game 摆放模式共用）。
 # coin 金钱 / wood 木头 / stone 石头 / iron 铁锭 都是数量。
 # labor = 建成需要的人工（人·天）：开工时钱料一次付清，之后每晚按派去工地的人数积累，
@@ -128,76 +233,143 @@ const CHEST_SLOTS := 20
 const BUILDINGS := {
 	KIND_BLACKSMITH: {
 		"name": "铁匠铺",
-		"desc": "打造整套盔甲的地方 (站旁边按 B 制作), 还能花钱升级",
+		"desc": "岛上打甲 + 建造页可升级",
+		"tip": "用途: 在岛上打三档盔甲和银戒, 不必去大陆买贵甲.\n操作: 站旁边按 F 进 Esc 制作-铁匠铺; 建造页可花钱升到 Lv3.\n产出: 皮甲/锁链甲/铁甲, 高档要店铺等级够; 材料付清后夜里派伙伴打铁出货.",
 		"coin": 150, "wood": 10, "stone": 8, "iron": 2, "labor": 6,
 	},
 	KIND_WELL: {
 		"name": "水井",
-		"desc": "站旁边按 F 或左键点它, 给洒水壶打满水, 不用特地跑去河边",
+		"desc": "站旁边打水, 不用跑河边",
+		"tip": "用途: 给洒水壶补水, 省得每次跑到河边.\n操作: 建成后站旁边按 F, 或左键点井.\n产出: 洒水壶打满 (壶满时不会多灌).",
 		"coin": 30, "wood": 5, "stone": 10, "iron": 0, "labor": 2,
 	},
 	KIND_COOP: {
 		"name": "鸡舍",
-		"desc": "按 F 开管理界面: 收蛋/买鸡/卖鸡/扩建, 每天早上下一轮蛋",
+		"desc": "买鸡/收蛋/扩建",
+		"tip": "用途: 稳定的鸡蛋来源.\n操作: 站旁边按 F 开管理界面 (买鸡/卖鸡/扩建).\n产出: 每天早上鸡舍里的鸡各下一枚蛋 (需先买鸡).",
 		"coin": 100, "wood": 8, "stone": 4, "iron": 0, "labor": 4,
 	},
 	KIND_LAMP: {
 		"name": "路灯",
-		"desc": "摆在路边照亮一小圈, 天黑自己亮, 天亮自己灭; 不用人工, 放下即成",
+		"desc": "夜间照明, 即放即用",
+		"tip": "用途: 路边照明, 夜里走家路不摸黑.\n操作: 钱料付清当场落成, 不用排工地.\n产出: 无资源; 天黑自动亮, 天亮自动灭.",
 		"coin": 20, "wood": 2, "stone": 2, "iron": 0, "labor": 0,
 	},
 	KIND_HUT: {
 		"name": "同伴小屋",
-		"desc": "给伙伴住的小屋, 每盖一座伙伴上限 +1; 每盖一座外形都不一样",
+		"desc": "每盖一座, 伙伴上限 +1",
+		"tip": "用途: 提高可招募伙伴人数上限.\n操作: 在建造页盖好后自动生效.\n产出: 每座 +1 伙伴位; 每座外形不同.",
 		"coin": 120, "wood": 8, "stone": 4, "iron": 0, "labor": 3,
 	},
 	KIND_HIVE: {
 		"name": "蜂箱",
-		"desc": "放在屋边养蜂, 每天早上攒 1 罐蜂蜜 (冬天和风暴天不产), 站旁边按 F 收",
+		"desc": "每日收蜂蜜 (冬/风暴除外)",
+		"tip": "用途: 额外甜料, 可卖也可留着.\n操作: 站旁边按 F 一次收完攒下的蜜.\n产出: 正常天气每早 +1 罐蜂蜜; 冬天和风暴天不出蜜.",
 		"coin": 60, "wood": 4, "stone": 0, "iron": 1, "labor": 0,
 	},
 	KIND_CHEST: {
 		"name": "储物箱",
-		"desc": "把暂时用不上的东西存进去 (共 %d 格), 站旁边按 F 开箱存取, 不占背包" % CHEST_SLOTS,
+		"desc": "站旁边 F 开箱, 共 %d 格" % CHEST_SLOTS,
+		"tip": "用途: 背包腾不出地方时存杂物.\n操作: 站旁边按 F, 左栏箱/右栏背包点选存取.\n产出: 无; 共 %d 格独立仓库." % CHEST_SLOTS,
 		"coin": 50, "wood": 6, "stone": 0, "iron": 0, "labor": 0,
 	},
-	# —— e49 农场畜牧线 ——
 	KIND_BARN: {
 		"name": "畜棚",
-		"desc": "养牛/羊/山羊/鸭/鸵鸟的地方 (站旁边按 F 买卖/收畜产), 每天早上每头各产一份",
+		"desc": "养大牲口 + 每日收畜产",
+		"tip": "用途: 养牛/羊/山羊/鸭/鸵鸟, 收毛蛋奶等.\n操作: 站旁边按 F 买卖牲畜, 并收产出.\n产出: 每头牲畜每天早上各产一份对应畜产 (需先买入).",
 		"coin": 220, "wood": 16, "stone": 6, "iron": 1, "labor": 8,
 	},
 	KIND_STABLE: {
 		"name": "马厩",
-		"desc": "养马的地方 (站旁边按 F 买卖), 马不产畜产, 是骑乘和行军用的牲口",
+		"desc": "养马 (骑乘/行军用)",
+		"tip": "用途: 养马, 给骑乘和行军线准备.\n操作: 站旁边按 F 买卖马.\n产出: 不像畜棚那样收蛋式产出; 马本身是给出行/战斗用的.",
 		"coin": 180, "wood": 14, "stone": 8, "iron": 2, "labor": 7,
 	},
 	KIND_SILO: {
 		"name": "筒仓",
-		"desc": "囤谷物的圆仓 (共 %d 格), 站旁边按 F 存取, 跟储物箱一样用" % CHEST_SLOTS,
+		"desc": "专囤粮, F 存取, %d 格" % CHEST_SLOTS,
+		"tip": "用途: 把小麦等粮食从背包挪出来专仓存放.\n操作: 跟储物箱一样, 站旁边按 F 点选存取.\n产出: 无; 共 %d 格, 语义上专放谷物." % CHEST_SLOTS,
 		"coin": 140, "wood": 6, "stone": 12, "iron": 0, "labor": 5,
 	},
 	KIND_GREENHOUSE: {
 		"name": "温室",
-		"desc": "棚前那 4x3 块地不看出季节, 什么种子都能种, 过季也不会枯",
+		"desc": "棚前 4x3 地无视季节",
+		"tip": "用途: 反季种作物, 或怕过季枯的种这里.\n操作: 盖在空地上; 棚前固定 4x3 格耕地.\n产出: 这块地不看季节限制, 过季也不会枯.",
 		"coin": 260, "wood": 12, "stone": 8, "iron": 3, "labor": 10,
 	},
 	KIND_MILL: {
 		"name": "磨坊",
-		"desc": "站旁边按 F, 把背包里的小麦磨成面粉 (1 袋小麦出 1 袋面粉), 面粉更值钱",
+		"desc": "小麦 -> 面粉 (F 加工)",
+		"tip": "用途: 把小麦变成更好卖的加工品.\n操作: 站旁边按 F, 用背包里的小麦加工.\n产出: 1 袋小麦 -> 1 袋面粉.",
 		"coin": 160, "wood": 12, "stone": 6, "iron": 1, "labor": 6,
 	},
 	KIND_FENCE: {
 		"name": "围栏",
-		"desc": "一小段木篱笆, 铺一排围出院子; 只是好看不挡路, 不用人工, 放下即成",
+		"desc": "装饰篱笆, 不挡路",
+		"tip": "用途: 围院子, 纯外观.\n操作: 即放即用, 不用人工.\n产出: 无; 人物可以走过, 不挡路.",
 		"coin": 6, "wood": 2, "stone": 0, "iron": 0, "labor": 0,
 	},
 	KIND_BRIDGE: {
 		"name": "木桥",
-		"desc": "一小块桥面, 铺一排能踩过窄水沟; 不用人工, 放下即成 (水面通行要 game 放行)",
+		"desc": "铺过窄水沟的小桥面",
+		"tip": "用途: 过窄水沟.\n操作: 即放即用; 能否铺在水面格上看地图规则.\n产出: 无; 一小段桥面.",
 		"coin": 20, "wood": 4, "stone": 0, "iron": 0, "labor": 0,
 	},
+	KIND_BARRACKS: {
+		"name": "军营",
+		"desc": "解锁部队牌编进出征卡组",
+		"tip": "用途: 海战/出征时带上科技解锁的部队牌.\n操作: 盖好后到 Esc 发展-战斗 编 12 张卡组.\n条件: 没军营时只能带基础牌和同伴卡, 部队牌上不了场.",
+		"coin": 260, "wood": 18, "stone": 12, "iron": 4, "labor": 8,
+	},
+	KIND_ACADEMY: {
+		"name": "书院",
+		"desc": "解锁法术牌编进出征卡组",
+		"tip": "用途: 海战/出征时带上科技/行政解锁的法术牌.\n操作: 盖好后到 Esc 发展-战斗 编卡组.\n条件: 没书院时法术牌不能编进出征列表.",
+		"coin": 220, "wood": 14, "stone": 10, "iron": 2, "labor": 7,
+	},
+	KIND_MARKET: {
+		"name": "市集",
+		"desc": "售卖箱开海外渠道",
+		"tip": "用途: 让屋边售卖箱多一条更赚钱的卖法.\n操作: 必须先盖市集; 然后在售卖箱选海外渠道放货.\n产出: 海外卖价 +40%, 次日到账, 并按流水涨声望 (没市集就没有这条线).",
+		"coin": 240, "wood": 16, "stone": 8, "iron": 2, "labor": 7,
+	},
+	KIND_LIGHTHOUSE: {
+		"name": "灯塔",
+		"desc": "每早 +1 声望, 港口地标",
+		"tip": "用途: 长期攒声望 (出海/外交签约都要).\n操作: 盖在港口一带即可.\n产出: 每早上 +1 声望; 夜里旋转光束当地标.",
+		"coin": 320, "wood": 12, "stone": 20, "iron": 4, "labor": 9,
+	},
+	KIND_BAKERY: {
+		"name": "面包房",
+		"desc": "2 面粉 -> 1 面包 (F)",
+		"tip": "用途: 面粉再加工, 卖价更高.\n操作: 站旁边按 F, 用背包面粉烤.\n产出: 2 袋面粉 -> 1 个面包.",
+		"coin": 180, "wood": 12, "stone": 8, "iron": 2, "labor": 6,
+	},
+	KIND_WEAVER: {
+		"name": "织造坊",
+		"desc": "3 羊毛 -> 1 布 (F)",
+		"tip": "用途: 羊毛堆背包时换成高价值布.\n操作: 站旁边按 F, 用背包羊毛织.\n产出: 3 份羊毛 -> 1 匹布.",
+		"coin": 200, "wood": 12, "stone": 6, "iron": 3, "labor": 6,
+	},
 }
+
+# 手持摆放的小设施 (不在建造菜单里, 悬浮说明给制作页/地图 F 用)
+const FACILITY_TIPS := {
+	KIND_WORKBENCH: "工作台\n用途: 解锁复杂制作 (熔炉等).\n操作: 在个人制作里做出来后摆地上; 站旁边按 F 进制作-工作台.\n产出: 取决于配方 (地板/食物/熔炉等).",
+	KIND_FURNACE: "熔炉\n用途: 把铁矿炼成铁锭.\n操作: 在工作台旁制作后摆地上; 按 F: 1 木头 + 1 铁矿点火, 炼完再 F 取.\n产出: 铁锭 (建筑和铁匠都要用).",
+}
+
+func building_tip(kind: String) -> String:
+	var d: Dictionary = BUILDINGS.get(kind, {})
+	if d.is_empty():
+		return ""
+	var nm := String(d["name"])
+	if d.has("tip"):
+		return "%s\n%s" % [nm, String(d["tip"])]
+	return "%s\n%s" % [nm, String(d.get("desc", ""))]
+
+func facility_tip(kind: String) -> String:
+	return String(FACILITY_TIPS.get(kind, ""))
 
 func building_cost(kind: String) -> Dictionary:
 	return BUILDINGS.get(kind, {})
@@ -212,10 +384,28 @@ const ST_READY := "ready"                # 铁锭出炉，待取
 # cell -> {kind:String, state:String, t:float}
 var stations := {}
 
-# 工地（建筑施工中）：一次只能盖一座。
-# {"kind": String, "anchor": Vector2i, "work": int, "need": int}；空字典 = 没有工地。
-# 开工时钱料已付清，每晚按派去工地的人数往 work 里加，攒够 need 自动 place() 落成。
-var site := {}
+# 工地（建筑施工中）：可以同时开多座，共用同一个「建造点」总池（见下面 build_points）。
+# 每项 = {"kind": String, "anchor": Vector2i, "work": int, "need": int}；数组空 = 没有工地。
+# 开工时钱料一次付清；伙伴每晚在工地干活把力气换成「建造点」进总池，玩家白天在背包里
+# 把点数投进**任意一座**工地（投满即当场落成）。
+var sites: Array = []
+
+# 老字段名兼容：site = 最先进的那座工地（只读）。
+# 历史代码/探针读 Structures.site["work"] 的地方，在多工地时代依然拿到「第一座」；
+# 要遍历全部请用 sites / site_list()。想改工地请走 start_site / invest / cancel。
+var site: Dictionary:
+	get:
+		return sites[0] if not sites.is_empty() else {}
+
+# ---------------- 建造点（2026-10-06 体系大改：伙伴施工 -> 点数池 -> 玩家手动兑现） ----------------
+# 老流程：派去工地的伙伴每晚把「人天」直接灌进 site.work，攒够 need 当晚自动落成。
+# 新流程：伙伴每晚产出的**建造点**先进这个池子，由玩家在背包的建造页点
+#         「投入建造点 · 立即完成」当场兑现（投满即落成，不必干等一晚）。
+# 三条好处：① 点数可跨天攒着办大事；② 白天能立刻把楼盖完；③ 池子跟"哪个工地"解耦，
+#          以后要多工地并行也不用重写。
+# ❗add_site_work 保持原样 —— 它本来就是「投入 N 点」这个原子操作（作弊面板/自检都在用），
+#   池子只是给它换了个点数来源。
+var build_points := 0
 
 func _process(delta: float) -> void:
 	if stations.is_empty():
@@ -232,7 +422,8 @@ func _process(delta: float) -> void:
 # 重开地图（game._ready）时清空，防止加载两次场景后设施翻倍
 func reset() -> void:
 	stations.clear()
-	site = {}
+	sites = []
+	build_points = 0      # 建造点池也是"这一局"的进度，重开地图要清（读档会再填回来）
 
 func has_station(c: Vector2i) -> bool:
 	return stations.has(c)
@@ -243,65 +434,133 @@ func is_blocked(c: Vector2i) -> bool:
 		return true
 	return site_cells().has(c)
 
-# ---------------- 工地（建筑要一晚一晚盖） ----------------
+# ---------------- 工地（建筑要一晚一晚盖；可多座并行, 共用建造点总池） ----------------
+const SITE_MAX := 5        # 同时最多能开几座工地（防手滑开一堆, 也让建造页列表不至于太长）
+
 func site_busy() -> bool:
-	return not site.is_empty()
+	return not sites.is_empty()
+
+func site_count() -> int:
+	return sites.size()
+
+# 全部工地一览（UI 逐条列用）：[{kind, name, work, need, anchor}, ...]
+func site_list() -> Array:
+	var out: Array = []
+	for s in sites:
+		var k := String(s["kind"])
+		out.append({
+			"kind": k,
+			"name": String(building_cost(k).get("name", "建筑")),
+			"work": int(s.get("work", 0)),
+			"need": maxi(1, int(s.get("need", 1))),
+			"anchor": Vector2i(s["anchor"]),
+		})
+	return out
 
 func site_name() -> String:
-	if site.is_empty():
+	if sites.is_empty():
 		return ""
-	return String(building_cost(String(site["kind"])).get("name", "建筑"))
+	return String(building_cost(String(sites[0]["kind"])).get("name", "建筑"))
 
-# 工地占用的格子 = 建筑地基（跟 building_footprint 同一套，game.gd 里定）。
+# 第 idx 座工地还差多少点（投满即落成）
+func site_left(idx: int) -> int:
+	if idx < 0 or idx >= sites.size():
+		return 0
+	return maxi(0, int(sites[idx].get("need", 1)) - int(sites[idx].get("work", 0)))
+
+# 这个格子上是不是某座工地的锚点？返回它的下标（没有 = -1）
+func site_index_at(anchor: Vector2i) -> int:
+	for i in sites.size():
+		if Vector2i(sites[i]["anchor"]) == anchor:
+			return i
+	return -1
+
+# 工地占用的格子 = 每座建筑的**地基**（跟 building_footprint 同一套，game.gd 里定）。
 # 这里只存锚点，地基格子由 game 的 footprint 布局决定 —— 为了不互相抄布局，
 # Structures 只拦锚点格，地基其余格子的拦截由 game._building_site_ok 之外的地方
-# 用 site_footprint 回调查（见下）。
+# 用 footprint_rule 回调查（见下）。
 var footprint_rule: Callable = Callable()   # func(anchor: Vector2i) -> Array[Vector2i]
 
 func site_cells() -> Array:
-	if site.is_empty():
-		return []
-	if footprint_rule.is_valid():
-		return footprint_rule.call(Vector2i(site["anchor"]))
-	return [Vector2i(site["anchor"])]
+	var out: Array = []
+	for s in sites:
+		if footprint_rule.is_valid():
+			out.append_array(footprint_rule.call(Vector2i(s["anchor"])))
+		else:
+			out.append(Vector2i(s["anchor"]))
+	return out
 
-# 开工：钱料已由调用方付清，这里记下工地开始施工。
-# e38d labor = 0 的小件（路灯）不排工地：当场落成，省掉「派人施工」那一晚。
+# 开工：钱料已由调用方付清，这里登记一座新工地。
+# e38d labor = 0 的小件（路灯/围栏/木桥/蜂箱/储物箱）不排工地：当场落成，省掉「派人施工」那一晚。
+# 2026-10-06: 不再「一次只能盖一座」—— 可同时开多座（共用建造点总池, 上限 SITE_MAX）。
 func start_site(anchor: Vector2i, kind: String) -> bool:
-	if not site.is_empty() or stations.has(anchor):
+	if stations.has(anchor) or site_index_at(anchor) != -1:
+		return false
+	if sites.size() >= SITE_MAX:
 		return false
 	var cost := building_cost(kind)
 	if cost.is_empty():
 		return false
 	if int(cost.get("labor", 1)) <= 0:
 		return place(anchor, kind)
-	site = {"kind": kind, "anchor": anchor, "work": 0, "need": maxi(1, int(cost.get("labor", 1)))}
+	sites.append({"kind": kind, "anchor": anchor, "work": 0,
+		"need": maxi(1, int(cost.get("labor", 1)))})
 	site_changed.emit()
 	return true
 
-# 每晚推进：heads = 今晚派去工地的人数（1 人干一晚 = 1 人工）。
-# 攒够 need 就地 place() 落成并清空工地。返回 true = 今晚建成了。
-func add_site_work(heads: int) -> bool:
-	if site.is_empty() or heads <= 0:
+# 推进第 idx 座工地：+heads 点。攒够 need 就地 place() 落成并把它移出列表。
+# 返回 true = 这一下建成了。idx 默认 0（只有一座工地时就是它）。
+func add_site_work(heads: int, idx := 0) -> bool:
+	if idx < 0 or idx >= sites.size() or heads <= 0:
 		return false
-	var anchor := Vector2i(site["anchor"])
-	var kind := String(site["kind"])
-	site["work"] = int(site["work"]) + heads
-	if int(site["work"]) < int(site["need"]):
+	var s: Dictionary = sites[idx]
+	var anchor := Vector2i(s["anchor"])
+	var kind := String(s["kind"])
+	s["work"] = int(s["work"]) + heads
+	if int(s["work"]) < int(s["need"]):
 		site_changed.emit()
 		return false
-	site = {}
+	sites.remove_at(idx)
 	place(anchor, kind)          # 发 station_changed -> game 建真房子
+	# e13h: 建成一座设施长主角经验。2026-10-06 从 game._on_day_ended 搬进来 ——
+	# 兑现方式改成玩家手动（背包建造页点按钮）后，那边不知道什么时候真的建成。
+	# add_site_work 是「labor > 0 的建筑」唯一的完工路径，放这里恰好一处不落。
+	Legion.gain_exp(3)
 	site_changed.emit()
 	return true
 
-# e24c: 取消工地 —— 清空工地并把建筑的材料耗费还给调用方（钱和人工不退，
+# 每晚结算：伙伴在工地干一晚产出的建造点进池。返回池子现在的总数。
+func earn_build_points(n: int) -> int:
+	if n > 0:
+		build_points += n
+		site_changed.emit()
+	return build_points
+
+# 白天的兑现动作：把总池里的点投进第 idx 座工地（默认第一座），投到投满为止，投满即落成。
+# 返回 true = 这一下把楼盖好了。池子不够就只投现有这些（进度条照样往前走, 攒够那一下才落成）。
+func invest_build_points(idx := 0) -> bool:
+	if idx < 0 or idx >= sites.size() or build_points <= 0:
+		return false
+	var left := site_left(idx)
+	if left <= 0:
+		return false
+	var give := mini(build_points, left)
+	build_points -= give
+	var done := add_site_work(give, idx)
+	site_changed.emit()
+	return done
+
+# e24c: 取消第 idx 座工地 —— 清空工地并把建筑的材料耗费还给调用方（钱和人工不退，
 # 跟镐子拆房同一套规矩）。返回退的材料 {wood,stone,iron}；没有工地返回 {}。
-func cancel_site() -> Dictionary:
-	if site.is_empty():
+func cancel_site(idx := 0) -> Dictionary:
+	if idx < 0 or idx >= sites.size():
 		return {}
-	var cost := building_cost(String(site["kind"]))
-	site = {}
+	var s: Dictionary = sites[idx]
+	var cost := building_cost(String(s["kind"]))
+	# 2026-10-06: 已经投进去的建造点整份退回池子 —— 点数比"人天"显性得多，
+	# 玩家刚点了「投入建造点」又取消，点数凭空蒸发会觉得被坑。退回后可以改盖别的楼。
+	build_points += int(s.get("work", 0))
+	sites.remove_at(idx)
 	site_changed.emit()
 	return {
 		"wood": int(cost.get("wood", 0)),
@@ -695,6 +954,9 @@ const STABLE_BASE_CAP := 3   # 马厩 Lv1 住 3 匹
 
 const WHEAT_PATH := "res://item/wheat.tres"
 const FLOUR_PATH := "res://item/flour.tres"
+const BREAD_PATH := "res://item/bread.tres"
+const WOOL_PATH := "res://item/wool.tres"
+const CLOTH_PATH := "res://item/cloth.tres"
 
 # 这种棚能住哪些牲口（不是畜棚/马厩就返回空 —— 调用方拿它当「这棚能不能养」的判据）
 func animal_kinds_for(kind: String) -> Array:
@@ -867,25 +1129,47 @@ func grant_with_refund(item: ItemData, n: int, fallback: ItemData) -> int:
 		Inventory.add_item(fallback, back)
 	return got
 
-# ---------------- e49 磨坊 ----------------
-# 按 F 把背包里的小麦全磨成面粉（1:1）。磨坊的意义是「把 5 金的原料变成 22 金的货」,
-# 不烧钱也不烧时间 —— 想更硬核可以以后按人天排队, 现在没必要。
-# 返回磨了几袋；没小麦返回 0（调用方拿它决定提示什么）。
-func mill_grind(c: Vector2i) -> int:
-	if not stations.has(c) or String(stations[c].kind) != KIND_MILL:
+# ---------------- e49 磨坊 / 2026-10-06 面包房 / 织造坊 ----------------
+# 三座都是「整批转化」：按 F 把背包里的某种原料全换成更值钱的成品。
+# 磨坊: 1 小麦 -> 1 面粉; 面包房: 2 面粉 -> 1 面包; 织造坊: 3 羊毛 -> 1 布。
+# 不烧钱也不烧时间 —— 想更硬核以后可以按人天排队, 现在没必要。
+# 返回实际产出几件；原料不够返回 0（调用方拿它决定提示什么）。
+func convert_all(c: Vector2i, want_kind: String, from_path: String, in_per: int, out_path: String) -> int:
+	if not stations.has(c) or String(stations[c].kind) != want_kind:
 		return 0
-	var wheat: ItemData = load(WHEAT_PATH)
-	var flour: ItemData = load(FLOUR_PATH)
-	if wheat == null or flour == null:
+	if in_per <= 0:
 		return 0
-	var have := Inventory.count_item(wheat)
-	if have <= 0:
+	var src: ItemData = load(from_path)
+	var dst: ItemData = load(out_path)
+	if src == null or dst == null:
 		return 0
-	Inventory.remove_item(wheat, have)
-	var got := grant_with_refund(flour, have, wheat)
+	var have := Inventory.count_item(src)
+	var batches := have / in_per                 # 整批才收（凑不满一批的原料留着）
+	if batches <= 0:
+		return 0
+	Inventory.remove_item(src, batches * in_per)
+	# add_item 是「能塞多少塞多少」：单看返回值分不清「一份没进」和「进了一半」，
+	# 所以 grant_with_refund 前后各数一次库存再对账；没发出去的按原比例退回原料。
+	var got := grant_with_refund(dst, batches, null)
+	if got < batches:
+		var back := (batches - got) * in_per
+		if back > 0:
+			Inventory.add_item(src, back)
 	if got > 0:
 		station_changed.emit(c)
 	return got
+
+# 磨坊：小麦 -> 面粉（1:1）
+func mill_grind(c: Vector2i) -> int:
+	return convert_all(c, KIND_MILL, WHEAT_PATH, 1, FLOUR_PATH)
+
+# 面包房：面粉 x2 -> 面包
+func bakery_bake(c: Vector2i) -> int:
+	return convert_all(c, KIND_BAKERY, FLOUR_PATH, 2, BREAD_PATH)
+
+# 织造坊：羊毛 x3 -> 布
+func weaver_weave(c: Vector2i) -> int:
+	return convert_all(c, KIND_WEAVER, WOOL_PATH, 3, CLOTH_PATH)
 
 # ---------------- e49 农场建筑的 F 派发 ----------------
 # 这一批新建筑 game 不认识（_station_interact_cell 是硬编码 kind 的 match, 新 kind

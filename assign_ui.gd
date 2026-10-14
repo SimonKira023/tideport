@@ -304,6 +304,23 @@ func _build_side_buttons() -> void:
 	col.alignment = BoxContainer.ALIGNMENT_BEGIN
 	sc.add_child(col)
 
+	var quiet := CheckButton.new()
+	quiet.text = "夜晚沿用计划"
+	quiet.button_pressed = Quests.quiet_nights
+	quiet.add_theme_font_override("font", PIXEL_FONT)
+	quiet.add_theme_font_size_override("font_size", 12)
+	quiet.tooltip_text = "没有工作缺口时不弹派活. 白天随时按 T 修改, 计划会保留."
+	quiet.toggled.connect(func(on: bool): Quests.quiet_nights = on)
+	col.add_child(quiet)
+	for note in Slaves.plan_warnings():
+		var warning := Label.new()
+		warning.text = note
+		warning.custom_minimum_size.x = BTN_W
+		warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		warning.add_theme_font_override("font", PIXEL_FONT)
+		warning.add_theme_font_size_override("font_size", 11)
+		warning.add_theme_color_override("font_color", Color(1.0, 0.78, 0.46))
+		col.add_child(warning)
 	# 画笔：伙伴只干「浇水」这一样活，所以就两个（浇水 + 橡皮）
 	var tools := HBoxContainer.new()
 	tools.add_theme_constant_override("separation", 6)
@@ -498,9 +515,13 @@ func _refresh_notes() -> void:
 
 	# 工地建造：有工地就先盖房，没有工地但码头在施工就修码头（夜里也是这个顺序结算）
 	if Structures.site_busy():
-		_set_note(B_DOCK, "工地: %s (%d/%d 人天)" % [
-			Structures.site_name(),
-			int(Structures.site.get("work", 0)), int(Structures.site.get("need", 0))],
+		# 2026-10-06: 口径从「人天」改成「建造点」—— 派人只负责攒点, 完工在背包里点按钮兑现。
+		# 工地可多座并行, 这里逐条列出（最多 5 座, 一行一座）。
+		var site_lines: Array = []
+		for s in Structures.site_list():
+			site_lines.append("%s (%d/%d 点)" % [String(s["name"]), int(s["work"]), int(s["need"])])
+		_set_note(B_DOCK, "工地 x%d: %s\n派去的人每晚把力气换成建造点" % [
+			Structures.site_count(), " / ".join(site_lines)],
 			Color(0.85, 0.88, 0.7))
 	elif Voyage.dock_state == Voyage.DOCK_FUNDED:
 		_set_note(B_DOCK, "修码头 (施工中)", Color(0.85, 0.88, 0.7))
@@ -510,11 +531,11 @@ func _refresh_notes() -> void:
 	# 冶炼锻造：铁匠铺有东西正在打才亮（e41c: 队列 —— 显示队首进度 + 还排着几件）
 	if Crafting.smith_busy():
 		var top := Crafting.smith_top()
-		var t2 := "打铁: %s (%d/%d 人天)" % [
+		var t2 := "打铁: %s (%d/%d 点)" % [
 			Crafting.smith_name(),
 			int(top.get("work", 0)), int(top.get("need", 0))]
 		if Crafting.smith_queued() > 1:
-			t2 += "\n排队 %d 件 - 人工顺延" % Crafting.smith_queued()
+			t2 += "\n排队 %d 件 -- 点够了一件件出" % Crafting.smith_queued()
 		_set_note(B_SMITH, t2, Color(0.9, 0.82, 0.7))
 	else:
 		_set_note(B_SMITH, "铁匠铺闲着\n有东西在打时才能派人", Color(0.55, 0.52, 0.48))
@@ -832,7 +853,7 @@ func _hint(text: String) -> Label:
 
 # ---------------- 开关 ----------------
 func open() -> void:
-	_title.text = "第 %d 天 - 给伙伴派活" % TimeManager.day
+	_title.text = "第 %d 天 - 派活计划会保留, 随时按 T 修改" % TimeManager.day
 	# ❗每次打开都要重画底图：白天可能又锄了新地、播了新种，
 	#   图上「哪些是耕地 / 哪些已经播种」得是当下这一刻的样子。
 	if _map != null:

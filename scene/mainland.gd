@@ -33,7 +33,7 @@ const FONT_PIX := preload("res://resources/font/IPix.ttf")
 # 挂帆（32x44）后排的帆会盖住前排的船；停着=收帆。
 const BOAT_HULL_TEX := preload("res://resources/texture/boat_hull.png")
 const KEY_HINT := preload("res://scene/key_hint.gd")
-const MODEL_DIR := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/%s"
+const CHARACTER_ART := preload("res://scene/slave_npc.gd")
 const SHEETS := {
 	"idle": {"file": "Idle.png", "frames": 4, "fps": 7.0, "loop": true},
 	"walk": {"file": "Walk.png", "frames": 6, "fps": 10.0, "loop": true},
@@ -153,6 +153,7 @@ func _ready() -> void:
 	_paint_decor()
 	_moor_boats()
 	_setup_player()
+	_setup_host()
 	_setup_hud()
 	if town_id == "":
 		announce("到了大陆码头. 栈桥头按 F 回海图, 集市和酒馆进去看看")
@@ -796,7 +797,8 @@ func _setup_player() -> void:
 	player.name = "Hero"
 	player.position = _cell_center(Vector2i(PIER_X, SHORE_Y - 1))
 	_sprite = AnimatedSprite2D.new()
-	_sprite.position = Vector2(0, -16)      # 原点在脚下（跟岛上同一约定）
+	_sprite.position = CHARACTER_ART.BODY_OFFSET
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.sprite_frames = _build_frames()
 	_sprite.play(&"idle_down")
 	player.add_child(_sprite)
@@ -811,13 +813,33 @@ func _setup_player() -> void:
 	_cam.make_current()
 	_sync_walk_speed()
 
+# 领主实体与议事厅对话使用同一身份键, 不增加新的任务或交互入口。
+func _setup_host() -> void:
+	if town_id.is_empty() or not Nations.LORD_NAMES.has(town_id) or Nations.occupied.has(town_id) or Nations.owner_nation_of(town_id) != _town_nid():
+		return
+	var host := Node2D.new()
+	host.name = "TownHost"
+	world.add_child(host)
+	host.global_position = world.to_global(_cell_center(HOME_CELL + Vector2i(2, 2)))
+	var shadow := preload("res://scene/shadow_util.gd").make_shadow(18, 7, 0.28)
+	shadow.position = Vector2(0, -7)
+	host.add_child(shadow)
+	var sprite := AnimatedSprite2D.new()
+	sprite.name = "Appearance"
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.position = CHARACTER_ART.BODY_OFFSET
+	sprite.sprite_frames = CHARACTER_ART.named_frames("lord_" + town_id)
+	if sprite.sprite_frames.has_animation(&"idle_down"):
+		sprite.play(&"idle_down")
+	host.add_child(sprite)
+
 func _build_frames() -> SpriteFrames:
 	var sf := SpriteFrames.new()
 	if sf.has_animation(&"default"):
 		sf.remove_animation(&"default")
 	for key in SHEETS.keys():
 		var info: Dictionary = SHEETS[key]
-		var tex: Texture2D = SoftRes.tex(MODEL_DIR % str(info["file"]))
+		var tex: Texture2D = CHARACTER_ART.player_texture(str(info["file"]))
 		for d in DIR_ROW.keys():
 			var an := StringName("%s_%s" % [key, d])
 			sf.add_animation(an)

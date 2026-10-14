@@ -15,26 +15,10 @@ signal closed
 
 const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
 const PANEL_W := 440
+const TRADE_STOCK := preload("res://trade_stock.gd")
 
-# 进货单：price 是**基准**价，实付按当下的买入倍率重算（可能刚升过级）
-const STOCK := [
-	{"path": "res://item/seed.tres", "price": 14},           # 土豆种子
-	{"path": "res://item/carrot_seed.tres", "price": 10},    # 胡萝卜种子
-	{"path": "res://item/cabbage_seed.tres", "price": 22},   # 卷心菜种子
-	{"path": "res://item/pumpkin_seed.tres", "price": 40},   # 南瓜种子
-	# e49/e52 季节限制作物：甜菜只在冬天长、花椰菜只在夏天长 —— 六包种子全都备货,
-	#      但 e52 起货架只摆当季那几包（见 _rebuild 里的 Farm.season_ok_for 过滤）,
-	#      这样四季都至少有一包种子能买（不然季节线永远开不了张）
-	{"path": "res://item/beet_seed.tres", "price": 22},      # 甜菜种子（冬）
-	{"path": "res://item/cauliflower_seed.tres", "price": 26},  # 花椰菜种子（夏）
-	{"path": "res://item/wood.tres", "price": 9},            # 木头
-	{"path": "res://item/wood_floor.tres", "price": 12},     # 木地板（e28b 降价: 20 太贵, 装修铺路买得起了）
-	{"path": "res://item/wheat.tres", "price": 8},           # 小麦（厨房做面包/派的原料）
-	# —— 整套盔甲（三档全有售, 但贵: 手头紧就走铁匠铺自己打, 见 Crafting.SMITH_RECIPES）——
-	{"path": "res://item/armor_wood.tres", "price": 120},       # 皮甲
-	{"path": "res://item/armor_iron.tres", "price": 300},       # 锁链甲
-	{"path": "res://item/armor_gold.tres", "price": 420},       # 铁甲
-]
+func _stock_list() -> Array:
+	return TRADE_STOCK.market_stock()
 
 var _visible := false
 var _guard := 0.0
@@ -134,7 +118,7 @@ func _rebuild() -> void:
 
 	# —— 买（清单区，可滚动） ——
 	_list.add_child(_label("进货 (当季种子 + 常备货)", 13, Color(1, 0.93, 0.76)))
-	for e in STOCK:
+	for e in _stock_list():
 		# e52: 种子只摆当季能种的（Farm.season_ok_for 是季节的唯一真相源）;
 		#      木头/木地板/小麦/盔甲没有 seasons, 照样全年有货。
 		if not Farm.season_ok_for(load(str(e["path"]))):

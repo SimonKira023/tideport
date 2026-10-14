@@ -11,6 +11,8 @@
 #     消耗一份 + 加好感（送中 Ta 的爱好好感 x2, 生日当天增量再 x2）
 #   · 「心里话」/「求婚」→ 婚恋入口（marriage.gd）：篝火夜话逐段解锁，
 #     五段全看完 + 好感满 + 有银戒 → 求婚 → 婚礼，演出全走 story_dialogue 导演模式
+#   · 「恋爱互动」→ 打开恋爱界面（romance_ui）：恋爱线专属，心里话开线后
+#     可做小事攒心动值（每天一次），婚后追加专属互动「灯下夜话」
 #   · 关掉时 unpause
 extends Control
 
@@ -22,6 +24,8 @@ const NPC_SCRIPT := preload("res://scene/slave_npc.gd")   # 性别真相源（MO
 const MARRIAGE_SCRIPT := preload("res://scripts_marriage.gd")   # 婚恋剧本工厂（static）
 const RING := preload("res://item/ring.tres")                   # 求婚信物
 const GIFT_PICKER := preload("res://gift_picker.gd")            # 赠送选物弹窗
+const ROMANCE_UI := preload("res://romance_ui.gd")              # 恋爱界面弹窗（恋爱线互动）
+const FRAME := preload("res://wood_frame.gd")                   # e53c: 程序化木框（对话框同款）
 
 # 台词池（e24 起写, e30t 按**性别**拆成两套 —— 男伙伴说话短促、爱逞强爱吹牛,
 # 女伙伴话多一点、爱念叨也爱分享小发现; 同一档好感下读起来是两个人）
@@ -83,7 +87,7 @@ const LINES_F := [
 ]
 
 var _slave_index := -1        # 当前对话的伙伴 index（-1 = 未指定）
-var _box: PanelContainer
+var _box: MarginContainer
 var _name_label: Label
 var _aff_label: Label
 var _line_label: Label
@@ -91,6 +95,7 @@ var _chat_btn: Button
 var _give_btn: Button       # 赠送（喂食 + 送礼合并）
 var _heart_btn: Button       # 心里话（可结婚对象 + 好感到门槛才显示）
 var _propose_btn: Button     # 求婚（五段全看 + 好感满 + 有银戒才显示）
+var _romance_btn: Button     # 恋爱互动（恋爱线开放的六位姑娘才显示）
 var _close_btn: Button
 var _visible := false
 var _dialog: Control = null   # e18: 聊天对话框（多段翻页, 关掉才算聊）
@@ -120,18 +125,13 @@ func _build() -> void:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
-	_box = PanelContainer.new()
-	var box_style := StyleBoxFlat.new()
-	box_style.bg_color = Color(0.14, 0.11, 0.09, 0.97)
-	box_style.border_color = Color(0.62, 0.47, 0.28)
-	box_style.set_border_width_all(3)
-	box_style.set_corner_radius_all(8)
-	box_style.content_margin_left = 22
-	box_style.content_margin_right = 22
-	box_style.content_margin_top = 14
-	box_style.content_margin_bottom = 16
-	_box.add_theme_stylebox_override("panel", box_style)
-	_box.custom_minimum_size = Vector2(360, 0)
+	# e53c: 方框换成程序化木框（跟聊天对话框同款, 视觉统一）
+	_box = FRAME.new()
+	_box.mat_color = Color(0, 0, 0, 0)
+	_box.inner_color = Color(0.12, 0.09, 0.07, 0.82)   # 半透明深底（游戏画面透一点, e109 回退 material）
+	_box.inner_top_color = Color(0.16, 0.12, 0.09)
+	_box.set_frame_size(10, 4, 10, 16, 12)
+	_box.custom_minimum_size = Vector2(380, 0)
 	center.add_child(_box)
 
 	var vbox := VBoxContainer.new()
@@ -201,6 +201,15 @@ func _build() -> void:
 	_propose_btn.visible = false
 	row2.add_child(_propose_btn)
 
+	_romance_btn = Button.new()
+	_romance_btn.text = "恋爱互动"
+	_romance_btn.custom_minimum_size = Vector2(120, 30)
+	_romance_btn.add_theme_font_override("font", PIXEL_FONT)
+	_romance_btn.add_theme_font_size_override("font_size", 13)
+	_romance_btn.pressed.connect(_on_romance_pressed)
+	_romance_btn.visible = false
+	row2.add_child(_romance_btn)
+
 func _label(text: String, size: int, color: Color,
 		align := HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var l := Label.new()
@@ -255,19 +264,33 @@ func _refresh() -> void:
 		var aff := int(s["affection"])
 		_heart_btn.visible = Marriage.can_heart_talk(id, aff)
 		_propose_btn.visible = Marriage.can_propose(id, aff, Inventory.count_item(RING) >= 1)
+		# 恋爱互动：恋爱线开了（心里话第 1 段起或已婚）的六位姑娘才显示
+		_romance_btn.visible = Marriage.romance_open(id)
 
 # 点聊天弹对话框 —— 2~3 段台词翻页（聊天不加好感, 随时都能聊）
+# P3: 头像走像素 Q 版差分管线, 表情随好感档升级（生疏 -> 熟络冒红心）
 func _on_chat_pressed() -> void:
 	if _slave_index < 0:
 		return
 	var s: Dictionary = Slaves.slave_at(_slave_index)
-	var portrait: Texture2D = load("res://resources/texture/portraits/slave_%02d.png" % _slave_index)
-	if portrait == null:
-		portrait = load("res://resources/texture/portraits/player.png")
-	_dialog.open_multi(portrait, s["name"], _pick_group())
+	var key := "slave_%02d" % _slave_index
+	if preload("res://scene/mood_portrait.gd").portrait_texture(key) == null:
+		key = "player"
+	var aff: int = int(s.get("affection", 0))
+	var moods: Array = []
+	if aff >= 9:
+		moods = ["happy", "shy", "happy"]
+	elif aff >= 6:
+		moods = ["normal", "happy", "happy"]
+	elif aff >= 3:
+		moods = ["normal", "normal", "happy"]
+	_dialog.open_key(key, s["name"], _pick_group(), moods)
+	# 只隐藏选择卡片, 子对话框仍留在可见的父节点下.
+	_box.get_parent().hide()
 
 # 对话框关掉的那一下：聊天不加好感, 只刷新界面
 func _finish_chat() -> void:
+	_box.get_parent().show()
 	_refresh()
 
 func _heart_str(n: int) -> String:
@@ -285,6 +308,15 @@ func _on_give_pressed() -> void:
 	gp.picked.connect(_on_gift_picked)
 	gp.open_for(_slave_index)
 
+# 恋爱互动：打开恋爱界面（romance_ui）, 挑一件小事做攒心动值
+func _on_romance_pressed() -> void:
+	if _slave_index < 0:
+		return
+	var rui: Control = ROMANCE_UI.new()
+	add_child(rui)
+	rui.closed.connect(_refresh)
+	rui.open_for(_slave_index)
+
 # 选物弹窗点了某件物品 → 落账（give 记好感 + 扣背包一份, 跟弹窗约定配对）
 func _on_gift_picked(item: ItemData) -> void:
 	if _slave_index < 0 or item == null:
@@ -299,6 +331,12 @@ func _on_gift_picked(item: ItemData) -> void:
 	var bonus := ""
 	if item.display_name == Slaves.like_of(_slave_index):
 		bonus = "\n(Ta 最喜欢这个!)"
+	# P1: 头顶冒心情泡 —— 送对了冒爱心, 一般就冒省略号（世界在暂停中, 气泡是 ALWAYS 照常蹦）
+	var game := get_tree().get_first_node_in_group("game")
+	if game != null and _slave_index < game.slave_nodes.size():
+		var npc: Node2D = game.slave_nodes[_slave_index]
+		preload("res://scene/emote_bubble.gd").pop_over(
+			npc, "heart" if bonus != "" else "...", 1.8, 26.0)
 	_flash_box("送给 %s 1 份 %s\n好感 +%d%s" % [sname, item.display_name, gain, bonus])
 	_refresh()
 
@@ -353,6 +391,8 @@ func _flash_box(text: String) -> void:
 func _input(event: InputEvent) -> void:
 	if not _visible:
 		return
+	if _dialog != null and _dialog.is_open():
+		return  # 翻页键归聊天框处理, 不能把父面板一起关掉.
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
 		close_panel()
 		get_viewport().set_input_as_handled()
@@ -372,6 +412,9 @@ func close_panel() -> void:
 	if not _visible:
 		return
 	_visible = false
+	if _dialog != null:
+		_dialog.close()
+	_box.get_parent().show()
 	_slave_index = -1
 	hide()
 	Audio.play_sfx("ui_close")

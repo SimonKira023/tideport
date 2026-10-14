@@ -10,24 +10,13 @@ signal closed
 
 const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
 const STORY := preload("res://story_dialogue.gd")     # e43: 剧情旗 (鱼竿上不上架)
+const TRADE_STOCK := preload("res://trade_stock.gd")
 
 # 商人卖的货。price 是**基准**进货价；实付价走 Research.buy_price_of()（行商技能/驼队卡打折），
 # 种子长大后卖多少走 Research.sell_price_of()（行商技能/科技树/互市卡加价）。
 # locked_by: 有这把剧情旗没立起来之前, 这行挂「未上架」且按钮点不动 (e43 鱼竿)。
-const STOCK := [
-	{"seed": "res://item/carrot_seed.tres", "price": 10},
-	{"seed": "res://item/seed.tres", "price": 14},          # 土豆种子
-	{"seed": "res://item/cabbage_seed.tres", "price": 22},
-	{"seed": "res://item/pumpkin_seed.tres", "price": 40},
-	# e52: 甜菜/花椰菜也备货（价跟 market_ui.STOCK 一致）—— 货架只摆当季的,
-	#      六包都在才不会出现「冬天岛上买不到任何种子」
-	{"seed": "res://item/beet_seed.tres", "price": 22},          # 甜菜种子（冬）
-	{"seed": "res://item/cauliflower_seed.tres", "price": 26},   # 花椰菜种子（夏）
-	# e43: 开局哥布林不卖鱼竿 —— 第二天撞见他在河边钓鱼、聊完才进货
-	{"seed": "res://item/fishing_rod.tres", "price": 50, "locked_by": "goblin_rod"},
-	# e30p: 小鸡不再走道具链路 —— 买鸡/卖鸡都在鸡舍管理界面里办（对鸡舍按 F）
-	{"seed": "res://item/wheat.tres", "price": 8},          # 小麦（材料, 厨房做面包/派的原料）
-]
+func _stock_list() -> Array:
+	return TRADE_STOCK.shop_stock()
 
 var _visible := false
 var _money_label: Label
@@ -159,7 +148,7 @@ func _fill_stock() -> void:
 	if _seed_head != null:
 		_seed_head.text = "--- 买种子 (当季: %s季) ---" % TimeManager.SEASONS[season]
 
-	for entry in STOCK:
+	for entry in _stock_list():
 		var seed: ItemData = load(entry["seed"])
 		if seed == null:
 			continue
@@ -321,7 +310,8 @@ func _buy(seed: ItemData, base: int) -> void:
 		return
 	Audio.play_sfx("buy")
 	_flash("买了 1 包%s" % seed.display_name)
-	Quests.complete("buy_goblin")     # 开局指引：第一次照顾哥布林生意
+	if seed.type == "种子" and seed.plant_on == "耕地" and Farm.season_ok_for(seed):
+		Quests.complete("buy_goblin")     # 购种指引只接受能开始种田的当季作物种子
 	_refresh()
 
 # ---------------- 卖 ----------------
@@ -352,6 +342,7 @@ func open_panel() -> void:
 		return
 	_visible = true
 	show()
+	preload("res://scene/ui_anim.gd").pop_in(self)   # e89 面板弹一下, 别"啪"地糊脸
 	TimeManager.push_ui_pause()      # 逛商店的时候时间停住
 	Audio.play_sfx("ui_open")
 	_flash_label.text = ""

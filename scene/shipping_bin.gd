@@ -73,6 +73,7 @@ func _on_new_day(_d: int) -> void:
 	sea_hold = keep
 	if gold > 0:
 		Wallet.add_money(gold)
+		Quests.complete("sea_trade_first")
 		var pr := Nations.add_sea_gold(gold)
 		if pr > 0:
 			_hint("海外商船回航! 货款 %d 金到账, 声望 +%d" % [gold, pr])

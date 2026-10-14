@@ -242,7 +242,9 @@ func _refresh_portrait(idx: int) -> void:
 	var key := "%s|%d" % [model, idx]
 	if key != _portrait_key:
 		_portrait_key = key
-		_portrait_tex = _load_idle_texture(model, idx)
+		_portrait_tex = preload("res://scene/mood_portrait.gd").tex_of("slave_%02d" % idx)
+		if _portrait_tex == null:
+			_portrait_tex = _load_idle_texture(model, idx)
 	_portrait.texture = _portrait_tex
 
 # 借伙伴的贴图拼法取「正面站立第一帧」。造不出来就返回 null（面板少张小像而已，不崩）
@@ -294,6 +296,9 @@ func _talk() -> void:
 	if c.is_empty() or _delivered:
 		return
 	var sd: Node = get_tree().get_first_node_in_group("story_dialogue")
+	if sd != null and sd.is_open():
+		return
+	_panel_hide_for_talk()
 	var intro := Recruits.talk_lines("intro")
 	if sd == null or intro.is_empty():
 		_after_intro(c)               # 没有对话框时直接判定（保险路径）
@@ -319,6 +324,7 @@ func _panel_show_after_talk(msg := "") -> void:
 func _after_intro(c: Dictionary) -> void:
 	if not Recruits.visitor():    # 对话期间窗口关了（过夜才可能，兜底）
 		_talk_hid = false
+		close_panel()
 		return
 	var sd: Node = get_tree().get_first_node_in_group("story_dialogue")
 	if not Recruits.met(c["need"]):
@@ -339,9 +345,8 @@ func _after_intro(c: Dictionary) -> void:
 		_finish_talk(c)
 
 func _finish_talk(c: Dictionary) -> void:
-	_panel_show_after_talk()                 # 剧情（含入伙演出）播完, 面板亮回来
 	if not Recruits.deliver():
-		_flash("条件还没够 (%s)" % Recruits.progress_text())
+		_panel_show_after_talk("条件还没够 (%s)" % Recruits.progress_text())
 		return
 	Audio.play_sfx("buy")
 	var fire := _current_fire()
@@ -350,6 +355,10 @@ func _finish_talk(c: Dictionary) -> void:
 	_delivered = true
 	_flash("聊定了! %s 入伙" % String(c["name"]))
 	_refresh()
+	close_panel()
+	var game: Node = get_tree().get_first_node_in_group("game")
+	if game != null and game.has_method("_announce"):
+		game._announce("聊定了! %s 入伙" % String(c["name"]))
 
 func _flash(text: String) -> void:
 	if _flash_label == null:
@@ -386,6 +395,7 @@ func close_panel() -> void:
 	if not _visible:
 		return
 	_visible = false
+	_talk_hid = false
 	hide()
 	Audio.play_sfx("ui_close")
 	closed.emit()

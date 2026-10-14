@@ -59,7 +59,7 @@ class SkillTreeView:
 			var br := Legion.branch_of(id)
 			# 主干名
 			draw_string(FONT, Vector2(6, oy + 6), String(info["name"]),
-				HORIZONTAL_ALIGNMENT_LEFT, 84, 13, Color(0.95, 0.86, 0.62))
+				HORIZONTAL_ALIGNMENT_LEFT, 84, 13, UiStyle.GOLD)
 			# 主干连线
 			for t in Legion.SKILL_SPLIT - 1:
 				var a := _rect(id, "trunk", "", t)
@@ -99,7 +99,7 @@ class SkillTreeView:
 				tip += "   |   %s: %s  /  %s: %s" % [String(a_info["name"]),
 					String(a_info["desc"]), String(b_info["name"]), String(b_info["desc"])]
 			draw_string(FONT, Vector2(LEFT_X, oy + 66), tip,
-				HORIZONTAL_ALIGNMENT_LEFT, 660, 10, Color(0.72, 0.66, 0.52))
+				HORIZONTAL_ALIGNMENT_LEFT, 660, 10, UiStyle.MUTED)
 
 	func _node_state(id: String, kind: String, which: String, t: int,
 			lv: int, br: String) -> Dictionary:
@@ -137,17 +137,17 @@ class SkillTreeView:
 			lv: int, br: String, info: Dictionary) -> void:
 		var r := _rect(id, kind, which, t)
 		var st: Dictionary = _node_state(id, kind, which, t, lv, br)
-		var bg := Color(0.32, 0.30, 0.27)
+		var bg := Color("dfd3b4")
 		var border := Color(0.45, 0.40, 0.34)
-		var txt := Color(0.62, 0.58, 0.52)
+		var txt := UiStyle.MUTED
 		if bool(st["lit"]):
 			bg = Color(0.85, 0.68, 0.25)
 			border = Color(0.55, 0.40, 0.10)
 			txt = Color(0.25, 0.16, 0.05)
 		elif bool(st["clickable"]):
-			bg = Color(0.30, 0.42, 0.30)
-			border = Color(0.55, 0.9, 0.45)
-			txt = Color(0.9, 0.95, 0.85)
+			bg = Color("d8e2b9")
+			border = UiStyle.TEAL
+			txt = Color("42633c")
 		if bool(st["dim"]):
 			bg.a = 0.4
 			border.a = 0.3
@@ -269,6 +269,7 @@ class ClassTreeView:
 		for id in table.keys():
 			var sid := String(id)
 			var panel := PanelContainer.new()
+			panel.set_meta("keep_ui_palette", true)
 			panel.custom_minimum_size = Vector2(NODE_W, NODE_H)
 			var sb := StyleBoxFlat.new()
 			sb.set_corner_radius_all(5)
@@ -331,29 +332,29 @@ class ClassTreeView:
 			var is_cur := sid == _cur
 			var is_target: bool = _targets.has(sid)
 			# 四档皮肤: 当前金 / 可转(绿=钱够, 暗黄=缺钱) / 走过亮棕 / 无关灰
-			var bg := Color(0.15, 0.125, 0.105, 0.98)
-			var border := Color(0.34, 0.3, 0.26)
+			var bg := UiStyle.SURFACE
+			var border := UiStyle.EDGE
 			var bw := 2
-			var name_col := Color(0.62, 0.59, 0.54)
+			var name_col := UiStyle.MUTED
 			if is_cur:
-				bg = Color(0.34, 0.27, 0.12, 0.98)
-				border = Color(1, 0.85, 0.4)
+				bg = UiStyle.RAISED
+				border = UiStyle.GOLD
 				bw = 3
-				name_col = Color(1, 0.9, 0.55)
+				name_col = UiStyle.PAPER
 			elif is_target:
 				if bool(_afford.get(sid, false)):
-					bg = Color(0.13, 0.22, 0.11, 0.98)
-					border = Color(0.55, 0.9, 0.45)
+					bg = Color("d8e2b9")
+					border = UiStyle.TEAL
 					bw = 3
-					name_col = Color(0.78, 0.95, 0.62)
+					name_col = Color("42633c")
 				else:
-					bg = Color(0.2, 0.17, 0.1, 0.98)
-					border = Color(0.72, 0.6, 0.34)
-					name_col = Color(0.9, 0.84, 0.68)
+					bg = UiStyle.INK
+					border = UiStyle.EDGE
+					name_col = UiStyle.PAPER
 			elif on_chain:
-				bg = Color(0.22, 0.18, 0.13, 0.98)
-				border = Color(0.85, 0.7, 0.35)
-				name_col = Color(0.9, 0.84, 0.68)
+				bg = UiStyle.INK
+				border = UiStyle.GOLD
+				name_col = UiStyle.PAPER
 			var sb: StyleBoxFlat = panel.get_theme_stylebox("panel")
 			sb.bg_color = bg
 			sb.border_color = border
@@ -371,7 +372,7 @@ class ClassTreeView:
 			cost_l.text = "  " + (ct if ct != "" else "免费")
 			cost_l.add_theme_color_override("font_color",
 				name_col.darkened(0.22) if is_cur or is_target or on_chain
-				else Color(0.5, 0.46, 0.42))
+				else UiStyle.MUTED)
 			panel.tooltip_text = "%s\n收益: %s\n点一下 = 给晋升对象转到这份职业\n消耗: %s" \
 				% [sid, _benefit_text(sid), ct if ct != "" else "免费"]
 			panel.position = (_rects[sid] as Rect2).position
@@ -538,6 +539,7 @@ class ResearchTreeView:
 		for id in table.keys():
 			var sid := String(id)
 			var panel := PanelContainer.new()
+			panel.set_meta("keep_ui_palette", true)
 			panel.custom_minimum_size = Vector2(NODE_W, NODE_H)
 			var sb := StyleBoxFlat.new()
 			sb.set_corner_radius_all(5)
@@ -612,28 +614,28 @@ class ResearchTreeView:
 			var ready := _ready_ok(sid)
 			var can := _can(sid)
 			# 四档配色
-			var bg := Color(0.15, 0.125, 0.105, 0.98)
-			var border := Color(0.34, 0.3, 0.26)
+			var bg := UiStyle.SURFACE
+			var border := UiStyle.EDGE
 			var bw := 2
-			var name_col := Color(0.62, 0.59, 0.54)
-			var st_col := Color(0.5, 0.46, 0.42)
+			var name_col := UiStyle.MUTED
+			var st_col := UiStyle.MUTED
 			if done:
-				bg = Color(0.34, 0.27, 0.12, 0.98)
-				border = Color(1, 0.85, 0.4)
+				bg = UiStyle.RAISED
+				border = UiStyle.GOLD
 				bw = 3
-				name_col = Color(1, 0.9, 0.55)
-				st_col = Color(0.95, 0.82, 0.45)
+				name_col = UiStyle.PAPER
+				st_col = UiStyle.GOLD
 			elif can:
-				bg = Color(0.13, 0.22, 0.11, 0.98)
-				border = Color(0.55, 0.9, 0.45)
+				bg = Color("d8e2b9")
+				border = UiStyle.TEAL
 				bw = 3
-				name_col = Color(0.78, 0.95, 0.62)
-				st_col = Color(0.6, 0.9, 0.48)
+				name_col = Color("42633c")
+				st_col = Color("42633c")
 			elif ready:
-				bg = Color(0.19, 0.155, 0.11, 0.98)
-				border = Color(0.72, 0.6, 0.34)
-				name_col = Color(0.9, 0.84, 0.68)
-				st_col = Color(0.8, 0.72, 0.55)
+				bg = UiStyle.INK
+				border = UiStyle.EDGE
+				name_col = UiStyle.PAPER
+				st_col = UiStyle.MUTED
 			var sb: StyleBoxFlat = panel.get_theme_stylebox("panel")
 			sb.bg_color = bg
 			sb.border_color = border
@@ -644,7 +646,7 @@ class ResearchTreeView:
 			var desc_l: Label = panel.get_meta("desc")
 			desc_l.text = "  " + str(info["desc"])
 			desc_l.add_theme_color_override("font_color",
-				Color(0.85, 0.76, 0.5) if done else name_col.darkened(0.22))
+				UiStyle.GOLD if done else name_col.darkened(0.22))
 			var st_l: Label = panel.get_meta("state")
 			st_l.text = "  " + _summary(sid)
 			st_l.add_theme_color_override("font_color", st_col)

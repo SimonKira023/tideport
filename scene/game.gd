@@ -231,7 +231,7 @@ const MINE_DOOR_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in O
 const MINE_ORE_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Mine and Dungeon/stone with minerals.png"
 var mine_cell := Vector2i(9999, 9999)   # 矿井所在格（_ready 里最先定，树/岩石都给它让位）
 var station_nodes := {}           # cell -> station_node（玩家摆的工作台/熔炉，跟 rock_nodes 一个套路）
-var _site_node: Node2D = null     # 建筑工地脚手架（Structures.site 有内容时挂着）
+var site_nodes := {}              # {锚点 Vector2i: 工地脚手架 Node2D}（2026-10-06 起可多座并行）
 # 建造模式（背包「建造」页选好建筑进入）：半透明 ghost 跟着鼠标走，左键放下 / 右键或 Esc 取消
 var build_kind := ""              # 正在摆放的建筑种类（"" = 没在建造）
 var _ghost: Node2D = null         # ghost 预览节点
@@ -251,11 +251,13 @@ var _move_ok := false             # 鼠标当前位置能不能落下
 @onready var hud: CanvasLayer = $HUD
 
 var _sleeping := false
+var _naming_port := false      # 当晚定名演出进行中, 防止睡觉结算重入
 var _fade_rect: ColorRect
 var _fade_label: Label
 var _post_mat: ShaderMaterial = null   # e31 全屏后处理材质（每帧喂 night = 昼夜光感）
 var _post_night := 0.0                 # 平滑过的夜度: 0=白天 1=深夜
 var _post_wet := 0.0                   # 平滑过的湿地反光度（雨天渐入/雨停慢慢干）
+var _post_snow := 0.0                  # 平滑过的雪地度（k4: 冬天雪地反光强, 后处理要收敛）
 var shore_layer: TileMapLayer      # 池塘浅滩色带（水面之上、草地之下）
 var border_layer: TileMapLayer     # 耕地四周的过渡地形（田埂/土路，草地之上、耕地之下）
 var backpack_panel: Control = null # 背包面板（按 B 开关）
@@ -281,6 +283,7 @@ var _dock_deck := {}                  # e52: 码头栈桥盖住的格子（见 _
 const SAIL_TIME := 3.2                # 船队驶出画面的秒数（留够看人看船的时间）
 const SLAVE_SCRIPT := preload("res://scene/slave_npc.gd")   # 伙伴模型/染色真相源
 var shipping_bin: Node = null         # 物品售卖箱（scene/shipping_bin.tscn）
+var context_menu_panel: Control = null  # 附近有多项可交互时的 F 键小菜单
 var slave_nodes: Array = []           # 白天的伙伴（scene/slave_npc.gd 动态生成）
 
 func _ready() -> void:
@@ -374,6 +377,7 @@ func _ready() -> void:
 
 	# 8) 背包面板（挂在 HUD 上，按 B 开关）+ 商人交易面板（按 F 打开）
 	_setup_backpack()
+	_setup_context_menu()
 	_setup_shop()
 	_setup_coop_panel()
 	_setup_chest_panel()
@@ -406,6 +410,9 @@ func _ready() -> void:
 
 	# 9) 睡觉用的黑幕 + 夜晚结算画面
 	_build_sleep_overlay()
+	_build_cinematic()
+	_build_world_director()
+	_build_gulls()
 	TimeManager.day_ended.connect(_on_day_ended)
 
 	# 10) 时间开始流动
@@ -452,18 +459,39 @@ func _ready() -> void:
 		_sync_current_item()
 	# e53: 招募窗口的任务栏挂载（新档开局 / 读档 / 裸跑三条来路统一补挂一次）
 	Recruits.sync_quests()
+	var port_life := preload("res://scene/port_life.gd").new()
+	port_life.name = "PortLife"
+	add_child(port_life)
 
 # 开局动画的壳: 冻时间冻人, 播完再放行。中途径景切换时协程自然断掉,
 # 时间状态由下一次 begin_new_game / 读档的 reset 流程兜回来。
+# e101: 序章改实机演出 —— 转场黑幕 → 滩头醒来(镜头摇海面) → 旁白字幕 →
+#   转场桥头哥布林登场 → 拉开。opening.gd 画布版留着兜底（story_dialogue 不在场时）。
 func _play_opening() -> void:
 	var was_running := TimeManager.time_running
 	TimeManager.time_running = false
 	_set_player_frozen(true)
 	# e28d: 开局动画固定中世纪包第 2 首（新档专属曲），播完交还昼夜/四季自动选曲
 	Audio.set_scene_bgm("opening")
-	var op: Node = preload("res://scene/opening.gd").new()
-	add_child(op)
-	await op.finished
+	var dlg: Node = get_tree().get_first_node_in_group("story_dialogue")
+	if dlg == null:                      # HUD 可能还没挂完, 等两帧再找
+		await get_tree().process_frame
+		await get_tree().process_frame
+		dlg = get_tree().get_first_node_in_group("story_dialogue")
+	if dlg != null and dlg.has_method("play_directed"):
+		var script: Array = preload("res://scene/event_scripts.gd").opening()
+		var done := [false]
+		dlg.play_directed(script, func() -> void: done[0] = true)
+		if not bool(dlg.get("_active")):
+			done[0] = true               # 没播起来(被占用/空脚本): 直接收场, 别卡死
+		var guard := 0.0
+		while not bool(done[0]) and guard < 900.0:
+			await get_tree().create_timer(0.1).timeout
+			guard += 0.1
+	else:
+		var op: Node = preload("res://scene/opening.gd").new()
+		add_child(op)
+		await op.finished
 	Audio.set_scene_bgm("")          # 回岛: BGM 归位到岛上曲池
 	TimeManager.time_running = was_running
 	_set_player_frozen(false)
@@ -508,7 +536,7 @@ func shake_screen(amp: float, dur: float) -> void:
 func _tick_camera_shake(delta: float) -> void:
 	if _shake_left <= 0.0 or player == null:
 		return
-	var cam := player.get_node_or_null("Camera2D") as Camera2D
+	var cam: Camera2D = player.get_node_or_null("Camera2D") as Camera2D
 	if cam == null:
 		return
 	_shake_left -= delta
@@ -518,10 +546,113 @@ func _tick_camera_shake(delta: float) -> void:
 	var k: float = _shake_left / maxf(_shake_dur, 0.01)
 	cam.offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_amp * k
 
+# e89 前视偏移（TLN 镜头语言 A，替代"zoom 呼吸"）：
+#   走路时镜头朝移动方向多探 10px —— 人往哪走画面往哪让, 跑图时看得更远。
+#   ❗不碰 zoom：项目纪律 zoom 是玩家手控的整数档（非整数缩放会拉花像素）。
+#   ❗offset 是震屏的地盘：_shake_left > 0 时让位；运镜（_cinematic_pan）期间也让位。
+func _tick_camera_look(delta: float) -> void:
+	if player == null or _cine_busy:
+		return
+	var cam := player.get_node_or_null("Camera2D") as Camera2D
+	if cam == null:
+		return
+	if _shake_left > 0.0:
+		return   # 震屏写完 offset 会归零, 这一拍不抢
+	var v: Vector2 = player.velocity
+	var want: Vector2 = (v.normalized() * 10.0) if v.length() > 4.0 else Vector2.ZERO
+	cam.offset = cam.offset.lerp(want, minf(delta * 5.0, 1.0))
+
+# ---------------- e89 电影运镜（letterbox + 摇镜）----------------
+# 招募新人 / 大事件时：上下黑边滑入 -> 镜头摇到目标停一拍 -> 摇回来 -> 黑边滑出。
+# 期间玩家冻结（frozen），_tick_camera_look 让位（_cine_busy）。
+var _cine_layer: CanvasLayer = null
+var _letter_top: ColorRect = null
+var _letter_bot: ColorRect = null
+var _cine_busy := false
+const LETTER_H := 58.0
+
+func _build_cinematic() -> void:
+	_cine_layer = CanvasLayer.new()
+	_cine_layer.name = "Cinematic"
+	_cine_layer.layer = 99        # 睡觉黑幕(100)之下、游戏画面之上
+	add_child(_cine_layer)
+	_letter_top = ColorRect.new()
+	_letter_bot = ColorRect.new()
+	for p in [_letter_top, _letter_bot]:
+		p.color = Color(0.02, 0.02, 0.04)
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p.size.y = LETTER_H
+		_cine_layer.add_child(p)
+	_letter_top.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_letter_top.position.y = -LETTER_H * 2.0     # 先藏在屏幕外
+	_letter_bot.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_letter_bot.position.y = _letter_top.get_viewport_rect().size.y + 4.0
+	Recruits.recruited.connect(_on_recruit_cinematic)
+
+# e89 叙事粒子（TLN 计划 E）: 白天在码头上空盘旋的两只海鸥（夜里归巢）。
+#   码头还没建时绕村口；纯装饰，无碰撞不进存档。
+func _build_gulls() -> void:
+	var anchor := Vector2.ZERO
+	if dock != null and is_instance_valid(dock):
+		anchor = dock.global_position
+	else:
+		anchor = _cell_tree_pos(SPAWN_CELL)
+	var gscript := load("res://scene/gull.gd")
+	add_child(gscript.make(anchor + Vector2(10, 0), 1.0, 0.0))
+	add_child(gscript.make(anchor + Vector2(-14, 8), -1.0, 0.45))
+
+func _on_recruit_cinematic() -> void:
+	pass # 入伙剧本已经完成演出, 不再追加一次没有剧情的摇镜头.
+
+func _cinematic_pan(world_target: Vector2, hold := 1.1) -> void:
+	if _cine_busy or player == null or _sleeping:
+		return
+	var cam := player.get_node_or_null("Camera2D") as Camera2D
+	if cam == null:
+		return
+	_cine_busy = true
+	_set_player_frozen(true)
+	_letterbox(true)
+	var off: Vector2 = world_target - player.global_position
+	off = off.clamp(Vector2(-430, -270), Vector2(430, 270))   # 别摇出屏幕太远
+	var tw := create_tween()
+	tw.tween_property(cam, "offset", off, 0.7) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_interval(hold)
+	tw.tween_property(cam, "offset", Vector2.ZERO, 0.7) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_callback(func() -> void:
+		_letterbox(false)
+		_cine_busy = false
+		_set_player_frozen(false))
+
+func _letterbox(on: bool) -> void:
+	if _letter_top == null:
+		return
+	var vh := _letter_top.get_viewport_rect().size.y
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(_letter_top, "position:y", -LETTER_H if on else -LETTER_H * 2.0, 0.3) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_letter_bot, "position:y", vh - LETTER_H if on else vh + 4.0, 0.3) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+# ---------------- P2 世界演出导演（scene/world_director.gd）----------------
+# 世界内实机演出: JSON 剧本驱动提线小人走位/说话/冒泡 + 镜头运镜, Esc 跳过。
+# 跟 Cutscenes(世界外舞台剧)分工不合并 —— 详见导演文件头注释。
+var world_director = null
+
+func _build_world_director() -> void:
+	world_director = preload("res://scene/world_director.gd").new()
+	world_director.name = "WorldDirector"
+	add_child(world_director)
+	world_director.setup(self)
+
 func _process(delta: float) -> void:
 	_sync_post(delta)
 	_tick_water_ripple(delta)      # e33b 水面微澜：波纹分桶轮换
 	_tick_camera_shake(delta)      # e33d 相机震屏：衰减抖动
+	_tick_camera_look(delta)       # e89 前视偏移：走路时镜头往去的方向多探一点
 	# 建造模式的 ghost：贴着鼠标格走，绿 = 能放 / 红 = 不能放
 	if _move_mode:
 		_tick_move_mode()      # e44 建筑模式：悬停高亮 / 拾起后 ghost 跟鼠标
@@ -537,7 +668,10 @@ func _process(delta: float) -> void:
 func _sync_post(delta: float) -> void:
 	if _post_mat == null:
 		return
-	var want := _night_at(fmod(TimeManager.hour + 2.0 + TimeManager.TONE_ADVANCE + TimeManager.minute / 60.0, 24.0))
+	# ❗夜度只认「色调钟」= 真实钟 + TONE_ADVANCE, 别再手写第二个偏移 ——
+	#   曾经手写 +2.0 又叠加 TONE_ADVANCE(=2) 变成 +4: 下午 5 点太阳还挂着,
+	#   fx_post 已判定深夜全开"夜间镀金", 黄昏橙 × 夜间金 = 整屏黄罩（2026-10-07 用户实测踩坑）。
+	var want := _night_at(fmod(TimeManager.hour + TimeManager.TONE_ADVANCE + TimeManager.minute / 60.0, 24.0))
 	_post_night = move_toward(_post_night, want, delta * 0.5)
 	_post_mat.set_shader_parameter("night", _post_night)
 	# 雨夜湿地反光：亮源往下淌光晕（风暴更湿），雨停后地面慢慢"晾干"
@@ -546,22 +680,28 @@ func _sync_post(delta: float) -> void:
 		want_wet = 0.9 if Weather.is_storm() else 0.6
 	_post_wet = move_toward(_post_wet, want_wet, delta * 0.25)
 	_post_mat.set_shader_parameter("wet", _post_wet)
+	# k4 雪地度：进冬渐起、出冬渐退 —— 雪地反光强, 后处理整屏当"灯"晕开会导致
+	# 过曝（实测冬天白天 40% 像素 >235）, fx_post 拿它收泛光/镀金/天光
+	var want_snow := 1.0 if TimeManager.season == 3 else 0.0
+	_post_snow = move_toward(_post_snow, want_snow, delta * 0.25)
+	_post_mat.set_shader_parameter("snow", _post_snow)
 	# 胶片颗粒：基础一点 + 夜里加重（暗部颗粒最出质感）+ 湿地再加一点
-	_post_mat.set_shader_parameter("grain", 0.026 + _post_night * 0.02 + _post_wet * 0.012)
+	_post_mat.set_shader_parameter("grain", 0.0)
 	# 色差：夜里镜头感更重，湿地再添一点（径向 RGB 微散，边缘才看得见）
-	_post_mat.set_shader_parameter("ca", clampf(_post_night * 0.7 + _post_wet * 0.4, 0.0, 1.0))
+	_post_mat.set_shader_parameter("ca", 0.0)
 
-# 夜度曲线：8~17 点纯白天；17~21 点天在暗；21~5 点最暗；5~8 点天在亮
-# 色调钟比真实钟快 4 小时（原 2 小时 + TONE_ADVANCE 2 小时）—— 6 点就亮成白天,
-# 13 点开始擦黑, 17 点全黑, 凌晨 1 点开始蒙蒙亮。_night_at 只认「色调钟」, 偏移在调用处加。
+# 夜度曲线：9~18 点纯白天；18~22 点天在暗；22~4.5 点最暗；4.5~9 点天在亮
+# （全是「色调钟」= 真实钟 + TONE_ADVANCE —— 阈值逐段对齐 day_night.gd 的
+#   CanvasModulate 时刻表: 白天/黄昏(18~20)/入夜(20~22)/夜(22~4.5)/破晓晨光(4.5~9),
+#   后处理的"夜"必须跟世界真正变暗同一步子, 谁先谁后都会罩错色。
 func _night_at(h: float) -> float:
-	if h >= 8.0 and h < 17.0:
+	if h >= 9.0 and h < 18.0:
 		return 0.0
-	if h >= 17.0 and h < 21.0:
-		return (h - 17.0) / 4.0
-	if h >= 21.0 or h < 5.0:
+	if h >= 18.0 and h < 22.0:
+		return (h - 18.0) / 4.0
+	if h >= 22.0 or h < 4.5:
 		return 1.0
-	return 1.0 - (h - 5.0) / 3.0
+	return 1.0 - (h - 4.5) / 4.5
 
 # 背包（Esc / B）和派活面板（T）走 _unhandled_input，不走 _process 轮询。
 # ❗这是个真踩过的坑：在 _process 里用 Input.is_action_just_pressed 会绕开
@@ -630,9 +770,30 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_cheat()
 		get_viewport().set_input_as_handled()
 		return
-	# 按 F：先看码头（修码头/造船/出海），再看矿井（提示去派活面板），
-	#       再试伙伴对话，最后才轮到商人/水井等
+	# e88 大后期演示档（O）：热灌 user://slots/大后期.json —— 建筑/铺装全满的测试档，
+	# 由 tools/_probe_make_lategame.tscn 生成（--headless 跑一遍即可重生成）。
+	# 走 open_slot -> apply_pending，与主菜单读档同一条路径（_probe_realswing 验证过热应用可行）。
+	if event.is_action_pressed("load_lategame"):
+		_load_lategame_slot()
+		get_viewport().set_input_as_handled()
+		return
+	# 按 F：附近有多件事时弹情境菜单; 否则走原来的单条交互链
 	if event.is_action_pressed("interact"):
+		if context_menu_panel != null and context_menu_panel.is_open():
+			context_menu_panel.close()
+			get_viewport().set_input_as_handled()
+			return
+		var choices: Array = _collect_context_choices()
+		if choices.size() > 1:
+			context_menu_panel.show_choices(choices)
+			get_viewport().set_input_as_handled()
+			return
+		if choices.size() == 1:
+			var fn: Callable = choices[0]["fn"]
+			if fn.is_valid():
+				fn.call()
+			get_viewport().set_input_as_handled()
+			return
 		if _try_dock():
 			get_viewport().set_input_as_handled()
 			return
@@ -676,6 +837,101 @@ func _try_talk_nearest() -> bool:
 	if best == null:
 		return false
 	return best.call("_try_talk")
+
+func _setup_context_menu() -> void:
+	var cm := preload("res://context_menu.gd").new()
+	cm.name = "ContextMenu"
+	hud.add_child(cm)
+	context_menu_panel = cm
+
+func _collect_context_choices() -> Array:
+	var out: Array = []
+	if player == null:
+		return out
+	if dock != null and dock_panel != null and not Voyage.traveling and not _sailing \
+			and not dock_panel.is_open() and dock.in_reach(player.global_position):
+		out.append({"label": "码头 (修船/出海)", "fn": Callable(dock_panel, "open_panel")})
+	if shipping_bin != null and bool(shipping_bin.get("_in_range")):
+		out.append({"label": "售卖箱 (存货到箱)", "fn": Callable(self, "_open_shipping_bin")})
+	if campfire != null and is_instance_valid(campfire) \
+			and bool(campfire.get("player_in_range")) and campfire_panel != null:
+		out.append({"label": "篝火 (看看来访者)", "fn": Callable(campfire_panel, "open_panel")})
+	var st_cell: Vector2i = _nearest_station_interact_cell()
+	if st_cell.x != 9999:
+		var c_copy: Vector2i = st_cell
+		var lbl: String = _station_interact_label(st_cell)
+		out.append({"label": lbl, "fn": func() -> void: _station_interact_cell(c_copy)})
+	if _player_near_mine():
+		out.append({"label": "矿井 (派活说明)", "fn": Callable(self, "_try_mine_hint")})
+	if _has_talk_target():
+		out.append({"label": "跟伙伴说话", "fn": Callable(self, "_try_talk_nearest")})
+	return out
+
+func _open_shipping_bin() -> void:
+	if shipping_bin != null and shipping_bin.has_method("_do_interact"):
+		shipping_bin.call("_do_interact")
+
+func _player_near_mine() -> bool:
+	if player == null or mine_cell.x == 9999:
+		return false
+	return player.global_position.distance_to(_cell_tree_pos(mine_cell)) <= 96.0
+
+func _has_talk_target() -> bool:
+	if player == null:
+		return false
+	var ppos: Vector2 = player.global_position
+	for n in slave_nodes:
+		if n == null or not n.visible or not n.has_method("_try_talk"):
+			continue
+		if ppos.distance_squared_to((n as Node2D).global_position) <= 32.0 * 32.0:
+			return true
+	return false
+
+func _nearest_station_interact_cell() -> Vector2i:
+	if player == null:
+		return Vector2i(9999, 9999)
+	var pc: Vector2i = _world_to_cell(player.global_position)
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var c: Vector2i = pc + Vector2i(dx, dy)
+			if Structures.has_station(c):
+				return c
+	var rr: Vector2 = player.global_position
+	var best_c := Vector2i(9999, 9999)
+	var best_d := INF
+	for key in station_nodes.keys():
+		var n = station_nodes[key]
+		if n == null or not is_instance_valid(n) or not n.has_method("interact_rect"):
+			continue
+		var rect: Rect2 = n.call("interact_rect")
+		if not rect.has_point(rr):
+			continue
+		var d: float = n.global_position.distance_squared_to(rr)
+		if d < best_d:
+			best_d = d
+			best_c = key
+	return best_c
+
+func _station_interact_label(c: Vector2i) -> String:
+	if not Structures.has_station(c):
+		return "设施"
+	match String(Structures.kind_of(c)):
+		Structures.KIND_WELL:
+			return "水井 (打水)"
+		Structures.KIND_COOP:
+			return "鸡舍"
+		Structures.KIND_CHEST:
+			return "储物箱"
+		Structures.KIND_FURNACE:
+			return "熔炉"
+		Structures.KIND_WORKBENCH:
+			return "工作台 (制作)"
+		Structures.KIND_BLACKSMITH:
+			return "铁匠铺 (制作)"
+		Structures.KIND_HIVE:
+			return "蜂箱 (收蜜)"
+		_:
+			return "设施 (%s)" % Structures.building_cost(String(Structures.kind_of(c))).get("name", "互动")
 
 # ---------------- 废弃码头 / 大地图旅行 ----------------
 # 码头是旅行的唯一入口：废墟 -> 付钱备料 -> 派人修 -> 建成后造船 -> 按 F 出海。
@@ -850,13 +1106,14 @@ func _crew_sprite(k: int) -> Sprite2D:
 		var idx: int = int(Slaves.expedition[k - 1]) if k - 1 < Slaves.expedition.size() else k - 1
 		at.atlas = SLAVE_SCRIPT.sheet_texture(SLAVE_SCRIPT.model_for(idx), "Idle.png", idx)
 		var troop := String(Slaves.slave_at(idx).get("troop", "新兵"))
-		s.modulate = Slaves.armor_tint(troop)
+		s.modulate = Color.WHITE
 	else:
 		# 第三方素材不入库(见 README), 缺失时留空不崩
-		at.atlas = SoftRes.tex(_crew_sheet(k))
+		at.atlas = SLAVE_SCRIPT.player_texture("Idle.png")
 	at.region = Rect2(0, 64, 32, 32)       # Idle.png 行 2 第 0 帧（侧面朝右）
 	s.texture = at
-	s.scale = Vector2(0.75, 0.75)
+	var roster_index: int = int(Slaves.expedition[k - 1]) if k > 0 and k - 1 < Slaves.expedition.size() else k - 1
+	s.scale = SLAVE_SCRIPT.body_scale_for(roster_index) * 0.75
 	return s
 
 # 第 k 位船员的模型图路径：0 = 主角(Josh)，其余按出海名单的序号取各自模型
@@ -1055,6 +1312,20 @@ func _toggle_cheat() -> void:
 		return
 	_set_player_frozen(true)
 	cheat_panel.open()
+
+# 大后期演示档（O 键）：建筑/铺装/伙伴/钱全满的测试档，热灌进当前局面。
+# 档由 tools/_probe_make_lategame.tscn 生成；建造/搬移模式下忽略，免得顺手把摆到一半的东西抹了。
+func _load_lategame_slot() -> void:
+	if build_kind != "" or _move_mode:
+		return
+	var path := "user://slots/大后期.json"   # ❗必须带 user:// 前缀: _abs() 只认它,
+											  # 裸相对路径会赌进程 CWD, 换个启动方式就找不到档
+	if not SaveManager.open_slot(path):
+		player._flash("没找到大后期档（跑一遍 tools/_probe_make_lategame.tscn 生成）")
+		return
+	if SaveManager.apply_pending(self):
+		_sync_current_item()
+		player._flash("已载入大后期演示档")
 
 # ---------------- 图层层级（配合 y_sort 做前后遮挡）----------------
 # 地形全部给负 z_index（永远在最下面），实体留在 0 层由 y_sort 按脚下的 y 排序。
@@ -1588,12 +1859,18 @@ func _at_map_edge(c: Vector2i) -> bool:
 #   · 栏杆立柱在 x = 0-4 / 21-24 / 37-40 / 57-60（间距不等，**不能当 tileset 平铺**）
 #     → 横向做法：取左收口 + 中间一跨重复 + 右收口 拼到目标宽度
 #
-# k1 造桥法（真实感版）：北护栏原样 + 程序化俯视木板桥面 + 南护栏 = 北护栏竖直镜像
-#   （透空栏杆朝桥面）。南护栏带再由前层 y-sort sprite 叠画一遍：走在南桥带的
-#   角色站在护栏后面, 腿透过真栏杆缝看得见; 桥南的角色盖住护栏。
+# k1 造桥法（真实感版）：北护栏原样 + 程序化俯视木板桥面 + 南护栏带
+#   南护栏 k2 改与北护栏同向（柱头朝上）, 但北条复用版仍是「柱头悬在桥沿下、
+#   底座吊在水面上」, 中间隔着透空缝 —— 用户点名「栏杆往上移动, 根部和桥面
+#   底部相连」。k3 起南护栏带改用**原作南栏板**（素材 y34..43, 10 行全实心:
+#   顶横杆原生紧贴桥面底边）, 原样贴在带子顶部、不拉伸不镜像, 底下留几行透出
+#   水色 —— 这才是原画「连着桥沿的近侧栏杆」。
+#   南护栏带再由前层 y-sort sprite 叠画一遍：走在南桥带的
+#   角色站在栏板后面（实心板遮住脚半截, 跟原作一致）; 桥南的角色盖住护栏。
 const BRIDGE_SHEET := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Objects/Exterior/Deep Forest/Bridge.png"
 const BRIDGE_VARIANT := 0                                  # 第 0 种配色：棕木 + 米色护栏，最搭
 const BRIDGE_TRIM := Rect2i(9, 4, 61, 51)                  # 那块贴图在 80x64 里的实际范围
+const BRIDGE_SOUTH_SRC := Rect2i(0, 34, 61, 10)            # 原作南栏板在 trim 里的位置（10 行全实心, 顶边贴桥面）
 const BRIDGE_CAP_W := 21                                   # 左右收口宽度
 const BRIDGE_BAY_W := 21                                   # 中间可重复的一跨宽度
 const BRIDGE_H_TILES := 3      # 桥贴图在竖直方向铺 3 格 (侧视整贴, 三行桥带全可走)
@@ -1624,8 +1901,8 @@ func _build_bridges() -> void:
 		var tex := _make_bridge_texture(w * 16, BRIDGE_H_TILES * 16)
 		if tex == null:
 			continue
-		# k1: 主桥层 = 北护栏 + 程序化桥面 + 南护栏(镜像), 整贴压在角色下面
-		#     (z=Z_BRIDGE, 不 y-sort); 三行桥带全可走 (水碰撞豁口见
+		# k1: 主桥层 = 北护栏 + 程序化桥面 + 南栏板(k3 起原作栏板贴带顶), 整贴
+		#     压在角色下面 (z=Z_BRIDGE, 不 y-sort); 三行桥带全可走 (水碰撞豁口见
 		#     _build_water_collision, 桥墙已拆)。
 		var sp := Sprite2D.new()
 		sp.name = "Bridge%d" % y
@@ -1635,7 +1912,7 @@ func _build_bridges() -> void:
 		sp.z_index = Z_BRIDGE
 		node.add_child(sp)
 		# 前层护栏 —— 南护栏带 (拼装贴图 y=34..47) 再叠一张同纹理的 region sprite,
-		#     走在南桥带 (y+1) 的角色就在护栏后面, 透过真栏杆缝半遮半露。
+		#     走在南桥带 (y+1) 的角色就被实心栏板遮住脚半截 (跟原作一致)。
 		#     上/中桥带的角色不与这条带重叠, 不受影响。
 		# b7: 护栏 z=0 参与 y_sort: 排序点落在护栏带底边 ((y+2)*16), 贴图用
 		#     offset 画回 y+1 行 —— 玩家在桥上 (脚 y 更小) 时护栏盖住玩家,
@@ -1672,6 +1949,27 @@ func _bridge_rail_piece() -> Image:
 	_bridge_rail_img = piece.get_region(Rect2i(0, 0, piece.get_width(), BRIDGE_RAIL_SRC_H))
 	return _bridge_rail_img
 
+# 裁出素材里的南栏板（trim y=34..43, 10 行全实心 —— 原画里顶横杆原生紧贴桥面
+# 底边, 没有「柱头悬空」和「透空缝吊在水面」的问题）, 缓存起来。k3 起南护栏带
+# 用它, 不再复用北护栏条。
+var _bridge_south_img: Image = null
+
+func _bridge_south_piece() -> Image:
+	if _bridge_south_img != null:
+		return _bridge_south_img
+	var tex: Texture2D = SoftRes.tex(BRIDGE_SHEET)
+	if tex == null:
+		return null
+	var img := tex.get_image()
+	if img == null:
+		return null
+	if img.is_compressed():
+		img.decompress()
+	var cell := Rect2i(0, BRIDGE_VARIANT * 64, 80, 64)
+	var piece: Image = img.get_region(Rect2i(cell.position + BRIDGE_TRIM.position, BRIDGE_TRIM.size))
+	_bridge_south_img = piece.get_region(BRIDGE_SOUTH_SRC)
+	return _bridge_south_img
+
 # 程序化画俯视桥面木板：横板每 6px 一块, 板间横缝 + 板端竖缝 (逐板错位),
 # 上下 1px 压边当栏杆投影。配色取自素材护栏的浅木系, 跟栏杆天然协调。
 func _paint_bridge_deck(img: Image, y0: int, h: int) -> void:
@@ -1693,44 +1991,49 @@ func _paint_bridge_deck(img: Image, y0: int, h: int) -> void:
 		img.set_pixel(x, y0 + h - 1, BRIDGE_DECK_EDGE)
 
 # 拼一张桥：横向「左收口 + 中段重复 + 右收口」拼栏杆条,
-# 再竖直组装 = 北护栏(原样) + 程序化桥面 + 南护栏(栏杆条镜像, 透空朝桥面)
-func _make_bridge_texture(target_w: int, target_h: int) -> ImageTexture:
-	var rail := _bridge_rail_piece()
-	if rail == null:
-		return null
-	var src_h: int = rail.get_height()
-	var full_w: int = rail.get_width()
+# 再竖直组装 = 北护栏(原样) + 程序化桥面 + 南护栏(k2 起同向不镜像, 柱头朝上)
+# 横向拼一条全宽条（素材 x=20 / x=40 是整高分段描边线, 收口各裁一列,
+# 中段只取 src 21..39 无描边区, 拼缝就不会出现黑竖缝）。北护栏条 / 南栏板共用。
+func _bridge_strip(src: Image, target_w: int) -> Image:
+	var src_h: int = src.get_height()
+	var full_w: int = src.get_width()
 	var cap: int = mini(BRIDGE_CAP_W, full_w / 2)
 	var bay: int = mini(BRIDGE_BAY_W, full_w - cap * 2)
-
-	# 横向拼一条全宽栏杆（素材 x=20 / x=40 是整高分段描边线, 收口各裁一列,
-	# 中段只取 src 21..39 无描边区, 栏杆就不会出现黑竖缝）
 	var cw: int = cap - 1
 	var strip := Image.create_empty(target_w, src_h, false, Image.FORMAT_RGBA8)
 	strip.fill(Color(0, 0, 0, 0))
-	strip.blit_rect(rail, Rect2i(0, 0, cw, src_h), Vector2i.ZERO)
+	strip.blit_rect(src, Rect2i(0, 0, cw, src_h), Vector2i.ZERO)
 	var x := cw
 	while x < target_w - cw and bay > 0:
 		var bw: int = mini(bay, target_w - cw - x)
-		strip.blit_rect(rail, Rect2i(cap, 0, bw, src_h), Vector2i(x, 0))
+		strip.blit_rect(src, Rect2i(cap, 0, bw, src_h), Vector2i(x, 0))
 		x += bw
-	strip.blit_rect(rail, Rect2i(full_w - cap + 1, 0, cw, src_h), Vector2i(target_w - cw, 0))
+	strip.blit_rect(src, Rect2i(full_w - cap + 1, 0, cw, src_h), Vector2i(target_w - cw, 0))
+	return strip
+
+# 拼一张桥：横向「左收口 + 中段重复 + 右收口」拼条,
+# 再竖直组装 = 北护栏(原样, 13->16) + 程序化桥面(18) + 南栏板(k3 起用原作
+# 南栏板, 10 行全实心, 贴在带子顶部 —— 顶边紧贴桥面底边, 根部与桥面相连;
+# 底下留 4 行透出水色, 不拉伸不镜像)
+func _make_bridge_texture(target_w: int, target_h: int) -> ImageTexture:
+	var rail := _bridge_rail_piece()
+	var south_src := _bridge_south_piece()
+	if rail == null or south_src == null:
+		return null
 
 	var out := Image.create_empty(target_w, target_h, false, Image.FORMAT_RGBA8)
 	out.fill(Color(0, 0, 0, 0))
 	# 北护栏带 13 -> 16
-	var north: Image = strip.duplicate()
+	var north := _bridge_strip(rail, target_w)
 	north.resize(target_w, BRIDGE_RAIL_N_H, Image.INTERPOLATE_NEAREST)
 	out.blit_rect(north, Rect2i(0, 0, target_w, BRIDGE_RAIL_N_H), Vector2i.ZERO)
 	# 程序化桥面
 	_paint_bridge_deck(out, BRIDGE_RAIL_N_H, BRIDGE_DECK_H)
-	# 南护栏带 = 栏杆条竖直镜像 (透空栏杆朝桥面), 13 -> 14
-	var south := Image.create_empty(target_w, src_h, false, Image.FORMAT_RGBA8)
-	south.fill(Color(0, 0, 0, 0))
-	for k in src_h:
-		south.blit_rect(strip, Rect2i(0, src_h - 1 - k, target_w, 1), Vector2i(0, k))
-	south.resize(target_w, BRIDGE_RAIL_S_H, Image.INTERPOLATE_NEAREST)
-	out.blit_rect(south, Rect2i(0, 0, target_w, BRIDGE_RAIL_S_H), Vector2i(0, BRIDGE_RAIL_N_H + BRIDGE_DECK_H))
+	# 南护栏带 k3 = 原作南栏板原样贴带顶（根部连桥面底边）, 带底 4 行留空透水
+	var south := _bridge_strip(south_src, target_w)
+	var sh: int = south.get_height()
+	out.blit_rect(south, Rect2i(0, 0, target_w, sh),
+		Vector2i(0, BRIDGE_RAIL_N_H + BRIDGE_DECK_H))
 	return ImageTexture.create_from_image(out)
 
 # ---------------- 水碰撞（阶段 1-1：实现已搬到 scene/game/water_layer.gd）----------------
@@ -1831,6 +2134,7 @@ func _build_fx() -> void:
 
 # 换季：飘一句进入新季的提示 + 把地表换成当季那套贴图（e52）
 func _on_season_changed(s: int) -> void:
+	Audio.play_sfx("season", -4.0)   # P6: 换季 stinger —— 世界翻了一页
 	_apply_season_terrain()
 	if player == null:
 		return
@@ -1957,7 +2261,10 @@ func _setup_backpack() -> void:
 
 # 任务栏：e13j 起作为背包「任务」页签存在（屏幕左侧竖栏退役, 实例不再挂 HUD）
 func _setup_quest_log() -> void:
-	pass
+	var tracker := preload("res://scene/guide_tracker.gd").new()
+	tracker.name = "GuideTracker"
+	hud.add_child(tracker)
+	quest_log_panel = tracker
 
 # 时钟动画（上床跳时间时播）：挂在 HUD 上，house.gd 通过 group 找到它
 func _setup_clock_ui() -> void:
@@ -2037,7 +2344,7 @@ func _refresh_wedding_badge() -> void:
 	_wedding_badge.visible = true
 	var idx := int(String(Marriage.wife_id).trim_prefix("rq_"))
 	var pv: TextureRect = _wedding_badge.get_node("Row/WifePortrait")
-	pv.texture = load("res://resources/texture/portraits/slave_%02d.png" % idx)
+	pv.texture = preload("res://scene/mood_portrait.gd").portrait_texture("slave_%02d" % idx)
 	var lb: Label = _wedding_badge.get_node("Row/WifeName")
 	lb.text = Marriage.wife_name()
 	var perk: Dictionary = Marriage.perk()
@@ -2163,12 +2470,15 @@ func _setup_campfire() -> void:
 		_set_player_frozen(true))
 	cp.closed.connect(func(): _set_player_frozen(false))
 	TimeManager.time_tick.connect(_on_campfire_tick)
+	Quests.changed.connect(_on_campfire_tick)
 	TimeManager.new_day.connect(func(_d): _clear_campfire())   # 过夜就熄
 
 func _on_campfire_tick() -> void:
 	if campfire != null or _sleeping:
 		return
-	if TimeManager.hour < CAMP_HOUR:
+	# 第一位伙伴在玩家照料完幼苗后即可相认, 清晨不再提示寻找尚未出现的火堆。
+	var first_meeting: bool = Slaves.count == 0 and Quests.has_done("water_first")
+	if TimeManager.hour < CAMP_HOUR and not first_meeting:
 		return
 	if Slaves.count >= Slaves.CAP:       # 满员：今晚没有篝火
 		return
@@ -2224,26 +2534,40 @@ func _clear_campfire() -> void:
 
 # 屏幕上方居中的一条公告（篝火出现之类的事件播报），几秒后自己淡掉
 func _announce(text: String, dur := 3.0) -> void:
-	# 半透明黑底条 + 居中大字：光有描边的文字在草地/水面上容易糊，垫一层底才看得清
+	# 居中短提示框, 为两侧 HUD 保留空间。
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0.42)
 	sb.content_margin_top = 8.0
 	sb.content_margin_bottom = 8.0
+	sb.content_margin_left = 12.0
+	sb.content_margin_right = 12.0
 	var box := PanelContainer.new()
+	box.set_meta("world_notice", true)
 	box.add_theme_stylebox_override("panel", sb)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	box.offset_top = 104.0
+	# 公告留在中间, 不再横穿左侧的新手指引和右侧时钟。
+	var view_size: Vector2 = get_viewport().get_visible_rect().size
+	var notice_width: float = minf(560.0, view_size.x - 660.0)
+	var notice_y: float = 16.0
+	if notice_width < 240.0:
+		notice_width = minf(560.0, view_size.x - 32.0)
+		notice_y = maxf(16.0, view_size.y - 168.0)
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	box.offset_left = -notice_width * 0.5
+	box.offset_right = notice_width * 0.5
+	box.offset_top = notice_y
+	box.custom_minimum_size.x = notice_width
 
 	var l := Label.new()
 	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = notice_width - 24.0
 	l.add_theme_font_override("font", FONT_PIX)
 	l.add_theme_font_size_override("font_size", 18)
 	l.add_theme_color_override("font_color", Color(1, 0.88, 0.62))
 	l.add_theme_constant_override("outline_size", 5)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	l.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(l)
 	hud.add_child(box)
@@ -2344,6 +2668,12 @@ func _toggle_backpack() -> void:
 func _set_player_frozen(frozen: bool) -> void:
 	if player == null:
 		return
+	# 子对话结束时父面板可能仍在, 不能提前放行移动和工具.
+	if not frozen and hud != null:
+		for panel: Node in hud.get_children():
+			if panel.has_method("is_open") and bool(panel.call("is_open")):
+				frozen = true
+				break
 	player.frozen = frozen
 
 # ---------------- 木地板显示层 ----------------
@@ -2538,8 +2868,12 @@ func _on_station_changed(c: Vector2i) -> void:
 			n = preload("res://scene/hive_node.gd").new()
 		elif String(s.kind) == Structures.KIND_CHEST:
 			n = preload("res://scene/chest_node.gd").new()
-		elif Structures.is_farm_kind(String(s.kind)):
-			# e49 农场畜牧线（畜棚/马厩/筒仓/温室/磨坊/围栏/木桥）共用一个节点
+		elif String(s.kind) == Structures.KIND_LIGHTHOUSE:
+			# 2026-10-06 灯塔：素材包没有塔形房子 -> 程序化塔身 + 夜间旋转光束
+			n = preload("res://scene/lighthouse_node.gd").new()
+		elif Structures.is_bld_kind(String(s.kind)):
+			# e49 农场畜牧线（畜棚/马厩/筒仓/温室/磨坊/围栏/木桥）
+			# + 2026-10-06 城镇功能建筑（军营/书院/市集/面包房/织造坊）共用一个节点
 			n = preload("res://scene/farm_building_node.gd").new()
 		else:
 			n = preload("res://scene/station_node.gd").new()
@@ -2558,20 +2892,28 @@ func _on_station_removed(c: Vector2i) -> void:
 	station_nodes.erase(c)
 	n.play_removed()      # 小跳 + 淡出；物品返还由 hit_station 生成
 
-# 工地脚手架：Structures.site 有内容就摆在锚点格，落成/清空就撤掉
+# 工地脚手架：每座工地摆一个（2026-10-06 起可多座并行），落成/取消就撤掉对应的那个。
 func _sync_site_node() -> void:
-	if Structures.site_busy():
-		var c := Vector2i(Structures.site["anchor"])
-		if _site_node == null or not is_instance_valid(_site_node):
-			_site_node = preload("res://scene/site_node.gd").new()
-			_site_node.kind = String(Structures.site["kind"])   # 工地轮廓跟建筑类型走(e24a)
-			add_child(_site_node)
-		_site_node.cell = c
-		_site_node.position = _cell_tree_pos(c)   # 底部踩在格子底边（y_sort 排序点）
-	else:
-		if _site_node != null and is_instance_valid(_site_node):
-			_site_node.queue_free()
-		_site_node = null
+	var alive := {}
+	for s in Structures.sites:
+		var c := Vector2i(s["anchor"])
+		alive[c] = true
+		var n: Node2D = site_nodes.get(c, null)
+		if n == null or not is_instance_valid(n):
+			n = preload("res://scene/site_node.gd").new()
+			n.kind = String(s["kind"])      # 工地轮廓跟建筑类型走(e24a)
+			add_child(n)
+			site_nodes[c] = n
+		n.cell = c
+		n.position = _cell_tree_pos(c)      # 底部踩在格子底边（y_sort 排序点）
+	# 撤掉已经不存在的工地（落成 / 取消 / 读档前后对不上）
+	for c in site_nodes.keys():
+		if alive.has(c):
+			continue
+		var n2: Node2D = site_nodes[c]
+		if n2 != null and is_instance_valid(n2):
+			n2.queue_free()
+		site_nodes.erase(c)
 
 # 鼠标正指着哪一座设施（按贴图矩形命中，取最近的那座）。没指着就返回 NO_CELL。
 # e44 从 pick_station_cell 里抽出来 —— 建筑模式的「悬停高亮」也要用同一套命中判定，
@@ -2942,8 +3284,9 @@ func player_blacksmith_level() -> int:
 
 # ---------------- 建造模式（星露谷式：ghost 跟着鼠标, 左键放下） ----------------
 # 入口：背包「建造」页点「选位置」-> start_build_mode -> 回到地图摆 -> 左键确认。
-# 造价：金钱 + 材料一次付清；人工（人·天）每晚按派活面板「工地」栏派的人数积累，
-# 攒够 cost.labor 自动落成（见 Structures.start_site / add_site_work）。一次只能盖一座。
+# 造价：金钱 + 材料一次付清；伙伴每晚在工地干活把力气换成「建造点」进总池，
+# 玩家白天在背包建造页把点数投进任意一座工地，投满 cost.labor 当场落成
+# （见 Structures.start_site / invest_build_points）。可同时开多座工地（上限 SITE_MAX）。
 
 func is_build_mode() -> bool:
 	return build_kind != ""
@@ -2952,6 +3295,11 @@ func start_build_mode(kind: String) -> bool:
 	if build_kind != "":
 		_cancel_build()
 	if Structures.building_cost(kind).is_empty():
+		return false
+	var lock: String = Quests.building_lock_hint(kind)
+	if not lock.is_empty():
+		if player != null:
+			player._flash(lock)
 		return false
 	if not _can_pay_build(kind):
 		return false
@@ -2990,8 +3338,10 @@ func _make_ghost_for(kind: String, payload: Dictionary) -> Node2D:
 			n = preload("res://scene/hive_node.gd").new()
 		Structures.KIND_CHEST:
 			n = preload("res://scene/chest_node.gd").new()
+		Structures.KIND_LIGHTHOUSE:
+			n = preload("res://scene/lighthouse_node.gd").new()
 		_:
-			if Structures.is_farm_kind(kind):
+			if Structures.is_bld_kind(kind):
 				n = preload("res://scene/farm_building_node.gd").new()   # e49 预览也走真节点
 			else:
 				n = preload("res://scene/blacksmith_node.gd").new()
@@ -3021,6 +3371,9 @@ func building_footprint(anchor: Vector2i, kind: String = "blacksmith") -> Array:
 	if Structures.is_farm_kind(kind):
 		# e49 农场畜牧线：占几格由 structures.gd 的 FARM_FOOT 那张表说了算
 		return Structures.farm_footprint(anchor, kind)
+	if Structures.is_town_kind(kind):
+		# 2026-10-06 城镇功能建筑：占几格由 TOWN_FOOT 那张表说了算
+		return Structures.town_footprint(anchor, kind)
 	if kind == Structures.KIND_COOP:
 		var coop: Array = []
 		for dx in range(-3, 3):
@@ -3129,13 +3482,14 @@ func _confirm_build() -> void:
 		if player != null:
 			player._flash("钱或材料不够了", "error")
 		return
-	# e38d labor = 0 的小件（路灯）不占工地名额：它当场就立起来，跟施工中的那座不冲突
+	# e38d labor = 0 的小件（路灯/围栏/木桥…）不占工地名额：它当场就立起来，跟施工中的那些不冲突
+	# 2026-10-06: 工地可多座并行（共用建造点总池）—— 只在开满上限时才拦
 	var cost: Dictionary = Structures.building_cost(build_kind)
 	var need_labor := int(cost.get("labor", 1))
-	if need_labor > 0 and Structures.site_busy():
+	if need_labor > 0 and Structures.site_clunt() >= Structures.SITE_MAX:
 		Audio.play_sfx("error", -6.0)
 		if player != null:
-			player._flash("已经有一座工地在施工了 -- 一次只能盖一座", "error")
+			player._flash("工地已经开满 %d 座了 -- 先盖完几座再开新的" % Structures.SITE_MAX, "error")
 		return
 	var bname: String = cost.get("name", build_kind)
 	_pay_build(build_kind)
@@ -3531,6 +3885,16 @@ func _build_sleep_overlay() -> void:
 	_fade_rect.color = Color(0, 0, 0, 0)
 	_fade_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# P4: 黑幕升级成「当季晕染」—— 普通夜是水彩墨晕, 入冬是白霜从四角结满
+	#     （用 iris_wipe 的精简 shader, 不采屏幕, 夜里常驻也不拖帧）
+	var _fs := ShaderMaterial.new()
+	_fs.shader = Shader.new()
+	_fs.shader.code = preload("res://scene/iris_wipe.gd")._FRAG_PLAIN
+	_fs.set_shader_parameter("style", 2)
+	_fs.set_shader_parameter("progress", 0.0)
+	_fs.set_shader_parameter("force_black", 0.0)
+	_fs.set_shader_parameter("tint", Color(0.05, 0.05, 0.06, 0.85))
+	_fade_rect.material = _fs
 	layer.add_child(_fade_rect)
 	_fade_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
@@ -3568,10 +3932,48 @@ func _build_sleep_overlay() -> void:
 	cp.closed.connect(func(): _set_player_frozen(false))
 	cheat_panel = cp
 
+# 钓到第一条鱼, 且今晚还没把岛定名。旗存在 story_flags, 新档会清。
+func _port_name_due() -> bool:
+	if not SaveManager.enabled:
+		return false
+	if not Quests.caught_first_fish():
+		return false
+	if preload("res://story_dialogue.gd").flag_get("port_named"):
+		return false
+	return true
+
+# 咪露在队就由她定名; 还没入伙就由哥布林把名字写进账本。
+func _port_name_script() -> Array:
+	return preload("res://scene/event_scripts.gd").naming()
+
+func _play_port_name() -> void:
+	var dlg: Node = get_tree().get_first_node_in_group("story_dialogue")
+	if dlg == null or not dlg.has_method("play_directed") or bool(dlg.get("_active")):
+		return
+	var done := [false]
+	dlg.play_directed(_port_name_script(), func() -> void: done[0] = true)
+	if not bool(dlg.get("_active")):
+		done[0] = true
+	var guard := 0.0
+	while not bool(done[0]) and guard < 180.0:
+		await get_tree().create_timer(0.1).timeout
+		guard += 0.1
+	if bool(done[0]):
+		preload("res://story_dialogue.gd").flag_set("port_named")
+		_announce("这座岛有名字了: 潮汐港", 4.0)
+
 # 睡觉 → 黑幕 → 结算（卖货入账）→ 换日 → 天亮。
 # ❗顺序很重要：钱必须在「换日」之前算好并显示出来，
 #   玩家看到的才是「今晚卖了多少、现在有多少钱」。
 func _on_day_ended() -> void:
+	if _sleeping or _naming_port:
+		return
+	# 钓到第一条鱼的当晚: 咪露把无名荒岛定名为潮汐港, 再进入睡觉结算。
+	# 自检关了存档总闸, 不播, 免得对话框把睡觉流程卡死。
+	if _port_name_due():
+		_naming_port = true
+		await _play_port_name()
+		_naming_port = false
 	if _sleeping:
 		return
 	_cancel_build()            # 睡觉前还捏着建筑没放下就算了，明天再建
@@ -3579,6 +3981,7 @@ func _on_day_ended() -> void:
 	_set_player_frozen(true)
 	Audio.play_sfx("sleep")
 	Audio.duck(-10.0, 0.6)
+	_sync_sleep_tone()               # P4: 黑幕换当季墨色/冬霜
 
 	_fade_label.text = "睡着了..."
 	await _fade_to(0.78, 0.7)
@@ -3607,7 +4010,8 @@ func _on_day_ended() -> void:
 		research_lines.append("新的一周将至: 准备中的 %d 张政策卡明早上任" % Research.pending.size())
 
 	_fade_label.text = ""
-	if settlement_panel != null and settlement_panel.has_method("show_summary"):
+	if settlement_panel != null and settlement_panel.has_method("show_summary") \
+		and (not Quests.quiet_nights or income > 0 or not research_lines.is_empty()):
 		settlement_panel.show_summary(
 			TimeManager.date_text(), TimeManager.day, shipped, income, Wallet.money,
 			"伙伴们把没干完的 %d 格活补完了" % finished if finished > 0 else "",
@@ -3615,30 +4019,33 @@ func _on_day_ended() -> void:
 		await settlement_panel.closed
 
 	# —— 结算之后：给伙伴派活（涂色地图）。白天就照这张图闲逛 ——
-	if assign_panel != null:
+	var work_warnings: Array[String] = Slaves.plan_warnings()
+	if assign_panel != null and Slaves.count > 0 and (not Quests.quiet_nights or not work_warnings.is_empty()):
 		assign_panel.open()
 		await assign_panel.closed
 
-	# —— 夜间施工：工地 / 码头 / 铁匠铺按今晚派的人数推进（1 人干一晚 = 1 人天）——
-	# 工地和修码头共用「工地」名单：有建筑工地就盖楼，没有才修码头。
+	# —— 夜间施工：伙伴把力气变成「建造点 / 锻造点」存进池子 ——
+	# ❗2026-10-06 体系大改：不再当晚自动完工，改成玩家白天在背包里点按钮当场兑现
+	#   （见 Structures.invest_build_points / Crafting.invest_smith_points）。
+	#   池子可跨天攒着，所以"今晚没盖完"不再是失败，而是进度。
+	# 工地和修码头共用「工地」名单：有建筑工地就攒建造点，没有才修码头。
 	var build_done := ""
 	var smith_done := ""
 	var heads := Slaves.build_heads()   # 工匠树加成：一个人顶 1+N 个人手
 	if Structures.site_busy():
-		var nm := Structures.site_name()
-		if Structures.add_site_work(heads):
-			build_done = nm
-			Legion.gain_exp(3)          # e13h: 建成一座设施也长主角经验
+		Structures.earn_build_points(heads)
+		if heads > 0:
+			build_done = "建造点 +%d" % heads
 	elif Voyage.dock_state == Voyage.DOCK_FUNDED:
 		if _settle_dock():
 			build_done = "废弃码头"
 	else:
 		Slaves.clear_dock_crew()      # 没在施工：名单留着没意义
 	if Crafting.smith_busy():
-		# e41c: 打铁是队列 —— 人工先喂队首, 多出来的顺延给下一件, 一晚可能出好几件
-		var made: Array = Crafting.add_smith_work(Slaves.craft_heads())
-		if not made.is_empty():
-			smith_done = ", ".join(made)
+		var smith_heads := Slaves.craft_heads()
+		Crafting.earn_smith_points(smith_heads)
+		if smith_heads > 0:
+			smith_done = "锻造点 +%d" % smith_heads
 	else:
 		Slaves.clear_craft_crew()     # 没有制造中项目：名单留着没意义
 
@@ -3665,6 +4072,12 @@ func _on_day_ended() -> void:
 		Weather.is_storm(), TimeManager.season == 3)
 	var animal_total := int(animal_made.get("total", 0))
 
+	# —— 2026-10-06 灯塔：港口地标, 每天早上 +1 声望（出海/签约都要声望）——
+	var lighthouse_prestige := 0
+	if Structures.has_built_kind(Structures.KIND_LIGHTHOUSE):
+		Nations.add_prestige(1)
+		lighthouse_prestige = 1
+
 	TimeManager.advance_day()
 	Audio.unduck(0.8)
 	if not Research.last_promoted.is_empty():
@@ -3676,8 +4089,9 @@ func _on_day_ended() -> void:
 		Research.last_promoted = []
 	else:
 		_fade_label.text = "%s\n新的一天开始了" % TimeManager.date_text()
+	_pocket_card()                   # P4: 日期卡从口袋里抽出来
 
-	await get_tree().create_timer(1.2).timeout
+	await get_tree().create_timer(1.5).timeout
 	_fade_label.text = ""
 	await _fade_to(0.0, 0.7)
 	_set_player_frozen(false)
@@ -3685,10 +4099,15 @@ func _on_day_ended() -> void:
 	if player != null:
 		if build_done == "废弃码头":
 			player._flash("废弃码头修好了! 去那儿造船, 按 F 出海")
-		elif not build_done.is_empty():
-			player._flash("%s盖好了!" % build_done)
-		elif not smith_done.is_empty():
-			player._flash("铁匠铺夜里出件: %s" % smith_done)
+		elif not build_done.is_empty() or not smith_done.is_empty():
+			# 大改后这两条只会是「建造点 +N / 锻造点 +N」——提示玩家去背包当场兑现。
+			# 合成一句而不是 elif 串：原来 build_done 非空就把 smith_done 吞了, 两条一起报更好。
+			var pts: Array = []
+			if not build_done.is_empty():
+				pts.append(build_done)
+			if not smith_done.is_empty():
+				pts.append(smith_done)
+			player._flash("夜里攒到 %s  背包里可当场兑现" % " + ".join(pts))
 		elif mine_stone > 0 or mine_iron > 0:
 			player._flash("矿井夜班交货: 石头 x%d, 铁矿 x%d" % [mine_stone, mine_iron])
 		if eggs_laid > 0:
@@ -3697,6 +4116,8 @@ func _on_day_ended() -> void:
 			player._flash("蜂箱攒了 %d 罐蜜, 去收吧" % honey_made)
 		elif animal_total > 0:
 			player._flash("畜棚攒了 %d 份畜产, 去收吧" % animal_total)
+		elif lighthouse_prestige > 0:
+			player._flash("灯塔照亮归帆, 声望 +1")
 
 	# —— 换日流程全部走完 ——
 	# ❗这是**唯一**的存档时机：走到这儿 TimeManager 已经翻到新一天的早上 6 点。
@@ -3704,9 +4125,55 @@ func _on_day_ended() -> void:
 	SaveManager.save_game(self)
 
 func _fade_to(target: float, dur: float) -> void:
+	_fade_rect.visible = target > 0.001   # 全清时整块藏掉, shader 一帧都不跑
 	var tw := create_tween()
-	tw.tween_property(_fade_rect, "color:a", target, dur)
+	if _fade_rect.material is ShaderMaterial:
+		# 睡觉目标 alpha 0.78 -> shader progress 归一到 1.0（晕染/冬霜要收满才遮得住结算面板）
+		tw.tween_property(_fade_rect.material, "shader_parameter/progress",
+			minf(target / 0.78, 1.0), dur)
+	else:
+		tw.tween_property(_fade_rect, "color:a", target, dur)
 	await tw.finished
+
+# P4: 睡觉黑幕的当季墨色 —— 春嫩绿 / 夏深潭 / 秋暖赭都是水彩晕染, 入冬换白霜结满
+func _sync_sleep_tone() -> void:
+	if not (_fade_rect.material is ShaderMaterial):
+		return
+	var m: ShaderMaterial = _fade_rect.material
+	var st := 2
+	var tint := Color(0.05, 0.05, 0.06, 0.85)
+	match TimeManager.season:
+		0:
+			tint = Color(0.10, 0.20, 0.14, 0.85)   # 春: 嫩绿墨
+		1:
+			tint = Color(0.06, 0.15, 0.18, 0.85)   # 夏: 深潭绿
+		2:
+			tint = Color(0.18, 0.10, 0.05, 0.85)   # 秋: 暖赭墨
+		3:
+			st = 6                                  # 冬: 白霜(frost 式)
+			tint = Color(0.92, 0.95, 1.0, 0.86)
+	m.set_shader_parameter("style", st)
+	m.set_shader_parameter("tint", tint)
+	m.set_shader_parameter("seed", randf() * 20.0)
+	# 冬霜近白, 奶油色字会看不清: 霜上换深墨字, 其余季节恢复暖色字
+	if TimeManager.season == 3:
+		_fade_label.add_theme_color_override("font_color", Color(0.16, 0.19, 0.26))
+	else:
+		_fade_label.add_theme_color_override("font_color", Color(1, 0.96, 0.86))
+
+# P4 口袋黑场收尾: 日期卡像从被窝口袋里"抽"出来 —— 布料音一响,
+# 卡片从屏幕下缘带一点回弹滑到正中（TRANS_BACK 的 overshoot 就是"抽出"手感）
+func _pocket_card() -> void:
+	Audio.play_sfx("cloth", -6.0)
+	var vp := _fade_label.get_viewport_rect().size
+	var dy := vp.y * 0.62
+	_fade_label.offset_top = dy
+	_fade_label.offset_bottom = dy
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(_fade_label, "offset_top", 0.0, 0.6) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_fade_label, "offset_bottom", 0.0, 0.6) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # 夜里结算码头施工：今天派了几个人去修，就往进度里加几个人天。
 # 返回 true = 今天就修好了（天亮后给玩家一句提示）。
@@ -3770,9 +4237,6 @@ func _give_starting_items() -> void:
 	var axe: ItemData = load("res://item/axe.tres")
 	var pickaxe: ItemData = load("res://item/pickaxe.tres")
 	var can: ItemData = load("res://item/watering_can.tres")
-	var seed: ItemData = load("res://item/seed.tres")            # 土豆种子
-	var potato: ItemData = load("res://item/potato.tres")
-	var wood: ItemData = load("res://item/wood.tres")
 	if hoe != null:
 		Inventory.add_item(hoe, 1)
 	if axe != null:
@@ -3781,12 +4245,6 @@ func _give_starting_items() -> void:
 		Inventory.add_item(pickaxe, 1)
 	if can != null:
 		Inventory.add_item(can, 1)
-	if seed != null:
-		Inventory.add_item(seed, 24)
-	if potato != null:
-		Inventory.add_item(potato, 6)
-	if wood != null:
-		Inventory.add_item(wood, 5)
 
 func _sync_current_item() -> void:
 	player.current_item = Inventory.hotbar_item(0)

@@ -496,6 +496,7 @@ func _slot_row(e: Dictionary) -> Control:
 
 	var b_open := _button("读档", 58)
 	b_open.pressed.connect(func():
+		Audio.play_sfx("confirm", -4.0)   # P6: 确定音
 		if SaveManager.open_slot(String(e["path"])):
 			# d9: iris 收黑后再切进游戏, 黑幕中展开岛上清晨
 			IRIS.play("out", func() -> void:
@@ -520,6 +521,7 @@ func _on_start() -> void:
 		_name_edit.grab_focus()
 		return
 	SaveManager.begin_new_game(n)
+	Audio.play_sfx("confirm", -4.0)          # P6: 确定音
 	# d9: 新游戏也走 iris 收黑 -> 黑幕中换场景
 	IRIS.play("out", func() -> void:
 		get_tree().change_scene_to_file("res://scene/game.tscn"))

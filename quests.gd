@@ -10,7 +10,7 @@
 #   · water_first   -> player.gd 第一次浇水成功
 #   · harvest_first -> player.gd 第一次收下作物
 #   · sell_first    -> scene/shipping_bin.gd 第一次从售卖箱卖出货
-#   · explore_island -> 第一次钓上鱼（e32 毕业条件, 完成即开闸里程碑 + 接上中后期链）
+#   · explore_island -> 第一次钓上鱼, 独立可选目标
 # complete(id) 按 _CHAIN / _MID_CHAIN 自动挂上下一步；跳步完成过的环节不再回挂。
 #
 # 毕业后任务栏常驻一个里程碑任务（永远显示最靠前的未达成项），
@@ -24,50 +24,43 @@ signal changed
 signal rewarded(text: String)   # 里程碑达成（game.gd 听了弹公告）
 signal celebrated(text: String) # 终局里程碑达成（game.gd 弹大庆祝横幅, 不锁档继续玩）
 
-# 第一周指引链：id -> [下一步 id, 标题, 描述]（链尾 explore_island 无下一环）
+# 第一周指引链：开局只赠工具, 第一次购买当季作物种子后开始种田。
 const _CHAIN := {
-	"go_house": ["buy_goblin", "照顾哥布林的生意",
-		"在哥布林摊位买点东西, 他就好这口"],
+	"go_house": ["buy_goblin", "买第一包种子",
+		"工具已经领好. 出门去东边桥头找哥布林, 按 F 买当季作物种子, 先买 3 包就好."],
 	"buy_goblin": ["till_first", "开出第一块田",
-		"拿锄头对准草地挥一下, 开出能播种的耕地"],
+		"在家附近选一块空草地, 用数字键选锄头, 左键开田."],
 	"till_first": ["plant_first", "播下第一颗种子",
-		"拿一包种子对准耕地点一下, 把它埋进土里"],
+		"选中当季种子, 对耕地左键播种. 先种几块就好, 留点时间逛岛."],
 	"plant_first": ["water_first", "给苗浇头道水",
-		"拿洒水壶对准耕地浇水, 苗每天都要喝水"],
-	"water_first": ["harvest_first", "收获第一份作物",
-		"照看好田地, 作物熟了收下来"],
+		"选洒水壶, 对苗左键浇水. 壶空了去水边补水, 下雨会自动浇田."],
+	"water_first": ["harvest_first", "等待第一份收成",
+		"每天浇水, 成熟后左键收获. 漏浇只会停长. 等待时去坡上篝火找咪露, 或按 B 查看制作."],
 	"harvest_first": ["sell_first", "卖出第一份作物",
-		"把收成投进屋边的售卖箱, 关箱就换成金币"],
-	"sell_first": ["explore_island", "去水边钓条鱼",
-		"拿钓竿对着水面点一下, 钓上第一条鱼就算出师了"],
+		"走到屋边售卖箱按 F, 放入收成再关箱, 金币马上到账. 之后可以建造家园."],
+	"sell_first": ["build_first", "添一件家园设施",
+		"按 B 打开建造, 先放一个储物箱或一盏路灯. 小件当场建好, 房屋要按 T 派伙伴施工."],
 }
 
-# 第二段指引链（e32 中后期指引）：毕业之后接着往下指, 一路串到中后期各大系统。
-# 跟 _CHAIN 分开放：_CHAIN 是「第一周」的封闭链, 这里是「出新手村」之后的开放链。
-# 每一环都由对应系统的首次达成事件驱动 Quests.complete(id)：
-#   · explore_island -> player.gd 第一次钓上鱼（也是毕业条件, 见 note_first_fish）
-#   · build_first    -> structures.gd place() 盖起第一座建筑
-#   · mine_first     -> ore_data.gd settle_mine_day() 矿井第一次有产出
-#   · tech_first     -> research.gd research_tech() 完成第一项科技
-#   · sail_first     -> voyage.gd enter_travel() 第一次出海
-#   · navy_first     -> scene/battle_map.gd 打赢第一场海战
-#   · contract_first -> nations.gd sign_contract() 签下第一份契约
-#   · siege_first    -> nations.gd on_siege_victory() 攻下第一座城（链尾）
+# 经营与出海是主线, 钓鱼和复国各自独立, 不互相充当门槛。
 const _MID_CHAIN := {
-	"explore_island": ["build_first", "盖起第一座建筑",
-		"打开建造页, 在空地上盖一间鸡舍或者熔炉"],
-	"build_first": ["mine_first", "下矿挖第一份矿",
-		"在派活页把伙伴派进矿井, 他们每天早上挖矿回来"],
-	"mine_first": ["tech_first", "研究出第一项科技",
-		"打开科技页, 花科技点点开第一项研究"],
-	"tech_first": ["sail_first", "出海跑一趟",
-		"修好码头就能出海, 去别的海域看看"],
-	"sail_first": ["navy_first", "打赢第一场海战",
-		"海上撞见海寇或者巡逻队, 打赢他们"],
-	"navy_first": ["contract_first", "签下第一份契约",
-		"声望够了就能在外交页签雇佣兵或者封臣契约"],
-	"contract_first": ["siege_first", "攻下第一座城",
-		"带兵打下一座城, 把它插上你的旗"],
+	"build_first": ["mine_first", "安排第一份采矿工作",
+		"按 T 打开派活, 把一位伙伴放入采集矿石, 选采石或采铁. 次日早上收到矿物, 计划会保留."],
+	"mine_first": ["tech_first", "让日常工作更省力",
+		"按 T 派伙伴研究科技, 晚上得到研究点. 按 B 到发展-科技, 优先研究水轮或引水渠."],
+	"tech_first": ["sail_first", "准备第一次航行",
+		"去东岸废弃码头按 F, 付材料并按 T 派人修建, 造好足够的船后出海. 可以先做贸易, 不必打仗."],
+}
+const WAR_CHAIN := {
+	"navy_first": ["contract_first", "选择一份外交契约",
+		"按 B 到外交查看声望和关系要求. 先做贸易与赠礼也能积累声望, 不用连续打仗."],
+	"contract_first": ["siege_first", "准备自己的远征",
+		"在发展-战斗整理卡组, 准备好后到大陆议事厅选择攻城. 可随时暂停这条路线."],
+}
+const OPTIONAL_TASKS := {
+	"explore_island": ["去水边钓条鱼", "找哥布林了解鱼竿, 买到后选中钓竿对水面左键. 有咬钩提示时再收竿, 钓鱼不影响建造解锁."],
+	"meet_partner": ["和咪露一起安顿下来", "坡上的篝火有来客时走近按 F, 和咪露相认并邀请她加入. 她能帮忙照料田地."],
+	"sea_trade_first": ["收到第一笔海外货款", "建成市集, 去售卖箱选择海外渠道放货. 次日到账, 比本地售卖多赚 40%."],
 }
 
 # 毕业后的里程碑长线目标（按数组顺序检查；达成发奖励，任务栏常驻最靠前的未达成项）
@@ -85,21 +78,42 @@ const MILESTONES := [
 	{"id": "ms_crew", "title": "招贤纳士", "desc": "招齐 6 名同伴",
 		"check": "crew", "goal": 6, "reward": 1500},
 	{"id": "ms_tech", "title": "科技崛起", "desc": "完成 3 项科技研究",
-		"check": "techs", "goal": 3, "reward": 1200},
+		"check": "techs", "goal": 3, "reward": 1200, "perk": "tech_point", "perk_val": 2},
 	{"id": "ms_navy", "title": "出海首胜", "desc": "在海上打赢一场遭遇战",
-		"check": "navy", "goal": 1, "reward": 1500},
+		"check": "navy", "goal": 1, "reward": 1500, "route": "war", "perk": "prestige", "perk_val": 5},
 	{"id": "ms_friends", "title": "建交五方", "desc": "五国好感都到 20",
-		"check": "favor", "goal": 20, "reward": 2000},
+		"check": "favor", "goal": 20, "reward": 2000, "perk": "prestige", "perk_val": 8},
 	# 终局三连: 达成即庆典, 但游戏永不收官 —— 想怎么玩还怎么玩
 	{"id": "ms_lord", "title": "裂土封王", "desc": "签下封臣契约, 拿到一座封地",
-		"check": "lord", "reward": 3000, "grand": true},
+		"check": "lord", "reward": 3000, "route": "war", "grand": true},
 	{"id": "ms_prestige", "title": "威震四海", "desc": "声望攒到 100",
-		"check": "prestige", "goal": 100, "reward": 3000, "grand": true},
+		"check": "prestige", "goal": 100, "reward": 3000, "route": "war", "grand": true},
 	{"id": "ms_unify", "title": "四海归一", "desc": "把五国的王都都插上你的旗",
-		"check": "unify", "reward": 5000, "grand": true},
+		"check": "unify", "reward": 5000, "route": "war", "grand": true},
 ]
 
+const HOME_MILESTONE := {
+	"id": "ms_home", "title": "潮汐港是我们的家", "desc": "招募 3 位伙伴, 建好小屋和市集, 完成 3 项科技并收到海外货款",
+	"check": "home", "reward": 2000, "grand": true,
+}
+
 const TASK_MILESTONE := "milestone"   # 里程碑在任务栏里的常驻任务位 id
+
+# Esc 模块渐进解锁: 完成对应任务 id 后开放 (bag/team/map/quests/set 无门槛)
+const MODULE_UNLOCK := {
+	"hero": "harvest_first", "calendar": "go_house", "craft": "water_first",
+	"build": "sell_first", "grow": "build_first", "diplomacy": "sail_first",
+}
+const TASK_PAGE := {
+	"build_first": "build", "mine_first": "team", "tech_first": "grow",
+	"navy_first": "grow", "contract_first": "diplomacy", "siege_first": "diplomacy",
+}
+const TASK_GROW_SUB := {"tech_first": "tech", "navy_first": "battle"}
+var war_route := false
+var tracked_id := ""
+var _module_access := {}   # 旧档已开放入口不回锁, 新档按相关经历开放。
+var quiet_nights := true
+var peaceful_voyage := true
 
 var _tasks: Array = []        # [{id, title, desc}]
 var _done := {}               # 完成过的任务 id（防跳步回挂）
@@ -120,6 +134,9 @@ func _ready() -> void:
 	Slaves.changed.connect(check_milestones)
 	Research.changed.connect(check_milestones)
 	Nations.changed.connect(check_milestones)
+	Slaves.changed.connect(_on_partner_changed)
+	Structures.station_changed.connect(func(_c: Vector2i): check_milestones())
+	Voyage.dock_changed.connect(func(): changed.emit())
 	Nations.prestige_changed.connect(check_milestones)   # e26c: 声望走自己的信号, 终局"威震四海"要听
 
 # 新档开局：发起指引任务链
@@ -128,7 +145,7 @@ func start_guide() -> void:
 		return
 	_guide_started = true
 	add("go_house", "瞧瞧东边那栋房子",
-		"东边有一栋房子, 进去看看是谁的屋子")
+		"向东找到小屋, 靠近门按 F. 哥布林准备了四件农具, 种子需要到桥头摊位购买.")
 
 func add(id: String, title: String, desc: String) -> void:
 	if has_active(id):
@@ -138,16 +155,27 @@ func add(id: String, title: String, desc: String) -> void:
 
 func complete(id: String) -> void:
 	_done[id] = true
+	# 旧档已有种子时允许直接种下, 不把已经会种田的玩家拉回购物教程。
+	if id == "plant_first":
+		cancel("buy_goblin")
 	var before := _tasks.size()
 	_tasks = _tasks.filter(func(t): return t["id"] != id)
 	if _tasks.size() != before:
 		changed.emit()
 	_chain_from(id)
-	if id == "explore_island":
+	if id == "water_first" and Slaves.count == 0:
+		_add_optional("meet_partner")
+	if id == "sell_first" and _guide_started:
+		start_milestones()
+		_add_optional("explore_island")
+	if id == "sail_first":
+		_add_optional("sea_trade_first")
+	if id == "explore_island" and has_done("sell_first") and _guide_started:
 		start_milestones()   # 指引链毕业 -> 长线里程碑开闸
 	elif _fish_first and has_active("explore_island"):
 		# e32: 鱼早就钓过了, 只是链才刚走到这一环 —— 补一次毕业
 		complete("explore_island")
+	changed.emit()
 
 # e32 毕业条件: 钓上第一条鱼。player.gd 钓鱼成功时调。
 # 指引链还没走到 explore_island 的话只记下 flag, 等链走到那一环时 complete() 里补毕业。
@@ -158,17 +186,101 @@ func note_first_fish() -> void:
 	if has_active("explore_island"):
 		complete("explore_island")
 
+func caught_first_fish() -> bool:
+	return _fish_first
+
+# 播种在已湿润的土里也算完成照料, 不要求玩家再次对湿田无效点击。
+func note_planted(cell: Vector2i) -> void:
+	complete("plant_first")
+	if Farm.has_crop(cell) and Farm.is_watered(cell):
+		complete("water_first")
+
 # 链条衔接：id 完成后挂下一步（跳步完成过的不再挂）
 func _chain_from(id: String) -> void:
-	var nx: Array = []
-	if _CHAIN.has(id):
-		nx = _CHAIN[id]
-	elif _MID_CHAIN.has(id):
-		nx = _MID_CHAIN[id]
+	var nx: Array = _CHAIN.get(id, _MID_CHAIN.get(id, []))
+	if war_route and WAR_CHAIN.has(id):
+		nx = WAR_CHAIN[id]
 	if nx.is_empty():
 		return
-	if not _done.has(String(nx[0])):
-		add(String(nx[0]), String(nx[1]), String(nx[2]))
+	var next_id: String = String(nx[0])
+	if next_id == "buy_goblin" and has_done("plant_first"):
+		_chain_from(next_id)
+		return
+	if has_done(next_id):
+		_chain_from(next_id)
+	else:
+		add(next_id, String(nx[1]), String(nx[2]))
+
+func _add_optional(id: String) -> void:
+	if has_done(id):
+		return
+	if id == "meet_partner":
+		cancel(String(Slaves.ROSTER[0]["id"]))
+	var entry: Array = OPTIONAL_TASKS[id]
+	add(id, String(entry[0]), String(entry[1]))
+
+func _on_partner_changed() -> void:
+	if Slaves.count > 0 and has_active("meet_partner"):
+		complete("meet_partner")
+	changed.emit()
+
+func choose_war_route(enabled_route: bool) -> void:
+	war_route = enabled_route
+	peaceful_voyage = not enabled_route
+	for id in ["navy_first", "contract_first", "siege_first"]:
+		cancel(id)
+	if war_route:
+		if not has_done("navy_first"):
+			add("navy_first", "尝试第一场海战", "先去发展-战斗查看卡组, 出海寻找小股海寇. 这是可选挑战, 可撤退或暂停路线.")
+		else:
+			_chain_from("navy_first")
+	_sync_milestone_task()
+	changed.emit()
+
+func track(id: String) -> void:
+	if has_active(id):
+		tracked_id = id
+		changed.emit()
+
+func tracked_task() -> Dictionary:
+	for t in _tasks:
+		if String(t["id"]) == tracked_id:
+			return t.duplicate(true)
+	# 优先经营指引, 然后来客, 最后长期目标。
+	for t in _tasks:
+		if String(t["id"]) in _CHAIN or String(t["id"]) in _MID_CHAIN or String(t["id"]) == "sail_first":
+			return t.duplicate(true)
+	return _tasks[0].duplicate(true) if not _tasks.is_empty() else {}
+
+# HUD 和任务页共用只读指引, 不在界面里另外推断任务进度。
+func guidance() -> Dictionary:
+	var task: Dictionary = tracked_task()
+	return preload("res://scene/first_week_guide.gd").describe(task, page_for_task(String(task.get("id", ""))))
+
+func grow_sub_unlocked(sub: String) -> bool:
+	if _module_access.has("grow"):
+		return true
+	match sub:
+		"battle": return Voyage.dock_state == Voyage.DOCK_BUILT or has_done("sail_first")
+		"admin": return has_done("tech_first") and Slaves.count >= 2
+	return module_unlocked("grow")
+
+func building_lock_hint(kind: String) -> String:
+	if Structures.has_built_kind(kind) or _module_access.has("build"):
+		return ""
+	if kind in ["barn", "silo", "mill", "hive", "blacksmith"] and not has_done("build_first"):
+		return "先建好一件家园设施"
+	if kind == "bakery" and not Structures.has_built_kind("mill"):
+		return "先建好磨坊, 才有面粉可加工"
+	if kind == "weaver" and not Structures.has_built_kind("barn"):
+		return "先建好畜棚, 才有羊毛来源"
+	if kind == "greenhouse" and not has_done("tech_first"):
+		return "先完成第一项科技"
+	if kind in ["market", "lighthouse"] and not has_done("tech_first"):
+		return "先完成第一项科技, 再发展港口"
+	if kind in ["barracks", "academy", "stable"] and not grow_sub_unlocked("battle"):
+		return "先修好码头, 再准备航行装备"
+	return ""
 
 func has_active(id: String) -> bool:
 	for t in _tasks:
@@ -216,12 +328,13 @@ func has_milestone(id: String) -> bool:
 func check_milestones() -> void:
 	if _suspended or not _milestones_on:
 		return
-	for m in MILESTONES:
+	for m in MILESTONES + [HOME_MILESTONE]:
 		var id := String(m["id"])
 		if _milestone_done.has(id) or not _milestone_met(m):
 			continue
 		_milestone_done[id] = true
 		Wallet.add_money(int(m["reward"]))
+		_apply_milestone_perk(m)
 		if bool(m.get("grand", false)):
 			# 终局目标: 大庆祝, 但不锁档 —— 宣词里就说清楚, 海还是你的
 			celebrated.emit("%s达成! 奖励 +%d 金" % [String(m["title"]), int(m["reward"])])
@@ -231,6 +344,9 @@ func check_milestones() -> void:
 
 func _milestone_met(m: Dictionary) -> bool:
 	match String(m["check"]):
+		"home":
+			return has_done("sea_trade_first") and Slaves.count >= 3 and Structures.has_built_kind("hut") \
+				and Structures.has_built_kind("market") and _milestone_met({"check": "techs", "goal": 3})
 		"money":
 			return Wallet.money >= int(m["goal"])
 		"crops":
@@ -272,7 +388,9 @@ func _milestone_met(m: Dictionary) -> bool:
 
 # 任务栏常驻位：永远显示最靠前的未达成里程碑（全部达成后撤下）
 func _next_milestone() -> Dictionary:
-	for m in MILESTONES:
+	for m in MILESTONES + [HOME_MILESTONE]:
+		if String(m.get("route", "")) == "war" and not war_route:
+			continue
 		if not _milestone_done.has(String(m["id"])):
 			return m
 	return {}
@@ -332,11 +450,79 @@ func reset_all() -> void:
 	_milestone_done.clear()
 	_navy_win = false
 	_fish_first = false
+	war_route = false
+	tracked_id = ""
+	quiet_nights = true
+	peaceful_voyage = true
+	_module_access.clear()
+	changed.emit()
+
+func module_unlocked(key: String) -> bool:
+	if _module_access.has(key):
+		return true
+	if not MODULE_UNLOCK.has(key):
+		return true
+	return _done.has(String(MODULE_UNLOCK[key]))
+
+func module_lock_hint(key: String) -> String:
+	if module_unlocked(key):
+		return ""
+	var need := String(MODULE_UNLOCK.get(key, ""))
+	return "完成 %s 后开放" % _task_title_for_id(need)
+
+func _task_title_for_id(id: String) -> String:
+	for chain in [_CHAIN, _MID_CHAIN, WAR_CHAIN]:
+		for nx in chain.values():
+			if String(nx[0]) == id:
+				return String(nx[1])
+	if id == "go_house":
+		return "安顿住处"
+	return id
+
+func page_for_task(id: String) -> String:
+	return String(TASK_PAGE.get(id, ""))
+
+func grow_sub_for_task(id: String) -> String:
+	return String(TASK_GROW_SUB.get(id, "tech"))
+
+func goto_active_page() -> bool:
+	var task: Dictionary = tracked_task()
+	if task.is_empty():
+		return false
+	var id := String(task["id"])
+	if id == TASK_MILESTONE:
+		return false
+	var page := page_for_task(id)
+	if page == "":
+		return false
+	var bp: Node = get_tree().get_first_node_in_group("backpack_panel")
+	if bp == null or not bp.has_method("open_to"):
+		return false
+	var sub := grow_sub_for_task(id) if page == "grow" else ""
+	bp.call("open_to", page, sub)
+	return true
+
+func _apply_milestone_perk(m: Dictionary) -> void:
+	if not m.has("perk"):
+		return
+	match String(m["perk"]):
+		"tech_point":
+			Research.tech_points += int(m.get("perk_val", 1))
+			Research.changed.emit()
+		"prestige":
+			Nations.add_prestige(int(m.get("perk_val", 3)))
+
+func unlock_all_modules_for_ui() -> void:
+	for key in MODULE_UNLOCK:
+		_module_access[String(key)] = true
 	changed.emit()
 
 # ---------------- 存档 ----------------
 func to_dict() -> Dictionary:
 	return {
+		"version": 3, "tracked": tracked_id, "war_route": war_route,
+		"module_access": _module_access.keys(), "quiet_nights": quiet_nights,
+		"peaceful_voyage": peaceful_voyage,
 		"done": _done.keys(),
 		"guide": _guide_started,
 		"ms_on": _milestones_on,
@@ -346,15 +532,50 @@ func to_dict() -> Dictionary:
 	}
 
 func from_dict(d: Dictionary) -> void:
+	_tasks.clear()
+	_module_access.clear()
 	_done.clear()
 	for k in d.get("done", []):
 		_done[String(k)] = true
 	_guide_started = bool(d.get("guide", false))
+	# 已经开始种田的旧档不回挂购种教程, 也不扣除以前领到的物品。
+	if int(d.get("version", 0)) < 3:
+		for flag: String in ["till_first", "plant_first", "water_first", "harvest_first", "sell_first"]:
+			if has_done(flag):
+				_done["buy_goblin"] = true
+				break
 	_milestones_on = bool(d.get("ms_on", false))
 	_milestone_done.clear()
 	for k in d.get("ms_done", []):
 		_milestone_done[String(k)] = true
 	_navy_win = bool(d.get("navy", false))
 	_fish_first = bool(d.get("fish", false))
+	tracked_id = String(d.get("tracked", ""))
+	war_route = bool(d.get("war_route", false))
+	quiet_nights = bool(d.get("quiet_nights", true))
+	peaceful_voyage = bool(d.get("peaceful_voyage", not war_route))
+	for key in d.get("module_access", []):
+		_module_access[String(key)] = true
+	if int(d.get("version", 0)) < 2:
+		var legacy := {"hero": "till_first", "calendar": "plant_first", "craft": "harvest_first", "build": "explore_island", "grow": "mine_first", "diplomacy": "sail_first"}
+		for key in legacy:
+			if has_done(String(legacy[key])):
+				_module_access[key] = true
+	if _guide_started:
+		if not has_done("go_house"):
+			add("go_house", "安顿住处", "向东找到小屋, 靠近门按 F. 先领取工具, 再到哥布林摊位购买种子.")
+		else:
+			_chain_from("go_house")
+		if has_done("sell_first"):
+			_milestones_on = true
+			_add_optional("explore_island")
+		if has_done("water_first") and Slaves.count == 0:
+			_add_optional("meet_partner")
+		if has_done("sail_first"):
+			_add_optional("sea_trade_first")
+		if war_route:
+			choose_war_route(true)
+	# 恢复战争指引时不覆盖玩家单独选择的安心贸易偏好。
+	peaceful_voyage = bool(d.get("peaceful_voyage", not war_route))
 	_sync_milestone_task()
 	changed.emit()

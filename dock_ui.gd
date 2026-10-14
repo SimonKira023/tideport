@@ -45,8 +45,14 @@ func _build() -> void:
 	center.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(center)
 
-	var card := ColorRect.new()
-	card.color = Color(0.11, 0.10, 0.13, 0.97)
+	var card := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.11, 0.10, 0.13, 0.97)
+	style.content_margin_left = 18
+	style.content_margin_right = 18
+	style.content_margin_top = 16
+	style.content_margin_bottom = 16
+	card.add_theme_stylebox_override("panel", style)
 	card.custom_minimum_size = Vector2(PANEL_W, 0)
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	center.add_child(card)
@@ -90,7 +96,7 @@ func _rebuild() -> void:
 func _foot_text() -> String:
 	if Voyage.dock_state == Voyage.DOCK_BUILT:
 		return "F 出海 / 再按一次 F 关闭  -  Esc 关闭"
-	return "F / Esc 关闭  -  夜里在派活面板安排人手"
+	return "F / Esc 关闭  -  按 T 安排施工人手"
 
 func _title_text() -> String:
 	match Voyage.dock_state:
@@ -115,7 +121,7 @@ func _build_ruin() -> void:
 			ok = false
 		_body.add_child(_label("  %s  %d / %d" % [str(e["name"]), have, need],
 			12, Color(0.55, 0.85, 0.5) if have >= need else Color(1, 0.55, 0.5)))
-	_body.add_child(_label("动工之后, 夜里在派活面板派人来修.", 11,
+	_body.add_child(_label("动工之后, 按 T 派人来修, 每晚自动施工.", 11,
 		Color(0.66, 0.62, 0.55)))
 	var b := _button("动工 (付钱和材料)", PANEL_W - 60)
 	b.disabled = not ok
@@ -146,11 +152,19 @@ func _build_funded() -> void:
 	_body.add_child(_label("今天派了 %d 人" % Slaves.dock_heads(), 12, Color(0.9, 0.86, 0.78),
 		HORIZONTAL_ALIGNMENT_CENTER))
 	_body.add_child(_label(
-		"夜里睡觉前那张派活面板里\n勾上修码头, 派人过来.\n一个人干一天 = 1 人天.",
+		"按 T 打开派活面板, 勾上修码头.\n安排一次即可, 每晚自动继续施工.\n一个人干一天 = 1 人天.",
 		11, Color(0.66, 0.62, 0.55)))
 
 # —— 建成：出海 + 船队 + 造船 ——
 func _build_built() -> void:
+	var peaceful := CheckButton.new()
+	peaceful.text = "安心贸易 (不触发自动遭遇战)"
+	peaceful.button_pressed = Quests.peaceful_voyage
+	peaceful.add_theme_font_override("font", PIXEL_FONT)
+	peaceful.add_theme_font_size_override("font_size", 12)
+	peaceful.toggled.connect(func(on: bool): Quests.peaceful_voyage = on)
+	_body.add_child(peaceful)
+	_body.add_child(_label("主动攻城仍会开战. 想挑战海寇可关闭安心贸易.", 11, Color(0.82, 0.78, 0.70)))
 	var why: String = Voyage.depart_block_reason(null)
 	var b := _button("出海 (F)", PANEL_W - 60)
 	b.disabled = (why != "")

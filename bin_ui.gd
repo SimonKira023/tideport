@@ -19,7 +19,13 @@ var _goblin_btn: Button = null       # 贸易渠道切换（e13f）
 var _sea_btn: Button = null
 
 # 渠道切换（e29a）: 投放时按当前渠道打标 —— 哥布林关箱即售, 海外 +40% 次日到账
+# 2026-10-06: 海外渠道需要**市集**（Structures.can_sea_trade）—— 市集把"海外贸易"
+#   这件事从售卖箱里切割出来了。没市集时按哥布林走（并提示为什么）。
 func _set_mode(m: String) -> void:
+	if m == "海外" and not Structures.can_sea_trade():
+		Audio.play_sfx("error", -6.0)
+		_flash("海外贸易要先在岛上建一座市集")
+		return
 	if _bin != null:
 		_bin.mode = m
 	Audio.play_sfx("ui_click", -10.0)
@@ -235,8 +241,20 @@ func _refresh() -> void:
 		_bin_list.add_child(_label("在途: 海外商船载着 %d 金 (次日到账)"
 			% _bin.sea_pending_total(), 12, Color(0.55, 0.9, 0.85)))
 	var mode_now: String = String(_bin.mode)
+	# 2026-10-06: 海外渠道要市集。没建市集时按钮灰掉 + 说明原因;
+	# 已经在"海外"模式但市集被拆了/读档里没有 -> 渠道落回本地（否则会白赚 +40%）。
+	var sea_ok: bool = Structures.can_sea_trade()
+	if not sea_ok and mode_now == "海外":
+		_bin.mode = "哥布林"
+		mode_now = "哥布林"
+	_sea_btn.disabled = not sea_ok
+	_sea_btn.tooltip_text = ("卖价上浮四成, 次日到账, 每累积卖出 1000 金 +1 声望" if sea_ok
+		else "要先在岛上建一座市集, 才能开海外贸易渠道")
 	_goblin_btn.modulate = Color(1.2, 1.15, 1.0) if mode_now == "哥布林" else Color(0.62, 0.6, 0.56)
-	_sea_btn.modulate = Color(1.2, 1.15, 1.0) if mode_now == "海外" else Color(0.62, 0.6, 0.56)
+	if sea_ok:
+		_sea_btn.modulate = Color(1.2, 1.15, 1.0) if mode_now == "海外" else Color(0.62, 0.6, 0.56)
+	else:
+		_sea_btn.modulate = Color(0.55, 0.5, 0.5)
 	_total_label.text = "共 %d 件, 关箱售得 %d 金" % [_bin.pending_count(), _bin.pending_total()]
 
 # ---------------- 点背包格放货 ----------------

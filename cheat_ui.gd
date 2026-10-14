@@ -234,6 +234,7 @@ func open() -> void:
 	_open = true
 	TimeManager.push_ui_pause()
 	show()
+	preload("res://scene/ui_anim.gd").pop_in(self)   # e89 面板弹一下, 别"啪"地糊脸
 
 func _input(event: InputEvent) -> void:
 	if not _open or _guard > 0.0:

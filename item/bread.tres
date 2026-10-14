@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "面包"
+type = "食物"
+max_stack = 99
+description = "面包房用面粉烤出来的面包, 松软管饱, 比原料面粉值钱得多"
+sell_price = 58

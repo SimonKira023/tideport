@@ -1,7 +1,8 @@
 # scene/site_node.gd —— 建筑工地（建造中的脚手架）
 # Structures.start_site 动工后由 game 摆出来：**对应建筑**的半透明轮廓 + 进度字。
-# 夜里派活面板派几个人施工，人天攒够 Structures.add_site_work 自动落成，
-# 这时 site 清空、game._sync_site_node 把脚手架撤掉换上真房子。
+# 2026-10-06 起工地可多座并行（各一个本节点, 挂在不同锚点上）：伙伴夜里在工地干活
+# 把力气换成「建造点」进总池，玩家白天在背包建造页投点，投满即落成 ——
+# 落成后 Structures.sites 里那一项消失、game._sync_site_node 撤掉对应的脚手架换上真房子。
 # e24a: 贴图跟工地类型走（鸡舍工地画鸡舍轮廓，不再一律画铁匠铺 —— 那是
 # 「鸡舍贴图错误」的根源）；.kind 由 game._sync_site_node 在 add_child 前赋值。
 extends Node2D
@@ -69,10 +70,14 @@ func _ready() -> void:
 	add_child(_label)
 
 func _process(_delta: float) -> void:
-	if _label == null or Structures.site.is_empty():
+	if _label == null:
 		return
-	# 只在「当前工地确实是我这块」时刷新字（防残留旧工地数据）
-	if Vector2i(Structures.site["anchor"]) != cell:
+	# 只在「确实有我这座工地」时刷新字（防残留旧工地数据）。
+	# 2026-10-06 起工地可多座并行 —— 按自己的锚点 cell 在列表里找到属于我的那一项。
+	var idx := Structures.site_index_at(cell)
+	if idx == -1:
 		return
-	_label.text = "%s %d/%d 人天" % [
-		Structures.site_name(), int(Structures.site["work"]), int(Structures.site["need"])]
+	var s: Dictionary = Structures.sites[idx]
+	_label.text = "%s %d/%d 点" % [
+		String(Structures.building_cost(String(s["kind"])).get("name", "建筑")),
+		int(s["work"]), int(s["need"])]

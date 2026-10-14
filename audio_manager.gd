@@ -81,6 +81,8 @@ const SFX_NAMES := [
 	"chop", "fell", "campfire", "thunder",
 	"step_wood", "step_stone", "step_sand",
 	"deploy", "move", "attack",
+	"blip", "cloth",   # cloth: P4 口袋日期卡的布料音（make_audio.py 生成）
+	"confirm", "cancel", "season", "stinger",   # P6: 确定/取消/换季/登场 stinger
 ]
 
 const SFX_POOL := 10          # 同时能响多少个音效（脚步/砍树一起响时不会互相打断）

@@ -15,8 +15,11 @@
 extends Node2D
 
 const CardsData := preload("res://scene/cards_data.gd")
+const CardFace := preload("res://scene/card_face.gd")
 const IrisWipe := preload("res://scene/iris_wipe.gd")
+const FxPalette := preload("res://scene/fx_palette.gd")   # P5: 飘字色板 + 打击三连
 const FONT_PIX := preload("res://resources/font/IPix.ttf")
+const WPANEL := preload("res://wood_panel.gd")   # e92: 战斗桌面直接复用全局手绘木板
 
 # ---------------- 设计尺寸（画布固定 1152x648, 里面全用这套坐标） ----------------
 const VW := 1152.0
@@ -35,19 +38,20 @@ const Y_HAND := 456.0
 const HAND_W := 92.0
 const HAND_H := 150.0
 
-# 卡面立绘窗口（手牌）与槽位小图尺寸（跟 tools/make_card_art.gd 的输出对齐, 1:1 上屏不缩放）
-const ART_W := 76.0
-const ART_H := 84.0
+# e93 卡面立绘: 源图 _card.png 172x288 (显示 88x146 满幅铺卡, 2x 采样) / _icon.png 80x88 (槽位)
+# 由 AI 生成后 PIL 归一（见 2026-10-07 工作日志）; 旧 make_card_art.gd 管线已停用, 别再跑它覆盖
+const ART_W := 88.0
+const ART_H := 146.0
 const ICON_W := 40.0
 const ICON_H := 44.0
 
-const C_MY := Color(0.42, 0.62, 0.95)
-const C_FOE := Color(0.92, 0.40, 0.35)
-const C_OK := Color(0.48, 0.94, 0.50)
-const C_SEL := Color(1.0, 0.86, 0.35)
+const C_MY := Color("4c777b")
+const C_FOE := Color("b36b58")
+const C_OK := Color("78945d")
+const C_SEL := Color("efd18e")
 const C_DIM := Color(0.38, 0.40, 0.46)
-const C_GOLD := Color(1.0, 0.84, 0.35)
-const C_TXT := Color(0.95, 0.92, 0.86)
+const C_GOLD := Color("9c712f")
+const C_TXT := Color("503827")
 
 # 遭遇的敌人队伍（Voyage.enter_battle / enter_siege 在 add_child 之前 set 进来）
 var party: Dictionary = {}
@@ -92,6 +96,10 @@ var _pending: Dictionary = {}
 # 手操攻击 (KARDS 式): 点我方部队 = 选中, 点敌军任意行 = 出手, 记下攻击发起者 {"row","idx"}
 var _atk_sel: Dictionary = {}
 
+# e92: 手牌拖拽态 {idx, p, off, home, rot, moved}; 空 = 没在拖
+var _drag: Dictionary = {}
+var _drag_tw: Tween = null
+
 # 战果（结算页展示）
 var _st_exp := 0
 var _st_coin := 0
@@ -112,6 +120,8 @@ var _bar_camp: ColorRect = null
 var _lbl_cost: Label = null
 var _lbl_deck: Label = null
 var _lbl_hint: Label = null
+var _lbl_tactics: Label = null
+var _retreat_dialog: ConfirmationDialog = null
 var _btn_end: Button = null
 var _hint_tw: Tween = null
 var _bar_foe: Panel = null        # 顶部敌情条（攻击模式下可点 = 直击大营）
@@ -119,6 +129,7 @@ var _lbl_sc: Label = null         # 词条标签（右上角: 「坚城」这类
 var _foe_hand_pips: Array[Panel] = []   # d2: 敌情条 KARDS 式手牌牌背 (8 格, 可见数 = 敌手牌数)
 var _lbl_foe_hand: Label = null   # d2: 敌手牌数数字
 var _fx: Control = null           # 演出层（浮字/闪光/冲刺/横幅）, 永远盖在最上面
+var _card_preview: Control = null
 var _view := Vector2.ZERO         # 视口尺寸（震屏算基准位置用）
 var _shake_tw: Tween = null
 var _post_mat: ShaderMaterial = null   # E1/E2 战场后处理（泛光 + 情绪滤镜）
@@ -131,6 +142,14 @@ var _hist_drawer: Panel = null         # 左侧出牌历史抽屉（收起只露
 var _hist_list: VBoxContainer = null
 var _hist_open := false
 var _foe_fx_n := 0                     # 敌军出牌小卡计数（错开停留高度用）
+
+# e96 KARDS 式大营: 双方 HP 圆章（大数字一眼可读）+ 受损烟火点（越残越旺）
+var _coin_my_camp: Control = null
+var _coin_foe_camp: Control = null
+var _my_dmg_dots: Array = []           # {sprite, th} th=显形血量阈值(占比)
+var _foe_dmg_dots: Array = []
+# e97: 拖拽攻击 —— 按住我方部队拖到目标松手即出手（KARDS 手感）; 瞄准线画在 fx 层
+var _aim := {}                         # {row, idx, from, moved, targets, line, out, self_cancel}
 
 # ---------------- 入口 ----------------
 func _ready() -> void:
@@ -157,6 +176,7 @@ func _ready() -> void:
 	for i in 3:
 		_draw_card("foe")              # 敌方后手: 3 张 (d1 削弱, 原 4 张)
 	_build_ui()
+	Audio.play_sfx("stinger", -8.0)   # P6: 登场号 —— 两记和弦叠在军鼓 BGM 上
 	_start_my_turn()
 	_flash("点手牌下部队 / 点场上部队选行动(前进 / 进攻) / 结束回合换敌方")
 	if _sc_id != "field":
@@ -173,8 +193,11 @@ func _unhandled_input(ev: InputEvent) -> void:
 		_clear_sel()
 		return
 	var key := ev as InputEventKey
-	if key != null and key.pressed and key.keycode == KEY_ESCAPE:
-		_clear_sel()
+	if key != null and key.pressed and not key.echo:
+		if key.keycode == KEY_ESCAPE:
+			_clear_sel()
+		elif key.keycode == KEY_SPACE and _btn_end != null and not _btn_end.disabled:
+			_on_end_turn()                 # e96: 空格结束回合（KARDS 习惯）
 
 # ---------------- 回合流转 ----------------
 func _start_my_turn() -> void:
@@ -283,13 +306,23 @@ func _ai_step() -> bool:
 	var pick: Dictionary = _foe_hand[best]
 	var cost := int(pick["cost"])
 	if String(pick["type"]) == "unit":
-		var slot := _first_empty(_row("foe", "support"))
+		# e96 部署落位（KARDS 思路）: rush 前线有空位直接顶上去省推进费;
+		# 守护兵挑挨着自己人的空支援位（守护不护自己, 邻居没了掩护就空转）
+		var kw := String(pick.get("kw", ""))
+		var slot := -1
 		var to_front := false
-		if slot < 0:                       # 支援线满了: 直接下前线空位
+		if kw != "guard" and _arch == "rush" and _first_empty(_front, _front_slots) >= 0:
+			slot = _first_empty(_front, _front_slots)
+			to_front = true
+		if slot < 0:
+			slot = _first_empty(_row("foe", "support"))
+		if slot < 0:
 			slot = _first_empty(_front, _front_slots)
 			to_front = true
 		if slot < 0:
 			return false
+		if kw == "guard" and not to_front:
+			slot = _ai_guard_slot(slot)
 		_foe_hand.remove_at(best)
 		_foe_cost -= cost
 		var u := _new_unit(pick, "foe")
@@ -355,6 +388,9 @@ func _ai_score(card: Dictionary) -> float:
 		match String(card.get("spell", "")):
 			"camp_dmg":
 				s = 6.0 if _arch == "burn" else 3.0
+				# e96 终结: 这一发能打穿玩家大营就无条件最优先（KARDS 式斩杀意识）
+				if int(card.get("dmg", 0)) >= _my_camp:
+					s = 999.0
 			"unit_dmg":
 				s = 5.0 if not _all_units("my").is_empty() else -999.0
 			"summon2":
@@ -443,6 +479,10 @@ func _ai_pick_target() -> Dictionary:
 # 攻击 / 直伤法术被挡下。守护只护邻居不护自己; 前线共享, 邻居按单位 side 分敌我
 func _is_guarded(side: String, row: String, idx: int) -> bool:
 	var arr := _row(side, row)
+	# 守护者始终可以被攻击, 防止两名守护者互保形成无敌死局。
+	if idx >= 0 and idx < arr.size() and arr[idx] != null:
+		if String((arr[idx]["card"] as Dictionary).get("kw", "")) == "guard":
+			return false
 	for off: int in [-1, 1]:
 		var j := idx + off
 		if j < 0 or j >= arr.size():
@@ -474,10 +514,11 @@ func _attack_targets(u: Dictionary) -> Array:
 		var v: Variant = _front[i]
 		if v != null and String((v as Dictionary)["side"]) == enemy:
 			front_clear = false
-			out.append({"side": enemy, "row": "front", "idx": i})
+			if not _is_guarded(enemy, "front", i):
+				out.append({"side": enemy, "row": "front", "idx": i})
 	for i in _row(enemy, "support").size():
 		var s: Variant = _row(enemy, "support")[i]
-		if s != null:
+		if s != null and not _is_guarded(enemy, "support", i):
 			out.append({"side": enemy, "row": "support", "idx": i})
 	if front_clear:
 		out.append({"kind": "camp", "side": enemy})
@@ -523,6 +564,8 @@ func _do_attack(side: String, row: String, idx: int, target: Dictionary) -> bool
 		if ok:
 			break
 	if not ok:
+		if side == "my":
+			_flash("目标受守护或已失效, 请选择高亮目标. 本次不消耗费用.")
 		return false
 	if side == "my":
 		_cost -= act
@@ -552,7 +595,7 @@ func _strike(u: Dictionary, target: Dictionary) -> void:
 		# 守护: 目标的左右邻居有同阵营守护兵, 这记攻击被挡下（守护不护守护者自己）
 		if _is_guarded(String(target["side"]), trow, ti):
 			_dash(from, tp, side)
-			_float_text("守护", tp, Color(0.55, 0.90, 0.75), 16)
+			_float_text("守护", tp, FxPalette.GUARD, 16)
 			_slot_flash(tp)
 			Audio.play_sfx("chop", -12.0, 0.8)
 			_flash("%s 被邻居掩护, 攻击落空" % String((d["card"] as Dictionary)["name"]))
@@ -563,12 +606,19 @@ func _strike(u: Dictionary, target: Dictionary) -> void:
 			arr[ti] = null
 			if String(target["side"]) == "foe":
 				_killed += 1
-			_float_text("击倒", tp, Color(1.0, 0.85, 0.35), 17)
+			_float_text("击倒", tp, FxPalette.GAIN, 17)
 			_slot_flash(tp)
+			_shatter(tp, Color(0.85, 0.72, 0.5))     # e92: 木牌碎裂
+			_shake(1.8)                              # e92: 击杀轻震
+			# P5 打击三连: 僵直一瞬 + 辐射速度线 + 短白闪（击杀的"砰"）
+			FxPalette.hit_stop()
+			FxPalette.speed_lines(_fx, tp)
+			FxPalette.flash(get_tree(), Color(1.0, 0.97, 0.88), 0.20, 0.12)
 			Audio.play_sfx("fell", -6.0, 1.06)
 			_flash("%s 被击倒" % String((d["card"] as Dictionary)["name"]))
 			return
-		_float_text("-%d" % atk, tp, Color(1.0, 0.95, 0.85), 15)
+		_recoil(tp, tp - from)                       # e96: 受击后仰
+		_float_text("-%d" % atk, tp, FxPalette.HURT, 15)
 		_slot_flash(tp)
 		Audio.play_sfx("chop", -9.0, 1.2)
 		_flash("%s 受伤 %d" % [String((d["card"] as Dictionary)["name"]), atk])
@@ -578,7 +628,8 @@ func _strike(u: Dictionary, target: Dictionary) -> void:
 		var ratk := int(d["atk"])
 		u["hp"] = int(u["hp"]) - ratk
 		var fp := _find_slot(u)
-		_float_text("反击 -%d" % ratk, fp, Color(1.0, 0.62, 0.42), 15)
+		_recoil(fp, fp - tp)                         # e96: 反击方也被顶一下
+		_float_text("反击 -%d" % ratk, fp, FxPalette.HURT, 15)
 		_slot_flash(fp)
 		Audio.play_sfx("chop", -9.0, 0.9)
 		_flash("%s 反击 %s -%d" % [String((d["card"] as Dictionary)["name"]), String((u["card"] as Dictionary)["name"]), ratk])
@@ -586,7 +637,10 @@ func _strike(u: Dictionary, target: Dictionary) -> void:
 			_slain_at(int(u["uid"]), side)
 			if side == "foe":
 				_killed += 1
-			_float_text("击倒", fp, Color(1.0, 0.85, 0.35), 17)
+			_float_text("击倒", fp, FxPalette.GAIN, 17)
+			_shatter(fp, Color(0.85, 0.72, 0.5))     # e92: 反杀也碎
+			FxPalette.hit_stop()                     # P5: 反杀同样给一记僵直
+			FxPalette.speed_lines(_fx, fp)
 			Audio.play_sfx("fell", -6.0, 1.06)
 			_flash("%s 被反杀" % String((u["card"] as Dictionary)["name"]))
 		return
@@ -607,6 +661,32 @@ func _slain_at(uid: int, side: String) -> void:
 			if v != null and int((v as Dictionary).get("uid", -1)) == uid:
 				arr[i] = null
 				return
+
+# e96 KARDS 式局势评估: 场上双方部队力量 + 大营血量比折算。
+# >0 敌方占优（该去打脸压死）, <0 落后（该换血清场）。
+func _ai_board_edge() -> float:
+	var foe_p := 0.0
+	var my_p := 0.0
+	for row in ["front", "support"]:
+		for u: Variant in _row("foe", row):
+			if u != null:
+				foe_p += float((u as Dictionary)["atk"]) + float((u as Dictionary)["hp"])
+		for u: Variant in _row("my", row):
+			if u != null:
+				my_p += float((u as Dictionary)["atk"]) + float((u as Dictionary)["hp"])
+	foe_p += 10.0 * float(_foe_camp) / float(maxi(1, _foe_camp_max))
+	my_p += 10.0 * float(_my_camp) / float(maxi(1, _my_camp_max))
+	return foe_p - my_p
+
+# 守护兵落位: 优先站到有己方邻居的空支援位（守护不护自己, 邻居没了掩护就空转）
+func _ai_guard_slot(fallback: int) -> int:
+	var arr := _row("foe", "support")
+	for i in arr.size():
+		if arr[i] != null:
+			continue
+		if (i > 0 and arr[i - 1] != null) or (i < arr.size() - 1 and arr[i + 1] != null):
+			return i
+	return fallback
 
 # 敌方 AI 手操攻击: 能击杀 > 砸大营 > 打高威胁, 一支一支来（带停顿, 看得清）。
 # 候选打不出去就换下一个发起者, 绝不整回合罢工（旧版一失败就 break, 敌军整场不动）。
@@ -655,18 +735,35 @@ func _ai_attacks() -> void:
 		if not acted:
 			break
 
-# AI 给一次攻击打分: 击杀最香, 砸大营次之, 再是打高攻; 被守护的单位不值得动手
+# AI 给一次攻击打分（e96 KARDS 化）:
+#   终结技 > 击杀 > 局势导向（领先打脸压死 / 落后换血清场）, 亏本买卖（反击能打死发起者）会掂量
 func _ai_attack_score(u: Dictionary, t: Dictionary) -> float:
 	var atk := int(u["atk"])
 	if t.get("kind", "") == "camp":
-		return 14.0 + float(atk)
+		if atk >= _my_camp:
+			return 999.0                        # 终结: 这记能打穿大营就别犹豫
+		var edge := _ai_board_edge()
+		return 14.0 + float(atk) + clampf(edge, -6.0, 6.0) * 0.8   # 领先才去打脸, 落后打脸是送
 	if _is_guarded(String(t["side"]), String(t["row"]), int(t["idx"])):
 		return -999.0
 	var arr := _row(String(t["side"]), String(t["row"]))
 	var d: Dictionary = arr[int(t["idx"])]
+	var s := 0.0
 	if int(d["hp"]) <= atk:
-		return 60.0 + float(atk) * 3.0
-	return 10.0 + float(atk) * 2.0 + float(d["atk"])
+		s = 60.0 + float(atk) * 3.0 + float(d["atk"])
+	else:
+		s = 10.0 + float(atk) * 2.0 + float(d["atk"])
+		# 亏本买卖: 反击能把发起者打死 / 打残就别硬上（射手免反击不受此罚）
+		if String((u["card"] as Dictionary).get("kw", "")) != "ranged":
+			var ratk := int(d["atk"])
+			if ratk >= int(u["hp"]):
+				s -= 40.0
+			elif ratk * 2 >= int(u["hp"]):
+				s -= 8.0
+		var edge2 := _ai_board_edge()
+		if edge2 < 0.0:
+			s += clampf(-edge2, 0.0, 8.0) * 0.3     # 落后时更执着于清场换血
+	return s
 
 func _check_over() -> bool:
 	if _over:
@@ -680,6 +777,241 @@ func _check_over() -> bool:
 	return false
 
 # ---------------- 出牌 / 推进 ----------------
+# ---------------- e92: 手牌拖拽 ----------------
+# 按下手牌 = 拖拽候选; 不动松手 = 原点击行为(_on_hand); 拖起来松手 = 落到指到的槽。
+# 法术拖到场上 = 进入选目标（跟点它一样）; 落点不合法 = 弹回原位 + 提示。
+func _drag_begin(idx: int, p: Control) -> void:
+	_hide_card_preview()
+	if _over or _ai_busy or _whose != "my":
+		return
+	if _drag_tw != null and _drag_tw.is_valid():
+		_drag_tw.kill()
+	_drag = {"idx": idx, "p": p, "off": _stage.get_local_mouse_position() - p.position,
+		"home": p.position, "rot": p.rotation_degrees, "moved": false}
+	p.z_index = 30
+	_card_pop(p, 1.08, 0.10)
+
+func _drag_move() -> void:
+	if _drag.is_empty():
+		return
+	var p: Control = _drag.get("p")
+	if p == null:
+		return
+	var pos := _stage.get_local_mouse_position() - (_drag["off"] as Vector2)
+	pos.x = clampf(pos.x, -HAND_W * 0.4, VW - HAND_W * 0.6)
+	pos.y = clampf(pos.y, 0.0, VH - HAND_H * 0.5)
+	if not bool(_drag["moved"]) and pos.distance_to(_drag["home"] as Vector2) > 14.0:
+		_drag["moved"] = true
+		p.rotation_degrees = 0.0           # 拖起来: 扇形回正, 拿在手里
+	if bool(_drag["moved"]):
+		p.position = pos
+
+func _input(ev: InputEvent) -> void:
+	if ev is InputEventMouseMotion:
+		_drag_move()
+		_aim_move()
+		return
+	var me := ev as InputEventMouseButton
+	if me == null:
+		return
+	if me.button_index == MOUSE_BUTTON_RIGHT:
+		if me.pressed and not _drag.is_empty():
+			var pr: Control = _drag.get("p")
+			var hr: Vector2 = _drag.get("home", Vector2.ZERO)
+			var rr: float = float(_drag.get("rot", 0.0))
+			_drag = {}                          # 右键断拖: 弹回
+			_spring(pr, hr, rr)
+		elif me.pressed and not _aim.is_empty():
+			_aim_cancel()
+		return
+	if me.button_index != MOUSE_BUTTON_LEFT or me.pressed:
+		return
+	# e97: 左键松手 = 结算（旧版要再按一下才结算, 手感断裂）
+	if not _drag.is_empty():
+		var p: Control = _drag.get("p")
+		var idx := int(_drag.get("idx", -1))
+		var home: Vector2 = _drag.get("home", Vector2.ZERO)
+		var rot: float = float(_drag.get("rot", 0.0))
+		var moved := bool(_drag.get("moved", false))
+		var drop: Dictionary = _drop_target(p.position + Vector2(HAND_W * 0.5, HAND_H * 0.5)) \
+			if moved else {}
+		_drag = {}
+		p.z_index = 0
+		if not moved:
+			p.rotation_degrees = rot            # 原地按一下 = 点击, 走老逻辑
+			_card_pop(p, 1.0, 0.10)
+			_on_hand(idx)
+			return
+		var card: Dictionary = _my_hand[idx]
+		if String(card["type"]) == "spell":
+			if drop.is_empty():
+				_spring(p, home, rot)           # 沒拖到场上: 弹回
+			else:
+				_on_hand(idx)                   # 拖到场上 = 点它（进选目标/直接施放, 手牌会重建）
+			return
+		var ok := true
+		if drop.is_empty():
+			ok = false
+		else:
+			var row := String(drop["row"])
+			var slot := int(drop["slot"])
+			var occupied: bool = ((_front[slot] if row == "front" else _my_support[slot]) != null)
+			if occupied:
+				_flash("这个位置已经有部队了")
+				ok = false
+			elif row == "front" and _first_empty(_my_support) >= 0:
+				_flash("部队先下支援线; 点场上部队可前进前线")
+				ok = false
+		if ok:
+			_deploy_to(idx, String(drop["row"]), int(drop["slot"]))
+		else:
+			_spring(p, home, rot)
+	elif not _aim.is_empty():
+		_aim_release()
+
+# 弹回扇形原位（拖拽结束后的收拾动作）
+func _spring(p: Control, home: Vector2, rot: float) -> void:
+	if _drag_tw != null and _drag_tw.is_valid():
+		_drag_tw.kill()
+	_drag_tw = create_tween()
+	_drag_tw.set_parallel(true)
+	_drag_tw.tween_property(p, "position", home, 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_drag_tw.tween_property(p, "rotation_degrees", rot, 0.22) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_drag_tw.tween_property(p, "scale", Vector2.ONE, 0.22)
+
+# 松手落点: 中心点落在哪条线的哪个槽（不合法返回 {}）
+func _drop_target(center: Vector2) -> Dictionary:
+	for cfg: Dictionary in [{"row": "support", "y": Y_MY_SUP}, {"row": "front", "y": Y_FRONT}]:
+		var y: float = cfg["y"]
+		if center.y < y or center.y > y + SLOT_H:
+			continue
+		var row := String(cfg["row"])
+		var n := _row_slots(row)
+		var x0 := _row_x(n)
+		var si := int(floorf((center.x - x0) / (SLOT_W + SLOT_GAP)))
+		if si >= 0 and si < n:
+			return {"row": row, "slot": si}
+	return {}
+
+# ---------------- e97: 拖拽攻击 + 瞄准线 ----------------
+# 按下我方可行动部队: 记录出发点与合法目标集, 起一根瞄准线（出手在松手时结算）
+func _aim_try_begin(side: String, row: String, idx: int) -> void:
+	if side != "my" or _over or _ai_busy or _whose != "my":
+		return
+	if not _pending.is_empty():
+		return                        # 法术目标态不抢这条交互
+	var arr := _row("my", row)
+	if idx < 0 or idx >= arr.size() or arr[idx] == null:
+		return
+	var u: Dictionary = arr[idx]
+	if not _can_pick(row, idx) or not _can_act(u):
+		return
+	var targets := _attack_targets(u)
+	if targets.is_empty():
+		return
+	_aim_cancel()                     # 防叠
+	_aim = {"row": row, "idx": idx,
+		"from": _slot_pos("my", row, idx) + Vector2(SLOT_W * 0.5, SLOT_H * 0.5),
+		"moved": false, "targets": targets,
+		"self_cancel": not _atk_sel.is_empty()
+			and row == String(_atk_sel.get("row", "")) and idx == int(_atk_sel.get("idx", -1))}
+	var out := Line2D.new()           # 深色描边
+	out.width = 4.5
+	out.default_color = Color(0.08, 0.06, 0.04, 0.6)
+	var ln := Line2D.new()            # 亮芯
+	ln.width = 2.0
+	ln.default_color = Color(1.0, 0.86, 0.45, 0.92)
+	ln.points = PackedVector2Array([_aim["from"], _aim["from"]])
+	out.points = ln.points
+	_fx.add_child(out)
+	_fx.add_child(ln)
+	_aim["line"] = ln
+	_aim["out"] = out
+
+func _aim_move() -> void:
+	if _aim.is_empty():
+		return
+	var mp := _stage.get_local_mouse_position()
+	var from: Vector2 = _aim["from"]
+	if not bool(_aim["moved"]) and mp.distance_to(from) > 12.0:
+		_aim["moved"] = true
+	var pts := PackedVector2Array([from, mp])
+	(_aim["line"] as Line2D).points = pts
+	var ol := _aim["out"] as Line2D
+	ol.points = pts
+	ol.width = (_aim["line"] as Line2D).width + 2.5
+
+func _aim_cancel() -> void:
+	if _aim.is_empty():
+		return
+	if _aim.get("line") != null:
+		(_aim["line"] as Node).queue_free()
+	if _aim.get("out") != null:
+		(_aim["out"] as Node).queue_free()
+	_aim = {}
+
+# 松手: 落点对上合法目标就出手; 支援线部队拖到前线空格 = 前进; 点自己 = 取消
+func _aim_release() -> void:
+	var mp := _stage.get_local_mouse_position()
+	var moved := bool(_aim.get("moved", false))
+	var row := String(_aim["row"])
+	var idx := int(_aim["idx"])
+	var targets: Array = _aim["targets"]
+	var self_cancel := bool(_aim.get("self_cancel", false))
+	_aim_cancel()
+	if not moved:
+		if self_cancel:
+			_clear_sel()                  # 点自己 = 取消（老语义）
+		return
+	var t := _aim_target_at(mp)
+	if not t.is_empty() and _aim_match(t, targets):
+		if _do_attack("my", row, idx, t):
+			_atk_sel = {}
+			_refresh_all()
+			_check_over()
+		return
+	# 拖到前线空格 = 支援线部队前进（拖拽版的前进手势）
+	if not t.is_empty() and String(t.get("side", "")) == "my" and String(t.get("row", "")) == "front" \
+			and row == "support" and _front[int(t["idx"])] == null:
+		_atk_sel = {}
+		_advance_to(idx, int(t["idx"]))
+
+# 松手落点 -> 槽位/大营（无匹配返回 {}）
+func _aim_target_at(pos: Vector2) -> Dictionary:
+	for cfg: Dictionary in [{"side": "my", "row": "support"}, {"side": "my", "row": "front"},
+			{"side": "foe", "row": "front"}, {"side": "foe", "row": "support"}]:
+		var row := String(cfg["row"])
+		var n := _row_slots(row)
+		var x0 := _row_x(n)
+		var y := _row_y(String(cfg["side"]), row)
+		if pos.y < y or pos.y > y + SLOT_H:
+			continue
+		var si := int(floorf((pos.x - x0) / (SLOT_W + SLOT_GAP)))
+		if si >= 0 and si < n:
+			return {"side": String(cfg["side"]), "row": row, "idx": si}
+	if _bar_foe != null:
+		var r := Rect2(_bar_foe.position, _bar_foe.size)
+		if r.has_point(pos):
+			return {"kind": "camp", "side": "foe"}
+	return {}
+
+func _aim_match(t: Dictionary, targets: Array) -> bool:
+	for v: Variant in targets:
+		var d := v as Dictionary
+		if String(d.get("kind", "")) == String(t.get("kind", "")) \
+				and String(d.get("side", "")) == String(t.get("side", "")) \
+				and String(d.get("row", "")) == String(t.get("row", "")) \
+				and int(d.get("idx", -1)) == int(t.get("idx", -1)):
+			return true
+	return false
+
+func _card_pop(p: Control, s: float, dur := 0.12) -> void:
+	var tw := create_tween()
+	tw.tween_property(p, "scale", Vector2(s, s), dur) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
 func _on_hand(idx: int) -> void:
 	if _over or _ai_busy or _whose != "my":
 		return
@@ -775,7 +1107,8 @@ func _on_slot(side: String, row: String, idx: int) -> void:
 	if not _atk_sel.is_empty():
 		var from: Dictionary = _atk_sel
 		if row == String(from["row"]) and idx == int(from["idx"]):
-			_clear_sel()                        # 再点自己 = 取消
+			if _aim.is_empty():
+				_clear_sel()                # 再点自己 = 取消（拖拽态的取消在松手时结算）
 			return
 		var clicked: Variant = _row(side, row)[idx]
 		if clicked != null and String((clicked as Dictionary)["side"]) == "foe":
@@ -817,6 +1150,7 @@ func _deploy_to(idx: int, row: String, slot: int) -> void:
 		u["acted"] = true
 	_log_play("my", card)
 	Audio.play_sfx("deploy", -4.0)
+	_deploy_ring(_slot_pos("my", row, slot) + Vector2(SLOT_W * 0.5, SLOT_H * 0.5))   # e92: 落场金环
 	_flash("%s 下场" % String(card["name"]))
 	_refresh_all()
 	_check_over()
@@ -951,6 +1285,7 @@ func _draw_card(side: String) -> void:
 	hand.append(card)
 
 func _clear_sel() -> void:
+	_aim_cancel()                             # e97: 取消选中顺带收掉瞄准线
 	if _pending.is_empty() and _atk_sel.is_empty():
 		return
 	_pending = {}
@@ -972,7 +1307,7 @@ func _build_ui() -> void:
 		"night":
 			bg.color = Color(0.075, 0.058, 0.045)
 		_:
-			bg.color = Color(0.155, 0.10, 0.062)
+			bg.color = UiStyle.INK
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.add_child(bg)
@@ -993,6 +1328,7 @@ func _build_ui() -> void:
 	vin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.add_child(vin)
 	_stage = Control.new()
+	_stage.set_meta("cozy_surface", true)
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.size = Vector2(VW, VH)
 	_layer.add_child(_stage)
@@ -1026,7 +1362,7 @@ func _build_ui() -> void:
 	_stage.add_child(_hand_layer)
 
 	# 顶部敌情条
-	_bar_foe = _mk_panel(Vector2(VW - 32.0, H_BAR), Color(0.10, 0.09, 0.12, 0.92), Color(0.42, 0.34, 0.28), 2)
+	_bar_foe = _mk_panel(Vector2(VW - 32.0, H_BAR), UiStyle.INK, UiStyle.EDGE, 2)
 	_bar_foe.position = Vector2(16, Y_FOE_BAR)
 	_bar_foe.gui_input.connect(_on_bar_click)
 	_stage.add_child(_bar_foe)
@@ -1061,11 +1397,22 @@ func _build_ui() -> void:
 	btn_ret.position = Vector2(VW - 32.0 - 118.0, 9)
 	btn_ret.pressed.connect(_on_retreat)
 	_bar_foe.add_child(btn_ret)
+	# e96 KARDS 式敌方大营: HP 圆章 + 受损烟火点
+	var fc := _mk_coin(str(_foe_camp), Vector2(968, 11), Color(0.28, 0.10, 0.10), Color(0.98, 0.55, 0.45))
+	_bar_foe.add_child(fc)
+	_coin_foe_camp = fc
+	for d: Dictionary in [
+			{"pos": Vector2(292, 38), "r": 8.0, "col": Color(0.5, 0.5, 0.55, 0.28), "th": 0.6},
+			{"pos": Vector2(312, 42), "r": 6.0, "col": Color(0.5, 0.5, 0.55, 0.26), "th": 0.6},
+			{"pos": Vector2(240, 40), "r": 8.0, "col": Color(1.0, 0.55, 0.22, 0.30), "th": 0.3},
+			{"pos": Vector2(262, 42), "r": 6.0, "col": Color(1.0, 0.48, 0.18, 0.32), "th": 0.3},
+			{"pos": Vector2(280, 38), "r": 7.0, "col": Color(1.0, 0.62, 0.25, 0.28), "th": 0.3}]:
+		_foe_dmg_dots.append(_mk_glow_dot(_bar_foe, d["pos"], d["r"], d["col"], d["th"]))
 	# B4 敌方大营旗: 顶条左端一面红旗
 	_make_flag(_bar_foe, Vector2(10, 44), 28.0, Color(0.78, 0.34, 0.30))
 
 	# 左下我方大营 / 费用
-	var camp := _mk_panel(Vector2(180, 146), Color(0.10, 0.09, 0.12, 0.92), Color(0.42, 0.34, 0.28), 2)
+	var camp := _mk_panel(Vector2(180, 158), UiStyle.INK, UiStyle.EDGE, 2)
 	camp.position = Vector2(16, 448)
 	_stage.add_child(camp)
 	var ttl := _mk_label("我方大营", 13, C_MY, 150.0, 18)
@@ -1092,11 +1439,39 @@ func _build_ui() -> void:
 	_lbl_deck.position = Vector2(8, 104)
 	camp.add_child(_lbl_deck)
 	# B4 我方大营旗: 挪进面板右上角内侧（原 (20,8) 旗杆穿出面板顶、旗面压「我方大营」标题）
-	_make_flag(camp, Vector2(150, 40), 34.0, Color(0.30, 0.50, 0.85))
+	_make_flag(camp, Vector2(146, 40), 34.0, Color(0.30, 0.50, 0.85))
+	# e96 KARDS 式大营: HP 圆章（大数字）+ 受损烟火点
+	var myc := _mk_coin(str(_my_camp), Vector2(6, 120), Color(0.10, 0.26, 0.12), Color(0.55, 0.95, 0.55))
+	myc.scale = Vector2(1.35, 1.35)
+	camp.add_child(myc)
+	_coin_my_camp = myc
+	for d: Dictionary in [
+			{"pos": Vector2(98, 138), "r": 9.0, "col": Color(0.5, 0.5, 0.55, 0.30), "th": 0.6},
+			{"pos": Vector2(120, 146), "r": 7.0, "col": Color(0.5, 0.5, 0.55, 0.28), "th": 0.6},
+			{"pos": Vector2(64, 140), "r": 9.0, "col": Color(1.0, 0.55, 0.22, 0.32), "th": 0.3},
+			{"pos": Vector2(88, 148), "r": 7.0, "col": Color(1.0, 0.48, 0.18, 0.34), "th": 0.3},
+			{"pos": Vector2(108, 140), "r": 8.0, "col": Color(1.0, 0.62, 0.25, 0.30), "th": 0.3}]:
+		_my_dmg_dots.append(_mk_glow_dot(camp, d["pos"], d["r"], d["col"], d["th"]))
 
-	# 右下结束回合
-	_btn_end = _mk_button("结束回合", 170.0)
-	_btn_end.position = Vector2(VW - 186.0, 596.0)
+	# 右下结束回合 (e97: KARDS 式大按钮 + 空格提示)
+	_btn_end = _mk_button("结束回合 (空格)", 190.0)
+	_btn_end.position = Vector2(VW - 206.0, 586.0)
+	_btn_end.size = Vector2(190.0, 38.0)
+	_btn_end.add_theme_font_size_override("font_size", 15)
+	var sb_end := StyleBoxFlat.new()
+	sb_end.bg_color = Color("305b56")
+	sb_end.border_color = C_GOLD
+	sb_end.set_border_width_all(2)
+	sb_end.set_corner_radius_all(2)
+	var sb_end_h := sb_end.duplicate() as StyleBoxFlat
+	sb_end_h.bg_color = Color("42746b")
+	var sb_end_d := sb_end.duplicate() as StyleBoxFlat
+	sb_end_d.bg_color = UiStyle.SURFACE
+	sb_end_d.border_color = Color(0.45, 0.40, 0.30)
+	_btn_end.add_theme_stylebox_override("normal", sb_end)
+	_btn_end.add_theme_stylebox_override("hover", sb_end_h)
+	_btn_end.add_theme_stylebox_override("pressed", sb_end_h)
+	_btn_end.add_theme_stylebox_override("disabled", sb_end_d)
 	_btn_end.pressed.connect(_on_end_turn)
 	_stage.add_child(_btn_end)
 
@@ -1105,6 +1480,19 @@ func _build_ui() -> void:
 	_lbl_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_hint.position = Vector2(VW * 0.5 - 330.0, 374.0)
 	_stage.add_child(_lbl_hint)
+	_lbl_tactics = _mk_label("", 12, UiStyle.PAPER, 800.0, 34.0)
+	_lbl_tactics.position = Vector2(176, 406)
+	_lbl_tactics.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_tactics.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_stage.add_child(_lbl_tactics)
+	_retreat_dialog = ConfirmationDialog.new()
+	_retreat_dialog.title = "离开战斗"
+	_retreat_dialog.dialog_text = "确认撤退? 本场未获得的战利品不会结算."
+	_retreat_dialog.ok_button_text = "确认撤退"
+	_retreat_dialog.cancel_button_text = "继续战斗"
+	_retreat_dialog.theme = UiStyle.shared_theme
+	_retreat_dialog.confirmed.connect(_commit_retreat)
+	_layer.add_child(_retreat_dialog)
 
 	# 出牌历史抽屉: 挂在演出层之下（小卡从它上面飞过）, 点「史」标签滑出
 	_build_hist_drawer()
@@ -1121,76 +1509,55 @@ func _build_ui() -> void:
 #（野战暖木 / 攻城冷灰木 / 接舷湿甲板 / 夜袭乌木）。全部低对比, 只给氛围不抢 UI。
 func _build_scenery() -> void:
 	var sc := Control.new()
+	sc.name = "TacticalBoard"
 	sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sc.size = Vector2(VW, VH)
 	_stage.add_child(sc)
-	var wood := Color(0.155, 0.10, 0.062)         # 桌面木底色
-	var seam := Color(0.075, 0.048, 0.03)         # 板缝
-	var grain := Color(0, 0, 0, 0.10)             # 木纹细线
-	var mat := Color(0.085, 0.082, 0.075, 0.94)   # 战场桌垫（呢面）
-	var mat_edge := Color(0.30, 0.24, 0.17)
-	match _sc_id:
-		"siege":
-			wood = Color(0.12, 0.105, 0.105)
-			seam = Color(0.055, 0.048, 0.05)
-			mat = Color(0.088, 0.085, 0.095, 0.94)
-			mat_edge = Color(0.26, 0.23, 0.28)
-		"boarding":
-			wood = Color(0.10, 0.075, 0.05)
-			seam = Color(0.045, 0.032, 0.02)
-			mat = Color(0.07, 0.085, 0.095, 0.94)
-			mat_edge = Color(0.22, 0.28, 0.32)
-		"night":
-			wood = Color(0.075, 0.058, 0.045)
-			seam = Color(0.032, 0.025, 0.02)
-			mat = Color(0.06, 0.062, 0.075, 0.94)
-			mat_edge = Color(0.20, 0.20, 0.26)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1209
-	# 木板: 横板 8 条, 相邻明度错开 + 每板随机 3 条木纹
-	var plank_h := VH / 8.0
-	for k in 8:
-		var shade := 1.0 + (0.035 if k % 2 == 0 else -0.035) + rng.randf_range(-0.02, 0.02)
-		var pl := ColorRect.new()
-		pl.color = Color(wood.r * shade, wood.g * shade, wood.b * shade)
-		pl.position = Vector2(0, float(k) * plank_h)
-		pl.size = Vector2(VW, plank_h)
-		pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		sc.add_child(pl)
-		var ln := ColorRect.new()
-		ln.color = seam
-		ln.position = Vector2(0, float(k) * plank_h)
-		ln.size = Vector2(VW, 2)
-		ln.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		sc.add_child(ln)
-		for g in 3:
-			var gr := ColorRect.new()
-			gr.color = grain
-			gr.position = Vector2(rng.randf_range(0.0, VW * 0.55),
-				float(k) * plank_h + rng.randf_range(8.0, plank_h - 8.0))
-			gr.size = Vector2(rng.randf_range(120, 380), 1)
-			gr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			sc.add_child(gr)
-		# 板端竖缝: 每板一条, 横向错缝排布
-		var vs := ColorRect.new()
-		vs.color = seam
-		vs.position = Vector2(rng.randf_range(60.0, VW - 60.0), float(k) * plank_h + 2)
-		vs.size = Vector2(2, plank_h - 2)
-		vs.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		sc.add_child(vs)
-	# 战场桌垫: 中央一块呢面, 底 454 贴手牌区上缘, 四边让开敌情条/大营/结束按钮
-	var pad := Panel.new()
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = mat
-	psb.border_color = mat_edge
-	psb.set_border_width_all(2)
-	psb.set_corner_radius_all(6)
-	pad.add_theme_stylebox_override("panel", psb)
-	pad.position = Vector2(_row_x(_front_slots) - 48.0, 50.0)
-	pad.size = Vector2(_row_w(_front_slots) + 96.0, 404.0)
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sc.add_child(pad)
-
+	# 海图桌面以低对比布面和分区留白承托卡牌, 不再平铺高对比木板纹理。
+	var surface: Color = Color("d9c296")
+	if _sc_id == "night":
+		surface = Color("c5bdab")
+	elif _sc_id == "siege":
+		surface = Color("d0bc98")
+	var background := ColorRect.new()
+	background.color = surface
+	background.size = Vector2(VW, VH)
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sc.add_child(background)
+	# 稀疏海图刻线仅占背景, 强度低于阵营边框和行动高亮。
+	for x in range(32, int(VW), 64):
+		var line := ColorRect.new()
+		line.color = Color(0.65, 0.78, 0.73, 0.035)
+		line.position = Vector2(x, 60)
+		line.size = Vector2(1, 360)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sc.add_child(line)
+	for y in range(76, 420, 64):
+		var line := ColorRect.new()
+		line.color = Color(0.65, 0.78, 0.73, 0.035)
+		line.position = Vector2(24, y)
+		line.size = Vector2(VW - 48, 1)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sc.add_child(line)
+	for spec: Dictionary in [
+		{"y": Y_FOE_SUP, "n": 4, "color": C_FOE},
+		{"y": Y_FRONT, "n": _front_slots, "color": UiStyle.GOLD},
+		{"y": Y_MY_SUP, "n": 4, "color": C_MY}]:
+		var panel := Panel.new()
+		var edge: Color = spec["color"]
+		var style: StyleBoxFlat = UiStyle.panel(Color("ebdbb8"), Color(edge, 0.55), 0)
+		style.border_width_top = 1
+		panel.add_theme_stylebox_override("panel", style)
+		panel.position = Vector2(_row_x(int(spec["n"])) - 6, float(spec["y"]) - 4)
+		panel.size = Vector2(_row_w(int(spec["n"])) + 12, SLOT_H + 8)
+		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sc.add_child(panel)
+	var hand_back := Panel.new()
+	hand_back.add_theme_stylebox_override("panel", UiStyle.panel(Color("e9d6ac"), UiStyle.EDGE, 0))
+	hand_back.position = Vector2(202, Y_HAND - 12)
+	hand_back.size = Vector2(VW - 420, HAND_H + 32)
+	hand_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sc.add_child(hand_back)
 func _recenter() -> void:
 	if _stage == null:
 		return
@@ -1205,7 +1572,61 @@ func _refresh_all() -> void:
 	_rebuild_hand()
 	_refresh_hud()
 
+func _refresh_tactics() -> void:
+	if _lbl_tactics == null:
+		return
+	if _over:
+		_lbl_tactics.text = "战斗已结束, 查看本场战果."
+	elif _ai_busy or _whose != "my":
+		_lbl_tactics.text = "对手正在行动, 留意前线和大营."
+	elif not _pending.is_empty():
+		_lbl_tactics.text = "选择高亮目标施放卡牌. 右键或 Esc 取消."
+	elif not _atk_sel.is_empty():
+		_lbl_tactics.text = "悬停敌军查看伤害与反击. 点击高亮目标进攻, 或拖到前线空位前进."
+	else:
+		var ready := 0
+		for unit: Dictionary in _all_units("my"):
+			if _can_act(unit) and int((unit["card"] as Dictionary).get("act", 1)) <= _cost:
+				ready += 1
+		_lbl_tactics.text = "第 %d 回合 | 剩余 %d 费 | %d 支部队可行动 | 先部署, 再推进, 最后攻击大营" % [_turn_no, _cost, ready]
+
+func _selection_can_target(side: String, row: String, idx: int) -> bool:
+	if _atk_sel.is_empty() or not _sel_can_hit():
+		return false
+	var source: Array = _row("my", String(_atk_sel["row"]))
+	var source_idx: int = int(_atk_sel["idx"])
+	if source_idx < 0 or source_idx >= source.size() or source[source_idx] == null:
+		return false
+	for target: Dictionary in _attack_targets(source[source_idx]):
+		if target.get("kind", "") != "camp" and String(target.get("side", "")) == side \
+			and String(target.get("row", "")) == row and int(target.get("idx", -1)) == idx:
+			return true
+	return false
+
+# 预览与结算共用守护判定及击杀免反击规则, 不在 UI 另造一套伤害公式。
+func attack_preview(target: Dictionary) -> String:
+	if _atk_sel.is_empty():
+		return "先选择我方部队."
+	var source: Array = _row("my", String(_atk_sel["row"]))
+	var source_idx: int = int(_atk_sel["idx"])
+	if source_idx < 0 or source_idx >= source.size() or source[source_idx] == null:
+		return "所选部队已离场."
+	var unit: Dictionary = source[source_idx]
+	var side: String = String(target.get("side", "foe"))
+	var row: String = String(target.get("row", "front"))
+	var idx: int = int(target.get("idx", -1))
+	if not _selection_can_target(side, row, idx):
+		return "不能进攻这个目标. 受守护的部队需要先解除掩护."
+	var victim: Dictionary = _row(side, row)[idx]
+	var damage: int = int(unit["atk"])
+	var killed: bool = damage >= int(victim["hp"])
+	var ranged: bool = String((unit["card"] as Dictionary).get("kw", "")) == "ranged"
+	var retaliation: int = 0 if killed or ranged else int(victim["atk"])
+	return "造成 %d 伤害%s | 反击 %d%s | 消耗 %d 费" % [damage, " (击倒)" if killed else "", retaliation,
+		" (我方会倒下)" if retaliation >= int(unit["hp"]) else "", int((unit["card"] as Dictionary).get("act", 1))]
+
 func _refresh_hud() -> void:
+	_refresh_tactics()
 	var nm := _foe_display()
 	_lbl_foe.text = "%s / %s   大营 %d/%d   牌库 %d" % [
 		nm, CardsData.arch_name(party), _foe_camp, _foe_camp_max, _foe_deck.size()]
@@ -1228,6 +1649,11 @@ func _refresh_hud() -> void:
 	_bar_camp.size.x = 164.0 * clampf(float(_my_camp) / float(maxi(1, _my_camp_max)), 0.0, 1.0)
 	_lbl_cost.text = "费用 %d / %d" % [_cost, _cost_max]
 	_lbl_deck.text = "牌库 %d   敌方费用 %d/%d" % [_my_deck.size(), _foe_cost, _foe_cost_max]
+	if _coin_my_camp != null:
+		(_coin_my_camp.get_child(0) as Label).text = str(_my_camp)
+	if _coin_foe_camp != null:
+		(_coin_foe_camp.get_child(0) as Label).text = str(_foe_camp)
+	_sync_camp_dots()
 	if _btn_end != null:
 		_btn_end.disabled = _over or _ai_busy or _whose != "my"
 	# 攻击选目标模式: 敌前线没有他们的部队时, 点顶部敌情条 = 直击大营
@@ -1261,6 +1687,41 @@ func _set_mood(v: float) -> void:
 	if _post_mat != null:
 		_post_mat.set_shader_parameter("mood", v)
 
+# e96: 大营受损状态（KARDS: 总部越残越冒烟火）—— 自发光圆点按血量阈值点亮,
+# 加法混合从低 alpha 起步（HDR+泛光纪律），不呼吸不 tween（免 _process 顶基准）
+func _mk_glow_dot(parent: Control, pos: Vector2, r: float, col: Color, th: float) -> Sprite2D:
+	var s := Sprite2D.new()
+	var gt := GradientTexture2D.new()
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(0.5, 0.0)
+	var g := Gradient.new()
+	g.set_color(0, col)
+	g.set_color(1, Color(col.r, col.g, col.b, 0.0))
+	gt.gradient = g
+	gt.width = 32
+	gt.height = 32
+	s.texture = gt
+	s.scale = Vector2(r / 16.0, r / 16.0)
+	s.position = pos
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	s.material = mat
+	s.visible = false
+	s.set_meta("th", th)
+	parent.add_child(s)
+	return s
+
+func _sync_camp_dots() -> void:
+	var mr := float(_my_camp) / float(maxi(1, _my_camp_max))
+	for d: Variant in _my_dmg_dots:
+		var s := d as Sprite2D
+		s.visible = mr < float(s.get_meta("th"))
+	var fr := float(_foe_camp) / float(maxi(1, _foe_camp_max))
+	for d: Variant in _foe_dmg_dots:
+		var s := d as Sprite2D
+		s.visible = fr < float(s.get_meta("th"))
+
 func _foe_display() -> String:
 	var tid := String(party.get("siege", ""))
 	if tid != "" and Nations.TOWNS.has(tid):
@@ -1273,6 +1734,7 @@ func _foe_display() -> String:
 	return "敌军: %s" % String(party.get("type", "来犯之敌"))
 
 func _rebuild_field() -> void:
+	_hide_card_preview()
 	for c in _field_layer.get_children():
 		c.queue_free()
 	_stage_row_label("敌方支援线", Y_FOE_SUP, Color(0.78, 0.52, 0.48), 4)
@@ -1286,9 +1748,9 @@ func _rebuild_field() -> void:
 		_field_layer.add_child(_make_slot("my", "support", i, _slot_pos("my", "support", i)))
 
 func _stage_row_label(txt: String, y: float, col: Color, n: int) -> void:
-	var l := _mk_label(txt, 12, col, 44.0, 16)
+	var l := _mk_label(txt, 12, col, 110.0, 16)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	l.position = Vector2(_row_x(n) - 50.0, y + SLOT_H * 0.5 - 8.0)
+	l.position = Vector2(_row_x(n) - 118.0, y + SLOT_H * 0.5 - 8.0)
 	_field_layer.add_child(l)
 
 func _row_y(side: String, row: String) -> float:
@@ -1300,8 +1762,8 @@ func _row_y(side: String, row: String) -> float:
 func _make_slot(side: String, row: String, idx: int, pos: Vector2) -> Control:
 	var unit: Variant = _row(side, row)[idx]
 	var u_side := ""
-	var bg := Color(0.07, 0.08, 0.11, 0.6)
-	var border := C_DIM
+	var bg := Color(0.09, 0.10, 0.13, 0.72)       # e92: 空槽提亮 + 提高不透明度, 槽位轮廓不再若隐若现
+	var border := Color(0.46, 0.49, 0.57)
 	var clickable := false
 	var targetable := false
 	if unit != null:
@@ -1311,7 +1773,8 @@ func _make_slot(side: String, row: String, idx: int, pos: Vector2) -> Control:
 		# B3 满阶金卡: 暖底衬金框, 一眼贵
 		bg = Color(0.16, 0.14, 0.085, 0.95) if g else Color(0.14, 0.13, 0.16, 0.95)
 	elif side == "my" and row == "support":
-		bg = Color(0.12, 0.15, 0.20, 0.75)      # 可以下牌的空位
+		bg = Color(0.13, 0.17, 0.23, 0.85)      # 可以下牌的空位: 再亮一档
+		border = Color(0.40, 0.52, 0.66)
 	if not _over and not _ai_busy and _whose == "my":
 		if not _pending.is_empty() and unit != null:
 			clickable = _pending.get("target", "") == ("ally" if u_side == "my" else "foe")
@@ -1320,8 +1783,8 @@ func _make_slot(side: String, row: String, idx: int, pos: Vector2) -> Control:
 			if unit != null:
 				clickable = (u_side == "my" and (row == String(_atk_sel["row"]) and idx == int(_atk_sel["idx"]) \
 					or _can_pick(row, idx))) \
-					or (u_side == "foe" and _sel_can_hit())
-				targetable = u_side == "foe" and _sel_can_hit()
+					or (u_side == "foe" and _selection_can_target(u_side, row, idx))
+				targetable = u_side == "foe" and _selection_can_target(u_side, row, idx)
 			elif row == "front" and String(_atk_sel.get("row", "")) == "support":
 				clickable = true                      # 支援线部队前进的落点
 		elif unit != null and u_side == "my":
@@ -1330,11 +1793,41 @@ func _make_slot(side: String, row: String, idx: int, pos: Vector2) -> Control:
 		border = C_SEL if targetable else C_OK
 	var p := _mk_panel(Vector2(SLOT_W, SLOT_H), bg, border, 2)
 	p.position = pos
+	if targetable:
+		# e96: 合法目标呼吸高亮 —— 亮暗脉动一眼看出能打谁（tween 绑在槽位自身, 重建时自动销毁）
+		var btw := p.create_tween()
+		btw.set_loops()
+		btw.tween_property(p, "modulate", Color(1.38, 1.38, 1.18, 1.0), 0.45) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		btw.tween_property(p, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.45) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	if unit != null:
 		_fill_unit(p, unit as Dictionary)
+		p.mouse_entered.connect(func() -> void:
+			var current: Dictionary = (unit as Dictionary)["card"].duplicate()
+			current["atk"] = int((unit as Dictionary)["atk"])
+			current["hp"] = int((unit as Dictionary)["hp"])
+			_show_card_preview(current, u_side))
+		p.mouse_exited.connect(_hide_card_preview)
+		# e92: 任何场上有人的槽都吃鼠标 —— 悬停出提示, 右键照常取消选中
+		p.mouse_filter = Control.MOUSE_FILTER_STOP
+		p.tooltip_text = _unit_tip(unit as Dictionary)
+		p.mouse_entered.connect(func():
+			if _lbl_tactics != null and not _atk_sel.is_empty() and u_side == "foe":
+				_lbl_tactics.text = attack_preview({"side": u_side, "row": row, "idx": idx}))
+		p.mouse_exited.connect(_refresh_tactics)
+		p.gui_input.connect(func(ev: InputEvent) -> void:
+			var me := ev as InputEventMouseButton
+			if me == null or not me.pressed:
+				return
+			if me.button_index == MOUSE_BUTTON_RIGHT:
+				_clear_sel()
+			elif me.button_index == MOUSE_BUTTON_LEFT and clickable:
+				_aim_try_begin(side, row, idx)   # e97: 顺手起拖拽瞄准
+				_on_slot(side, row, idx))
 		if not _can_act(unit as Dictionary):
 			p.modulate = Color(0.66, 0.66, 0.70)   # 已行动: 压暗
-	if clickable:
+	elif clickable:
 		p.mouse_filter = Control.MOUSE_FILTER_STOP
 		p.gui_input.connect(func(ev: InputEvent) -> void:
 			var me := ev as InputEventMouseButton
@@ -1343,10 +1836,26 @@ func _make_slot(side: String, row: String, idx: int, pos: Vector2) -> Control:
 			if me.button_index == MOUSE_BUTTON_RIGHT:
 				_clear_sel()
 			elif me.button_index == MOUSE_BUTTON_LEFT:
+				_aim_try_begin(side, row, idx)   # e97: 空槽起不了瞄准（函数内自会拒绝）
 				_on_slot(side, row, idx))
-	else:
-		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p
+
+# e92: 场上部队悬停提示（双方都给全 —— 「对面卡牌效果我方不清楚」的主修法之一）
+func _unit_tip(u: Dictionary) -> String:
+	var card: Dictionary = u["card"]
+	var kw := String(card.get("kw", ""))
+	var kwd := ""
+	if kw == "cav":
+		kwd = "\n骑兵: 上场当回合就能动, 高级骑兵行动免费"
+	elif kw == "guard":
+		kwd = "\n守护: 左右相邻的友军不受攻击 / 直伤法术伤害"
+	elif kw == "ranged":
+		kwd = "\n射手: 在支援线也能进攻, 放箭免吃反击"
+	var txt := "%s  攻%d 血%d 行动%d%s" % [String(card["name"]),
+		int(u["atk"]), int(u["hp"]), int(card.get("act", 1)), kwd]
+	if bool(u.get("acted", false)):
+		txt += "\n(本回合已行动)"
+	return txt
 
 func _fill_unit(p: Control, unit: Dictionary) -> void:
 	var card: Dictionary = unit["card"]
@@ -1357,15 +1866,22 @@ func _fill_unit(p: Control, unit: Dictionary) -> void:
 		tr.texture = icon
 		tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		tr.position = Vector2((SLOT_W - ICON_W) * 0.5, 1)
-		tr.size = Vector2(ICON_W, ICON_H)
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		tr.position = Vector2(2, 2)
+		tr.size = Vector2(SLOT_W - 4.0, 56.0)                  # e93: 立绘铺满槽宽, 人物看得清
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		p.add_child(tr)
+	# e92: 名字条衬底 —— 名字不再直接糊在立绘/槽底上
+	var strip := ColorRect.new()
+	strip.color = Color(0, 0, 0, 0.38)
+	strip.position = Vector2(2, 58.0)
+	strip.size = Vector2(SLOT_W - 4.0, 15)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(strip)
 	var nm := _mk_label(String(card["name"]), 11, C_TXT, SLOT_W - 4.0, 14)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.clip_text = true
-	nm.position = Vector2(2, ICON_H + 3.0)
+	nm.position = Vector2(2, 59.0)
 	p.add_child(nm)
 	var kw := String(card.get("kw", ""))
 	if kw != "":
@@ -1379,7 +1895,22 @@ func _fill_unit(p: Control, unit: Dictionary) -> void:
 	# 行动费徽章: 这支部队前进 / 进攻各要付的点数
 	p.add_child(_mk_badge("行%d" % int(card.get("act", 1)), Vector2(SLOT_W - 24.0, 22.0), Color(0.36, 0.30, 0.48)))
 
+func _show_card_preview(card: Dictionary, side: String) -> void:
+	_hide_card_preview()
+	if _fx == null or not _drag.is_empty():
+		return
+	_card_preview = CardFace.build(card, side, Vector2(184, 300))
+	_card_preview.position = Vector2(VW - 194, 104)
+	_card_preview.z_index = 50
+	_fx.add_child(_card_preview)
+
+func _hide_card_preview() -> void:
+	if is_instance_valid(_card_preview):
+		_card_preview.queue_free()
+	_card_preview = null
+
 func _rebuild_hand() -> void:
+	_hide_card_preview()
 	for c in _hand_layer.get_children():
 		c.queue_free()
 	var n := _my_hand.size()
@@ -1424,41 +1955,60 @@ func _make_hand_card(idx: int, pos: Vector2) -> Control:
 		if me.button_index == MOUSE_BUTTON_RIGHT:
 			_clear_sel()
 		elif me.button_index == MOUSE_BUTTON_LEFT:
-			_on_hand(idx))
-	p.add_child(_mk_badge(str(cost), Vector2(4, 4), Color(0.20, 0.45, 0.75)))
-	# 卡面立绘: 76x84 正好贴进卡里（1:1, 不缩放）
-	var art := CardsData.art_of(card, "my")
-	if art != null:
-		var ar := TextureRect.new()
-		ar.texture = art
-		ar.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		ar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		ar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		ar.position = Vector2((HAND_W - ART_W) * 0.5, 20)
-		ar.size = Vector2(ART_W, ART_H)
-		ar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		p.add_child(ar)
-	var nm := _mk_label(String(card["name"]), 12, C_TXT, HAND_W - 4.0, 15)
-	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.clip_text = true
-	nm.position = Vector2(2, 106)
-	p.add_child(nm)
-	if is_spell:
-		var ds := _mk_label(String(card.get("desc", "")), 10, Color(0.80, 0.86, 0.96), HAND_W - 8.0, 24)
-		ds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		ds.clip_text = true
-		ds.position = Vector2(4, 124)
-		p.add_child(ds)
-	else:
-		p.add_child(_mk_badge(str(int(card["atk"])), Vector2(6, 126), Color(0.55, 0.16, 0.14)))
-		p.add_child(_mk_badge(str(int(card["hp"])), Vector2(HAND_W - 28.0, 126), Color(0.14, 0.42, 0.18)))
-		# 行动费: 前进 / 进攻各要付的点数
-		p.add_child(_mk_badge("行%d" % int(card.get("act", 1)), Vector2(HAND_W * 0.5 - 11.0, 126), Color(0.36, 0.30, 0.48)))
-		var kw := String(card.get("kw", ""))
-		if kw != "":
-			p.add_child(_mk_badge(_kw_badge_txt(kw),
-				Vector2(HAND_W - 28.0, 4), _kw_badge_col(kw)))
+			_drag_begin(idx, p))            # e92: 按下即进入拖拽候选（不动 = 点击, 动了 = 拖）
+	# e92: 悬停放大 —— 手牌是牌桌上的主角, 指到哪张哪张浮起来
+	p.mouse_entered.connect(func() -> void:
+		if _drag.is_empty():
+			_show_card_preview(card, "my")
+		if _drag.is_empty() and not sel:
+			_card_pop(p, 1.10, 0.10))
+	p.mouse_exited.connect(func() -> void:
+		_hide_card_preview()
+		if _drag.is_empty() or _drag.get("p") != p:
+			_card_pop(p, 1.0, 0.10))
+	var face := CardFace.build(card, "my", Vector2(HAND_W - 4, HAND_H - 4))
+	face.position = Vector2(2, 2)
+	p.add_child(face)
+	p.tooltip_text = String(card.get("desc", "")) if is_spell else _unit_tip({
+		"card": card, "atk": int(card["atk"]), "hp": int(card["hp"]), "acted": false})
+
+	return p
+
+# e93: 卡底渐变压字层（名字/攻血/描述的底座, 上透下黑）
+func _mk_scrim(r: Rect2) -> Control:
+	var tr := TextureRect.new()
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	g.colors = PackedColorArray([Color(0, 0, 0, 0.0),
+		Color(0.02, 0.02, 0.04, 0.55), Color(0.01, 0.01, 0.03, 0.92)])
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.fill_from = Vector2(0, 0)
+	gt.fill_to = Vector2(0, 1)
+	tr.texture = gt
+	tr.position = r.position
+	tr.size = r.size
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return tr
+
+# e93: 圆章（KARDS 式费用/攻血圆徽, 双色环）
+func _mk_coin(txt: String, pos: Vector2, bg: Color, ring: Color) -> Control:
+	var d := 24.0
+	var p := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = ring
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(12)
+	p.add_theme_stylebox_override("panel", sb)
+	p.position = pos
+	p.size = Vector2(d, d)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := _mk_label(txt, 12, Color(1, 1, 1), d, d)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.position = Vector2(0, -2)
+	p.add_child(l)
 	return p
 
 # 关键词角标的文字与底色（槽位 / 手牌共用）: 骑(低油) 守(守护) 射(后排可射)
@@ -1614,7 +2164,7 @@ func _flash(msg: String) -> void:
 		_hint_tw.kill()
 	_hint_tw = create_tween()
 	_hint_tw.tween_interval(2.2)
-	_hint_tw.tween_property(_lbl_hint, "modulate:a", 0.35, 1.0)
+	_hint_tw.tween_property(_lbl_hint, "modulate:a", 0.8, 1.0)
 
 # ---------------- 出牌历史 ----------------
 # 左侧抽屉: 收起时只露一个「史」标签, 点开滑出; 敌军出牌另有小卡飞到左侧停留的演出
@@ -1682,42 +2232,36 @@ func _refresh_hist() -> void:
 			11, Color(0.62, 0.78, 1.0) if mine else Color(1.0, 0.66, 0.60), 180.0, 18.0)
 		_hist_list.add_child(l)
 
-# 敌军出牌演出: 小卡从右上（敌军手牌方向）滑到左侧停一拍, 再甩出屏幕左缘
+# 敌军出牌演出（e92 加料版）: 带立绘/关键词/效果描述的大一点的卡, 从右上（敌军手牌方向）
+# 滑到左侧停一拍让人看清「对面到底打了什么」, 再甩出屏幕左缘
 func _fx_foe_card(card: Dictionary) -> void:
 	if _fx == null:
 		return
-	var p := _mk_panel(Vector2(104, 126), Color(0.13, 0.10, 0.09, 0.96), C_FOE, 2)
-	var y1 := 208.0 + float(_foe_fx_n % 3) * 36.0
+	var W := 132.0
+	var H := 190.0
+	var p := _mk_panel(Vector2(W, H), Color(0.13, 0.10, 0.09, 0.97), C_FOE, 2)
+	var y1 := 180.0 + float(_foe_fx_n % 3) * 40.0
 	_foe_fx_n += 1
-	p.position = Vector2(VW - 130.0, 70.0)
-	p.pivot_offset = Vector2(52.0, 63.0)
+	p.position = Vector2(VW - 150.0, 70.0)
+	p.pivot_offset = Vector2(W * 0.5, H * 0.5)
 	p.scale = Vector2(0.7, 0.7)
-	# 卡面: 费用角标 + 名字 + 攻血（法术写「法 术」）
-	var cb := _mk_panel(Vector2(24, 24), Color(0.16, 0.30, 0.55), Color(0.55, 0.75, 1.0), 1)
-	cb.position = Vector2(6, 6)
-	p.add_child(cb)
-	var cl := _mk_label("%d" % int(card.get("cost", 0)), 13, Color(0.75, 0.88, 1.0), 24.0, 24.0)
-	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	cl.position = Vector2(0, -2)
-	cb.add_child(cl)
-	var nm := _mk_label(String(card.get("name", "?")), 12, C_TXT, 92.0, 40.0)
-	nm.position = Vector2(6, 34)
-	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	p.add_child(nm)
-	var bot: String = ("%d / %d" % [int(card.get("atk", 0)), int(card.get("hp", 0))]) \
-		if String(card.get("type", "")) == "unit" else "法 术"
-	var bl := _mk_label(bot, 16, C_GOLD, 92.0, 24.0)
-	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	bl.position = Vector2(6, 94)
-	p.add_child(bl)
+	# 顶标: 红底白字「敌方打出」—— 不看历史也知道这卡是谁的
+	var hd := _mk_panel(Vector2(W, 18.0), Color(0.45, 0.14, 0.11, 0.95), Color(0, 0, 0, 0), 0)
+	p.add_child(hd)
+	var hl := _mk_label("敌 方 打 出", 10, Color(1.0, 0.82, 0.78), W, 18.0)
+	hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hd.add_child(hl)
+	var face := CardFace.build(card, "foe", Vector2(W - 4, H - 22))
+	face.position = Vector2(2, 20)
+	p.add_child(face)
+
 	_fx.add_child(p)
 	var tw := create_tween()
 	tw.tween_property(p, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.parallel().tween_property(p, "position", Vector2(20.0, y1), 0.42) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_interval(1.05)
-	tw.tween_property(p, "position:x", -140.0, 0.34).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_interval(1.6)                    # e92: 停留加长, 来得及读完效果
+	tw.tween_property(p, "position:x", -160.0, 0.34).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(p, "modulate:a", 0.0, 0.28).set_delay(0.06)
 	tw.tween_callback(p.queue_free)
 
@@ -1748,12 +2292,62 @@ func _float_text(txt: String, at: Vector2, col: Color, fsize: int) -> void:
 	l.clip_text = false
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.position = at - Vector2(80.0, 30.0)
+	l.pivot_offset = Vector2(80.0, 11.0)
+	l.scale = Vector2(1.6, 1.6)               # e92: 先弹后收, 数字砸在脸上
 	_fx.add_child(l)
 	var tw := create_tween()
-	tw.tween_property(l, "position:y", l.position.y - 26.0, 0.9) \
+	tw.tween_property(l, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "position:y", l.position.y - 26.0, 0.74) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tw.parallel().tween_property(l, "modulate:a", 0.0, 0.55).set_delay(0.35)
 	tw.tween_callback(l.queue_free)
+
+# e92: 击杀碎裂 —— 木牌打散成几片小木屑, 抛物线飞散旋转淡出
+func _shatter(at: Vector2, col: Color) -> void:
+	if _fx == null:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for k in 7:
+		var r := ColorRect.new()
+		r.color = Color(col.r, col.g, col.b, 0.92)
+		r.size = Vector2(4 + rng.randi() % 4, 3 + rng.randi() % 4)
+		r.position = at - r.size * 0.5
+		r.rotation = rng.randf() * TAU
+		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fx.add_child(r)
+		var dir := Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.3, -0.2)) \
+			* rng.randf_range(42.0, 92.0)
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(r, "position", r.position + dir + Vector2(0, 46.0), 0.55) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.tween_property(r, "rotation", r.rotation + rng.randf_range(-3.0, 3.0), 0.55)
+		tw.tween_property(r, "modulate:a", 0.0, 0.40).set_delay(0.15)
+		tw.chain().tween_callback(r.queue_free)
+
+# e92: 部署落场 —— 槽位上一圈金环绽开（部队从「手里」落到「桌上」的分量感）
+func _deploy_ring(at: Vector2) -> void:
+	if _fx == null:
+		return
+	var p := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_color = Color(1.0, 0.86, 0.45, 0.85)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	p.add_theme_stylebox_override("panel", sb)
+	p.size = Vector2(SLOT_W, SLOT_H)
+	p.position = at - p.size * 0.5
+	p.pivot_offset = p.size * 0.5
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fx.add_child(p)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(p, "scale", Vector2(1.28, 1.28), 0.32) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(p, "modulate:a", 0.0, 0.32)
+	tw.chain().tween_callback(p.queue_free)
 
 func _slot_flash(at: Vector2) -> void:
 	if _fx == null:
@@ -1801,6 +2395,29 @@ func _dash(from: Vector2, to: Vector2, side: String) -> void:
 	tw.tween_property(d, "modulate:a", 0.0, 0.18)
 	tw.tween_callback(d.queue_free)
 
+# e96: 受击后仰 —— 目标槽位框向攻击来向弹开再弹回（fx 层画框, 不动真实槽位）
+func _recoil(at: Vector2, dir: Vector2) -> void:
+	if _fx == null:
+		return
+	var p := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0.0)
+	sb.border_color = Color(1.0, 0.5, 0.35, 0.7)
+	sb.set_border_width_all(2)
+	p.add_theme_stylebox_override("panel", sb)
+	p.size = Vector2(SLOT_W, SLOT_H)
+	p.position = at - p.size * 0.5
+	p.pivot_offset = p.size * 0.5
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fx.add_child(p)
+	var off := dir.normalized() * 7.0 if dir.length() > 0.1 else Vector2(0, 7)
+	var tw := create_tween()
+	tw.tween_property(p, "position", p.position + off, 0.05)
+	tw.tween_property(p, "position", at - p.size * 0.5, 0.14) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(p, "modulate:a", 0.0, 0.1)
+	tw.tween_callback(p.queue_free)
+
 # 大营挨打: 全屏闪 + 震屏 + 飘字（我方大营还要抖血条）
 func _camp_hit_fx(enemy: String, atk: int) -> void:
 	var col := C_FOE if enemy == "foe" else Color(0.95, 0.50, 0.35)
@@ -1809,7 +2426,8 @@ func _camp_hit_fx(enemy: String, atk: int) -> void:
 	if enemy == "my":
 		_bar_shake()
 	var at := Vector2(VW * 0.5, Y_MID + 4.0) if enemy == "foe" else Vector2(VW * 0.5, Y_MID + 30.0)
-	_float_text("-%d" % atk, at, Color(1.0, 0.58, 0.46), 20)
+	_float_text("-%d" % atk, at, FxPalette.HURT, 20)
+	FxPalette.speed_lines(_fx, at)   # P5: 大营挨打也来一束辐射线
 	Audio.play_sfx("thunder", -14.0, 0.85)
 
 # 震屏: 整个战场抖一下（大营挨打等重击场面用）
@@ -1875,6 +2493,14 @@ func _show_banner(title: String, sub: String) -> void:
 	tw.tween_callback(box.queue_free)
 
 func _on_retreat() -> void:
+	if _closing:
+		return
+	if _retreat_dialog != null:
+		_retreat_dialog.popup_centered(Vector2i(420, 160))
+		return
+	_commit_retreat()
+
+func _commit_retreat() -> void:
 	if _closing:
 		return
 	_closing = true

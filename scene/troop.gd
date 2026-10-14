@@ -21,7 +21,6 @@ signal died(unit)
 
 const CELL := 32
 const MODEL_PATH := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/%s/%s"
-const MODELS := ["Alex", "Lyria", "Manu", "Tori"]
 const JOSH_IDLE := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Idle.png"
 const JOSH_WALK := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Walk.png"
 # ❗e41e: Josh/Walk.png 是 192x96 = **6 帧** x 3 行（Idle.png 才是 128x96 = 4 帧）。
@@ -220,6 +219,13 @@ func _ready() -> void:
 	# 骑兵的帧是 48x48（马+人整幅画), 居中摆放时脚底在 +24 —— 原点约定是脚下,
 	# 所以把精灵往上抬一帧半, 不然马会陷进地里半个身子。毒花(48x48)同理。
 	_sprite.position = Vector2(0, _sprite_lift())
+	if side == "ally" and not Slaves.is_mounted_troop(kind):
+		_sprite.scale = SNPC.body_scale_for(index)
+		_sprite.position.y -= 2
+	if not is_mounted() and not is_goblin() and not is_monster():
+		_sprite.position = SNPC.BODY_OFFSET
+		_sprite.scale = Vector2.ONE
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.sprite_frames = _build_frames()
 	_sprite.modulate = _base_tint()
 	_sprite.play(&"idle_down")
@@ -283,12 +289,12 @@ func _base_tint() -> Color:
 				return Color(0.9, 1.0, 0.85)
 			if is_monster():
 				return Color(1.0, 0.85, 1.0)
-			return Color(1.0, 0.55, 0.5)
+			return Color.WHITE
 		"ally":
 			# 冷青打底 * 装甲档位色 —— e29c: 个人配色(发色/服装)烘在贴图层
 			# (slave_npc 的 RECIPES 色带改色), modulate 这层只剩阵营和装甲
-			return Color(0.85, 0.95, 1.0) * Slaves.armor_tint(kind)
-	return Color(0.9, 0.94, 1.03)
+			return Color.WHITE
+	return Color.WHITE
 
 # 下标圈：被选中的部队脚下一圈亮环（"这轮听我指挥的是谁"一眼看清）
 # ❗不能用 z_index = -1 压到贴图底下 —— 那是相对父节点累加的，会连地块一起压过去，
@@ -340,13 +346,13 @@ func _build_frames() -> SpriteFrames:
 	if side == "hero":
 		# e49: 补上「受击」(Damage.png) 与「倒地」(Dead.png) —— 每个预制角色目录都自带这两张,
 		# 都是 128x96 = 4 帧 x 3 行, 跟 Idle 同一套网格。
-		specs = [["idle", JOSH_IDLE, 4, 7.0, true], ["walk", JOSH_WALK, JOSH_WALK_FRAMES, 10.0, true],
-			["swing", MODEL_PATH % ["Josh", "Sword.png"], 10, 26.0, false],
-			["shoot", MODEL_PATH % ["Josh", "Bow and Arrow.png"], 7, 15.0, false],
-			["hurt", MODEL_PATH % ["Josh", "Damage.png"], 4, 14.0, false],
-			["dead", MODEL_PATH % ["Josh", "Dead.png"], 4, 9.0, false]]
+		specs = [["idle", SNPC.player_texture("Idle.png"), 4, 7.0, true], ["walk", SNPC.player_texture("Walk.png"), JOSH_WALK_FRAMES, 10.0, true],
+			["swing", SNPC.player_texture("Sword.png"), 10, 26.0, false],
+			["shoot", SNPC.player_texture("Bow and Arrow.png"), 7, 15.0, false],
+			["hurt", SNPC.player_texture("Damage.png"), 4, 14.0, false],
+			["dead", SNPC.player_texture("Dead.png"), 4, 9.0, false]]
 	else:
-		var model: String = MODELS[index % MODELS.size()]
+		var model: String = SNPC.model_for(index)
 		if side == "ally":
 			# e29c: 本方伙伴的贴图走局部改色管线 —— 战场上的小兵跟岛上同脸同色
 			specs = [["idle", SNPC.sheet_texture(model, "Idle.png", index), 4, 7.0, true],
@@ -356,13 +362,13 @@ func _build_frames() -> SpriteFrames:
 				["hurt", SNPC.sheet_texture(model, "Damage.png", index), 4, 14.0, false],
 				["dead", SNPC.sheet_texture(model, "Dead.png", index), 4, 9.0, false]]
 		else:
-			# 敌人保持原图: 红皮 modulate 一罩, 个人配色没有意义
-			specs = [["idle", MODEL_PATH % [model, "Idle.png"], 4, 7.0, true],
-				["walk", MODEL_PATH % [model, "Walk.png"], 6, 10.0, true],
-				["swing", MODEL_PATH % [model, "Sword.png"], 10, 26.0, false],
-				["shoot", MODEL_PATH % [model, "Bow and Arrow.png"], 7, 15.0, false],
-				["hurt", MODEL_PATH % [model, "Damage.png"], 4, 14.0, false],
-				["dead", MODEL_PATH % [model, "Dead.png"], 4, 9.0, false]]
+			# 人类敌军也使用原生像素比例, 阵营通过血条与选择圈区分。
+			specs = [["idle", SNPC.generic_texture(model, "Idle.png", index), 4, 7.0, true],
+				["walk", SNPC.generic_texture(model, "Walk.png", index), 6, 10.0, true],
+				["swing", SNPC.generic_texture(model, "Sword.png", index), 10, 26.0, false],
+				["shoot", SNPC.generic_texture(model, "Bow and Arrow.png", index), 7, 15.0, false],
+				["hurt", SNPC.generic_texture(model, "Damage.png", index), 4, 14.0, false],
+				["dead", SNPC.generic_texture(model, "Dead.png", index), 4, 9.0, false]]
 	return _make_frames(specs)
 
 # 哥布林的帧：素材在 Enemy/Goblins/<兵种>/ 下, 格 32x32 且上下带 16px 白边。
@@ -432,7 +438,7 @@ func _build_mount_frames() -> SpriteFrames:
 	var sf := SpriteFrames.new()
 	if sf.has_animation(&"default"):
 		sf.remove_animation(&"default")
-	var tex: Texture2D = load(HORSE_RUN)
+	var tex: Texture2D = SNPC.mount_texture("player" if side == "hero" else "slave_%02d" % index) if side in ["hero", "ally"] and (side == "hero" or index < SNPC.IDENTITIES.size()) else SNPC.generic_mount_texture(SNPC.model_for(index), index)
 	if tex == null:
 		return _build_foot_frames()       # 贴图丢失: 退回步兵, 别让战斗崩掉
 	for d in DIR_ROW.keys():
@@ -457,7 +463,11 @@ func _make_frames(specs: Array) -> SpriteFrames:
 		sf.remove_animation(&"default")
 	for key in specs:
 		# e29c: key[1] 可能是路径字符串, 也可能是改色管线烘出来的 Texture2D
-		var tex: Texture2D = key[1] if key[1] is Texture2D else load(key[1])
+		var tex: Texture2D = null
+		if key[1] is Texture2D:
+			tex = key[1]
+		elif key[1] is String:
+			tex = SoftRes.tex(String(key[1]))
 		if tex == null:
 			continue
 		for d in DIR_ROW.keys():
@@ -477,15 +487,15 @@ func _make_frames(specs: Array) -> SpriteFrames:
 func _build_foot_frames() -> SpriteFrames:
 	var specs: Array
 	if side == "hero":
-		specs = [["idle", JOSH_IDLE, 4, 7.0, true], ["walk", JOSH_WALK, JOSH_WALK_FRAMES, 10.0, true],
-			["swing", MODEL_PATH % ["Josh", "Sword.png"], 10, 26.0, false],
-			["shoot", MODEL_PATH % ["Josh", "Bow and Arrow.png"], 7, 15.0, false]]
+		specs = [["idle", SNPC.player_texture("Idle.png"), 4, 7.0, true], ["walk", SNPC.player_texture("Walk.png"), JOSH_WALK_FRAMES, 10.0, true],
+			["swing", SNPC.player_texture("Sword.png"), 10, 26.0, false],
+			["shoot", SNPC.player_texture("Bow and Arrow.png"), 7, 15.0, false]]
 	else:
-		var model: String = MODELS[index % MODELS.size()]
-		specs = [["idle", MODEL_PATH % [model, "Idle.png"], 4, 7.0, true],
-			["walk", MODEL_PATH % [model, "Walk.png"], 6, 10.0, true],
-			["swing", MODEL_PATH % [model, "Sword.png"], 10, 26.0, false],
-			["shoot", MODEL_PATH % [model, "Bow and Arrow.png"], 7, 15.0, false]]
+		var model: String = SNPC.model_for(index)
+		specs = [["idle", SNPC.generic_texture(model, "Idle.png", index) if side == "enemy" else SNPC.sheet_texture(model, "Idle.png", index), 4, 7.0, true],
+			["walk", SNPC.generic_texture(model, "Walk.png", index) if side == "enemy" else SNPC.sheet_texture(model, "Walk.png", index), 6, 10.0, true],
+			["swing", SNPC.generic_texture(model, "Sword.png", index) if side == "enemy" else SNPC.sheet_texture(model, "Sword.png", index), 10, 26.0, false],
+			["shoot", SNPC.generic_texture(model, "Bow and Arrow.png", index) if side == "enemy" else SNPC.sheet_texture(model, "Bow and Arrow.png", index), 7, 15.0, false]]
 	return _make_frames(specs)
 
 # 速度是唯一真相源：帧率 = 速度 * 帧数 / 步幅（原理同 slave_npc.gd）。

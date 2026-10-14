@@ -69,10 +69,10 @@ func _build() -> void:
 	card.custom_minimum_size = Vector2(PANEL_W, 0)
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	var card_style := StyleBoxFlat.new()
-	card_style.bg_color = Color(0.14, 0.11, 0.09, 0.97)
-	card_style.border_color = Color(0.62, 0.47, 0.28)
-	card_style.set_border_width_all(3)
-	card_style.set_corner_radius_all(8)
+	card_style.bg_color = preload("res://scene/ui_style.gd").INK
+	card_style.border_color = preload("res://scene/ui_style.gd").EDGE
+	card_style.set_border_width_all(1)
+	card_style.set_corner_radius_all(2)
 	card_style.content_margin_left = 20
 	card_style.content_margin_right = 20
 	card_style.content_margin_top = 16
@@ -99,15 +99,19 @@ func _rebuild() -> void:
 	_root.add_child(_label(army_name, 19, Color(1, 0.93, 0.76), HORIZONTAL_ALIGNMENT_CENTER))
 	_root.add_child(_label("%s - %s" % [String(n.get("name", "")), String(n.get("desc", ""))],
 		12, ncolor.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER))
-	var cap := Nations.captain_name(nid)
-	if cap != "":
-		# e36n: 称号按国别特色走（港口护卫长 / 雪境巡逻长 ...）, 不再一律「百夫长」
-		_root.add_child(_label("%s: %s" % [Nations.captain_title(nid), cap], 13,
-			Color(0.98, 0.88, 0.55), HORIZONTAL_ALIGNMENT_CENTER))
 	_root.add_child(_label("巡逻队中立通行. 打好关系, 盟约之下还能请他们助阵",
 		11, Color(0.62, 0.60, 0.54), HORIZONTAL_ALIGNMENT_CENTER))
 	_flash_label = _label("", 12, Color(0.75, 0.9, 0.75), HORIZONTAL_ALIGNMENT_CENTER)
 	_root.add_child(_flash_label)
+
+	var person := preload("res://scene/encounter_portrait.gd").new()
+	person.configure("captain_" + nid,
+		"%s %s" % [Nations.captain_title(nid), Nations.captain_name(nid)],
+		_last_chat if not _last_chat.is_empty() else "巡逻队正在巡视附近海岸. 聊聊近况, 建立好感后可进一步合作.",
+		ncolor, PANEL_W - 40)
+	_root.add_child(person)
+	_portrait = person.portrait
+	_chat_label = person.message
 
 	# —— 好感条: 国家一本账, 队长个人一本账（碰面聊天/送礼才涨个人账）——
 	# e36n: 第二行的名字用该国称号（5 个字, 见 _fav_row 的名词列宽）
@@ -153,33 +157,7 @@ func _rebuild() -> void:
 	_root.add_child(_hwrap(ab))
 
 	# —— 最近的话（百夫长头像 + 对话气泡）——
-	var talk_row := HBoxContainer.new()
-	talk_row.add_theme_constant_override("separation", 10)
-	var frame := PanelContainer.new()
-	var fstyle := StyleBoxFlat.new()
-	fstyle.bg_color = Color(0.16, 0.13, 0.10)
-	fstyle.border_color = ncolor
-	fstyle.set_border_width_all(2)
-	fstyle.set_corner_radius_all(6)
-	fstyle.content_margin_left = 3
-	fstyle.content_margin_right = 3
-	fstyle.content_margin_top = 3
-	fstyle.content_margin_bottom = 3
-	frame.add_theme_stylebox_override("panel", fstyle)
-	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # e30m: 不随行高拉伸, 头像贴住框底
-	_portrait = TextureRect.new()
-	_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_portrait.custom_minimum_size = Vector2(72, 72)
-	_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_portrait.texture = load("res://resources/texture/portraits/captain_%s.png" % nid)
-	frame.add_child(_portrait)
-	talk_row.add_child(frame)
-	_chat_label = _label(_last_chat, 12, Color(0.85, 0.88, 0.95))
-	_chat_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chat_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	talk_row.add_child(_chat_label)
-	_root.add_child(talk_row)
+
 
 	# —— 国家最近的大事（协议签下 / 到期都会留通告，不取走，海图那边还要用）——
 	var news := Nations.notices
@@ -194,7 +172,7 @@ func _on_chat() -> void:
 	var nid := nation_id
 	if int(_chatted_day.get(nid, -1)) == Nations.total_days():
 		return
-	var portrait: Texture2D = load("res://resources/texture/portraits/captain_%s.png" % nid)
+	var portrait: Texture2D = preload("res://scene/mood_portrait.gd").portrait_texture("captain_" + nid)
 	_dialog.open_multi(portrait, "%s %s" % [Nations.captain_title(nid), Nations.captain_name(nid)],
 		Nations.captain_lines(nid))
 

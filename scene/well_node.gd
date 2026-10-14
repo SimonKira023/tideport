@@ -42,6 +42,9 @@ func _ready() -> void:
 	# e33 井脚下的影子
 	add_child(preload("res://scene/shadow_util.gd").make_shadow(26, 10, 0.25))
 
+	# q1 光影追踪：井身+顶棚当遮挡体，太阳/灯光被井挡住拖出影子
+	add_child(preload("res://scene/light_util.gd").occluder_rect(Rect2(-11, -36, 22, 36)))
+
 	# 碰撞：跟老水井一样一条贴底的矮矩形；layer 4 只有玩家的 mask 里有，
 	# 伙伴穿过去免得被卡住。
 	var body := StaticBody2D.new()

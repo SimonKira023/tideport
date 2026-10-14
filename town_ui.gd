@@ -38,6 +38,10 @@ const STOCK := [
 	{"path": "res://item/cauliflower_seed.tres", "price": 26},  # 花椰菜种子（夏）
 	{"path": "res://item/wood.tres", "price": 9},            # 木头
 	{"path": "res://item/wood_floor.tres", "price": 12},     # 木地板（e28b 降价, 跟 market_ui 同步）
+	# 2026-10-06 城镇铺装：石板路/红砖路/砾石路（跟 market_ui 同步定价）
+	{"path": "res://item/gravel_path.tres", "price": 6},     # 砾石路（最便宜）
+	{"path": "res://item/slab_path.tres", "price": 20},      # 石板路
+	{"path": "res://item/brick_path.tres", "price": 26},     # 红砖路
 	{"path": "res://item/wheat.tres", "price": 8},           # 小麦（厨房做面包/派的原料）
 	# —— 整套盔甲（三档全有售, 但贵: 手头紧就走铁匠铺自己打）——
 	{"path": "res://item/armor_wood.tres", "price": 120},       # 皮甲
@@ -114,10 +118,10 @@ func _build() -> void:
 	card.custom_minimum_size = Vector2(PANEL_W, 0)
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	var card_style := StyleBoxFlat.new()
-	card_style.bg_color = Color(0.14, 0.11, 0.09, 0.97)
-	card_style.border_color = Color(0.62, 0.47, 0.28)
-	card_style.set_border_width_all(3)
-	card_style.set_corner_radius_all(8)
+	card_style.bg_color = preload("res://scene/ui_style.gd").INK
+	card_style.border_color = preload("res://scene/ui_style.gd").EDGE
+	card_style.set_border_width_all(1)
+	card_style.set_corner_radius_all(2)
 	card_style.content_margin_left = 20
 	card_style.content_margin_right = 20
 	card_style.content_margin_top = 16
@@ -426,6 +430,16 @@ func _page_visit(occupied: bool, at_war: bool, ncolor: Color) -> Control:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 6)
 	var nid := _nid()
+	var lord: Dictionary = Nations.lord_of(town_id)
+	var person := preload("res://scene/encounter_portrait.gd").new()
+	person.configure("lord_" + town_id,
+		"%s %s" % [String(lord.get("title", "")), String(lord.get("name", ""))],
+		_last_chat if not _last_chat.is_empty() else "先聊聊近况, 熟悉这里的人与事. 每天交谈可增进彼此的好感.",
+		ncolor, PANEL_W - 40)
+	page.add_child(person)
+	_portrait = person.portrait
+	_chat_label = person.message
+
 	# —— 好感条: 国家一本账, 领主个人一本账（碰面聊天/登门送礼才涨个人账）——
 	page.add_child(_fav_row("好感", Nations.favor_of(nid), ncolor))
 	page.add_child(_fav_row("领主", Nations.lord_favor_of(town_id), Color(0.98, 0.85, 0.45)))
@@ -477,33 +491,7 @@ func _page_visit(occupied: bool, at_war: bool, ncolor: Color) -> Control:
 			11, Color(0.62, 0.60, 0.54)))
 
 	# —— 最近的话（领主头像 + 对话气泡）——
-	var talk_row := HBoxContainer.new()
-	talk_row.add_theme_constant_override("separation", 10)
-	var frame := PanelContainer.new()
-	var fstyle := StyleBoxFlat.new()
-	fstyle.bg_color = Color(0.16, 0.13, 0.10)
-	fstyle.border_color = ncolor
-	fstyle.set_border_width_all(2)
-	fstyle.set_corner_radius_all(6)
-	fstyle.content_margin_left = 3
-	fstyle.content_margin_right = 3
-	fstyle.content_margin_top = 3
-	fstyle.content_margin_bottom = 3
-	frame.add_theme_stylebox_override("panel", fstyle)
-	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # e30m: 不随行高拉伸, 头像贴住框底
-	_portrait = TextureRect.new()
-	_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_portrait.custom_minimum_size = Vector2(72, 72)
-	_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_portrait.texture = load("res://resources/texture/portraits/lord_%s.png" % town_id)
-	frame.add_child(_portrait)
-	talk_row.add_child(frame)
-	_chat_label = _label(_last_chat, 12, Color(0.85, 0.88, 0.95))
-	_chat_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chat_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	talk_row.add_child(_chat_label)
-	page.add_child(talk_row)
+
 
 	# —— 国家最近的大事（协议签下 / 到期都会留通告，不取走，海图那边还要用）——
 	var news := Nations.notices
@@ -517,13 +505,15 @@ func _on_chat() -> void:
 	if int(_chatted_day.get(nid, -1)) == Nations.total_days():
 		return
 	var lord: Dictionary = Nations.lord_of(town_id)
-	var portrait: Texture2D = load("res://resources/texture/portraits/lord_%s.png" % town_id)
+	var portrait: Texture2D = preload("res://scene/mood_portrait.gd").portrait_texture("lord_" + town_id)
 	_dialog.open_multi(portrait,
 		"%s %s" % [String(lord.get("title", "")), String(lord.get("name", ""))],
 		Nations.town_lines(town_id))
 
 # 对话框关掉的那一下才算聊了天: 记今天聊过 + 国家/领主各 +1 好感
 func _finish_chat(_line: String = "") -> void:
+	if not _visible:
+		return  # 强制关闭父窗口只清理子框, 不结算聊天奖励.
 	var nid := _nid()
 	if int(_chatted_day.get(nid, -1)) == Nations.total_days():
 		return
@@ -716,6 +706,8 @@ func close_panel() -> void:
 	if not _visible:
 		return
 	_visible = false
+	if _dialog != null:
+		_dialog.close()
 	hide()
 	TimeManager.pop_ui_pause()
 	Audio.play_sfx("ui_close", -8.0)
@@ -726,6 +718,8 @@ func is_open() -> bool:
 
 func _input(event: InputEvent) -> void:
 	if not _visible or _guard > 0.0:
+		return
+	if _dialog != null and _dialog.is_open():
 		return
 	# 用 _input 抢在 mainland 的 F 处理之前：不然关面板的同一下 F 又被当成"再开一次"。
 	if event.is_action_pressed("interact") or event.is_action_pressed("ui_cancel"):

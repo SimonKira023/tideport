@@ -248,6 +248,62 @@ def sfx_ui_close():
     return b
 
 
+def sfx_blip():
+    """对话框打字机 blip（星露谷式）: 极短的一小声, 运行时每 2 字响一次并随机变调,
+    所以这里只要一个中性单音 —— 音色软(三角波占主)、起音快、拖尾几乎为零。"""
+    b = new_buf(0.07)
+    add_tone(b, 0.0, 0.05, 720.0, "tri", 0.16, attack=0.003, release=0.018, decay=30.0)
+    add_tone(b, 0.0, 0.03, 1440.0, "sq12", 0.05, attack=0.002, release=0.012, decay=40.0)
+    return b
+
+
+def sfx_cloth():
+    """P4 口袋日期卡: 布料窸窣 —— 两段错开的低通噪声（织物滑过）,
+    第二段稍亮稍快, 对应日期卡从口袋里"抽出"那一下。"""
+    b = new_buf(0.36)
+    add_noise(b, 0.00, 0.16, 0.30, decay=9.0, lp=0.14, seed=7)
+    add_noise(b, 0.10, 0.24, 0.26, decay=7.0, lp=0.22, hp=0.05, seed=11)
+    return b
+
+
+def sfx_confirm():
+    """P6 确定音: 上行两音（C5->G5）, 三角波为主, 软起音 —— "成了"的轻快一跳。"""
+    b = new_buf(0.20)
+    add_tone(b, 0.00, 0.09, 523.25, "tri", 0.17, attack=0.004, release=0.05, decay=9.0)
+    add_tone(b, 0.07, 0.12, 784.0, "tri", 0.20, attack=0.004, release=0.07, decay=8.0)
+    add_tone(b, 0.07, 0.08, 1568.0, "sq12", 0.04, attack=0.003, release=0.04, decay=18.0)
+    return b
+
+
+def sfx_cancel():
+    """P6 取消音: 下行两音（E5->B4）, 音色压暗一档 —— "收回去"的低落一跳。"""
+    b = new_buf(0.20)
+    add_tone(b, 0.00, 0.09, 659.25, "tri", 0.15, attack=0.004, release=0.05, decay=10.0)
+    add_tone(b, 0.07, 0.12, 493.88, "tri", 0.17, attack=0.005, release=0.07, decay=9.0)
+    return b
+
+
+def sfx_season():
+    """P6 换季 stinger: 上行三音琶音（C5->E5->G5）+ 高八度微光,
+    柔和不抢 BGM —— "世界翻了一页"的提示。"""
+    b = new_buf(0.55)
+    for k, f in enumerate((523.25, 659.25, 784.0)):
+        add_tone(b, k * 0.09, 0.30, f, "tri", 0.13, attack=0.010, release=0.14, decay=5.0)
+    add_tone(b, 0.27, 0.26, 1568.0, "sine", 0.05, attack=0.020, release=0.12, decay=4.0)
+    return b
+
+
+def sfx_stinger():
+    """P6 登场 stinger: C 大三和弦齐奏两记（C3/E3/G3/C4）, 窄脉冲军乐感 ——
+    战斗开场叠在军鼓 BGM 上面的一记"登场号"。"""
+    b = new_buf(0.40)
+    for k, t0 in enumerate((0.0, 0.14)):
+        for f in (130.81, 164.81, 196.0, 261.63):
+            add_tone(b, t0, 0.16, f, "sq12", 0.075,
+                     attack=0.004, release=0.06, decay=7.0)
+    return b
+
+
 def sfx_step():
     """脚步：很短的闷响"""
     b = new_buf(0.12)
@@ -610,10 +666,13 @@ def main():
         "plant": sfx_plant(), "harvest": sfx_harvest(), "pickup": sfx_pickup(),
         "coin": sfx_coin(),
         "buy": sfx_buy(), "error": sfx_error(), "ui_click": sfx_ui_click(),
-        "ui_open": sfx_ui_open(), "ui_close": sfx_ui_close(),
+        "ui_open": sfx_ui_open(), "ui_close": sfx_ui_close(), "blip": sfx_blip(),
         "step": sfx_step(), "sleep": sfx_sleep(), "bin": sfx_bin(),
         "chop": sfx_chop(), "fell": sfx_fell(), "campfire": sfx_campfire(),
         "deploy": sfx_deploy(), "move": sfx_move(), "attack": sfx_attack(),
+        "cloth": sfx_cloth(),
+        "confirm": sfx_confirm(), "cancel": sfx_cancel(),
+        "season": sfx_season(), "stinger": sfx_stinger(),
     }
     for name, buf in sfx.items():
         save_wav(os.path.join(OUT, "sfx", name + ".wav"), buf, gain=0.9)

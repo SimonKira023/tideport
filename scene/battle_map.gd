@@ -1522,7 +1522,7 @@ func _physics_process(delta: float) -> void:
 		if foes == 0:
 			_over = true
 			# 政策卡「艨艟」：出海打赢多拿五成金币（经验不吃这张卡）
-			# 婚恋 perk（海莉）: 航海收益 +20%
+			# 婚恋 perk（汐月）: 航海收益 +20%
 			var coin := int(round(float(_coin_gain) * Research.battle_coin_mult() * Marriage.perk_mult("voyage")))
 			if is_siege:
 				# 攻城打赢：守军清零 + 好感重创 + 协议撕毁，战利品按城里的库房算

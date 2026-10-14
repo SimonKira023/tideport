@@ -1,0 +1,38 @@
+---
+description: 潮汐港 Godot 项目硬约束（字体标点 / 自测 / 第三方素材 / 坐标）
+alwaysApply: true
+---
+
+# 《潮汐港》项目规则（必守）
+
+详细交接见根目录 `AGENTS.md`。以下四条是每次改代码都必须满足的红线。
+
+## 1. 文字只能用 ASCII 半角标点
+项目 UI 字体是 `resources/font/IPix.ttf`，**没有回退字体**。全角标点会渲染成方块。
+- 禁止：`（），。！？；、` `“”‘’《》【】「」` `…` `—` `～`、全角空格 `U+3000`、`·` `→` `■ ● ♥ ★ ☆ ✔ ✘`
+- 省略号写六个点 `......`；代码注释用中文（注释不受字体限制）。
+
+## 2. 改完必须跑全量自检，直到「全部通过 ✔」
+```powershell
+& "D:\平台\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe" --headless --path . res://tools/selftest.tscn *> tools\_st.txt
+```
+末行是「全部通过 ✔」才算成功。自检/探针跑之前要 `SaveManager.enabled = false` 或重定向存档路径，**别碰玩家真档**。
+
+## 3. 第三方素材不入库，且必须保持软加载
+`Farm RPG` / `Towball's Crossing` / `Loops Medieval` / `Sunnyside` / `Mana Seed` / `resources/character` 都不进仓库。
+代码靠 `soft_res.gd` 软加载，缺失时留空即可。**不要改成硬加载，不要提交这些目录。**
+
+## 4. 坐标按格子算
+`Farm.TILE_SIZE == 16`；`Farm.grid_origin` 是全局坐标。
+给 `Game` 的子节点定位用 `global_position = Farm.grid_origin + cell * 16`，用 `position =` 会叠加两次偏移。
+实体原点在脚下（y_sort）。
+
+## 其他高频坑
+- `:=` 推断 Variant 会 Parse Error → 显式写类型。看到大批「属性不存在」报错，先翻日志最前面的 Parse Error。
+- `CanvasLayer` 不是 `CanvasItem`，藏场景走 `Voyage.set_scene_visible()`。
+- 别用 `ColorRect` 当卡片底板（高度会算成 0），用 `PanelContainer` + `StyleBoxFlat`。
+- `.tres` / `.tscn` 里不能写 `#` 注释。
+- 伙伴外观/性别的唯一真相源是 `scene/slave_npc.gd`；伙伴数据是 `slaves.gd` 的 `ROSTER`。
+
+## 回复风格
+简体中文；回复简短；结尾给作者「你现在要做什么」的分步操作清单。

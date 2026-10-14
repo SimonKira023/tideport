@@ -15,6 +15,8 @@ var _hop_t := 5.0       # e54: 下一次原地小跳还有多久
 var _key_hint: Node2D = null         # 走近时浮在半空的「F 交易」提示
 
 func _ready() -> void:
+	sprite.texture = preload("res://scene/character_appearance.gd").merchant_texture()
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	_frame_count = maxi(sprite.hframes, 1)

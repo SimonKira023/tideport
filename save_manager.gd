@@ -390,15 +390,13 @@ func _collect(game: Node) -> Dictionary:
 		"mine_crew": Slaves.mine_crew.duplicate(true),
 		"craft_crew": Slaves.craft_crew.duplicate(),
 		},
-		"site": {} if Structures.site.is_empty() else {
-			# 工地（盖到一半的建筑）：anchor 是 Vector2i -> 存成字符串
-			"kind": String(Structures.site["kind"]),
-			"anchor": _enc_cell(Vector2i(Structures.site["anchor"])),
-			"work": int(Structures.site.get("work", 0)),
-			"need": int(Structures.site.get("need", 0)),
-		},
+		# 工地（盖到一半的建筑，2026-10-06 起可多座并行, 共用建造点总池）
+		"sites": _enc_sites(),
 		# 打铁队列（铁匠铺排着队的东西，队首在前）
 		"smith_queue": [] if Crafting.smith_queue.is_empty() else _enc_smith_queue(),
+		# 2026-10-06: 建造点 / 锻造点池（伙伴施工/打铁产出, 玩家在背包里手动兑现）
+		"build_points": Structures.build_points,
+		"smith_points": Crafting.smith_points,
 		"research": Research.to_dict(),
 		"voyage": Voyage.to_dict(),
 		"nations": Nations.to_dict(),
@@ -506,11 +504,9 @@ func _apply(data: Dictionary) -> void:
 	for ss in data.get("stations", []):
 		var scell := _dec_cell(String(ss.get("cell", "")))
 		var skind := String(ss.get("kind", ""))
-		if skind != Structures.KIND_WORKBENCH and skind != Structures.KIND_FURNACE \
-				and skind != Structures.KIND_BLACKSMITH and skind != Structures.KIND_WELL \
-				and skind != Structures.KIND_COOP and skind != Structures.KIND_LAMP \
-				and skind != Structures.KIND_HUT and skind != Structures.KIND_HIVE \
-				and skind != Structures.KIND_CHEST and not Structures.is_farm_kind(skind):
+		# 2026-10-06: 白名单改**表驱动**（Structures.is_known_kind）——
+		# 老写法在这里手抄一长串 kind, 加新建筑漏一个, 玩家的建筑读档后就凭空消失且不报错。
+		if not Structures.is_known_kind(skind):
 			continue
 		Structures.place(scell, skind, true)   # e32: 读档重建, 不触发 build_first
 		var slv := int(ss.get("level", 1))
@@ -542,18 +538,28 @@ func _apply(data: Dictionary) -> void:
 	if game != null and game.has_method("rebuild_stations_from_save"):
 		game.rebuild_stations_from_save()
 
-	# —— 工地（盖到一半的建筑）：锚点是 Vector2i，读回来再解析 ——
-	# ❗放在 stations 之后：rebuild_stations 不碰 site，互不干扰。
+	# —— 工地（盖到一半的建筑，可多座并行）：锚点是 Vector2i，读回来再解析 ——
+	# ❗放在 stations 之后：rebuild_stations 不碰工地，互不干扰。
 	#   恢复完发 site_changed，game 的脚手架节点跟着摆出来。
-	Structures.site = {}
-	var sd: Dictionary = data.get("site", {})
-	if not sd.is_empty():
-		Structures.site = {
+	Structures.sites = []
+	for e in data.get("sites", []):
+		var sd: Dictionary = e
+		Structures.sites.append({
 			"kind": String(sd.get("kind", "")),
 			"anchor": _dec_cell(String(sd.get("anchor", "-99999,-99999"))),
 			"work": int(sd.get("work", 0)),
 			"need": maxi(1, int(sd.get("need", 1))),
-		}
+		})
+	# 兼容 2026-10-06 之前的单工地存档：老字段 "site" 是单个字典, 换算成只有一座的列表
+	if Structures.sites.is_empty():
+		var old_site: Dictionary = data.get("site", {})
+		if not old_site.is_empty():
+			Structures.sites.append({
+				"kind": String(old_site.get("kind", "")),
+				"anchor": _dec_cell(String(old_site.get("anchor", "-99999,-99999"))),
+				"work": int(old_site.get("work", 0)),
+				"need": maxi(1, int(old_site.get("need", 1))),
+			})
 	Structures.site_changed.emit()
 
 	# —— 打铁队列（铁匠铺排着队的东西）——
@@ -574,6 +580,12 @@ func _apply(data: Dictionary) -> void:
 			"need": maxi(1, int(sj_old.get("need", 1))),
 		})
 	Crafting.smith_changed.emit()
+
+	# —— 2026-10-06 建造点 / 锻造点池 ——
+	# ❗必须放在 Structures.reset() / Crafting.reset() 之后：那两处会把池子清零。
+	# 老档没有这两个字段 -> 读回 0（旧档玩家只是从零开始攒，不丢东西）。
+	Structures.build_points = maxi(0, int(data.get("build_points", 0)))
+	Crafting.smith_points = maxi(0, int(data.get("smith_points", 0)))
 
 	# —— 铺装（地板/小径）——
 	# 新档: [{cell, v: 类型}]；旧档: 纯格子字符串数组（按木地板读回）
@@ -705,6 +717,18 @@ func _dec_chest_items(arr: Array) -> Array:
 		if it == null:
 			continue
 		out.append({"item": it, "count": int(d.get("count", 0))})
+	return out
+
+# 工地列表（可多座并行）：anchor 是 Vector2i -> 存成字符串
+func _enc_sites() -> Array:
+	var out: Array = []
+	for s in Structures.sites:
+		out.append({
+			"kind": String(s["kind"]),
+			"anchor": _enc_cell(Vector2i(s["anchor"])),
+			"work": int(s.get("work", 0)),
+			"need": int(s.get("need", 1)),
+		})
 	return out
 
 # 打铁队列：队首在前，逐件存配方号 + 已投入人工 + 需要人工

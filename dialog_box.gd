@@ -10,18 +10,43 @@
 #
 # 关闭方式: 最后一段时点任意处 / F(interact) / Esc。guard 0.25s 防点开按钮的
 # 同一下鼠标/按键立刻把它关掉。
+#
+# P0 手感三件套（PLAN_CUTE_STYLE.md）:
+#   1. 打字机逐字 —— 台词按 ~30 字/秒逐个显示, 标点后停一小拍; 打字中点一下
+#      = 立刻显示全文, 再点才翻段/关框（两段式, 星露谷同款）。
+#   2. blip 音 —— 每漏出 2 个字响一声极短 blip, 音高带抖动; 每个角色有
+#      自己的基准音高（按名字哈希）, 听起来是"不同的人在说话"。
+#   3. 木框弹出 pop —— 对话条从 62% 缩放弹到 100%（TRANS_BACK 回弹）,
+#      遮罩同步淡入; 打开不再是"啪一下糊脸上"。
 extends Control
 
 signal closed
 
 const PIXEL_FONT := preload("res://resources/font/IPix.ttf")
+const FRAME := preload("res://wood_frame.gd")   # e53c: 程序化木框（对话框 + 头像框）
+
+const CHARS_PER_SEC := 30.0   # 打字机速度（中文字/秒）
+const PUNCT_PAUSE := 0.09     # 标点后多停一拍（秒）—— 逗号句号处"说话人喘口气"
+const PUNCT := ".,!?;:、,。!?;:"
 
 var _segs: Array = []          # 台词段数组（2~3 段）
 var _seg_i := 0                # 当前第几段
 var _built: Control = null
 var _line_label: Label = null
 var _hint_label: Label = null
+var _bar: Control = null       # P0: 对话条本体（弹出动画用）
 var _guard := 0.0
+# --- P3 头像差分 ---
+const MOOD_PORTRAIT := preload("res://scene/mood_portrait.gd")
+var _pic: TextureRect = null   # 头像块（翻段时按差分换贴图）
+var _pic_key := ""             # 头像的 key（"player"/"slave_03"…, 空 = 调用方给的裸纹理）
+var _moods: Array = []         # 每段的表情（空 = 全普通）; 短于段数时最后一段沿用末项
+# --- P0 打字机状态 ---
+var _typing := false           # 当前段正在逐字显示?
+var _reveal := 0.0             # 已漏出的字符数（浮点累计, 整数部分给 visible_characters）
+var _pause := 0.0              # 标点停顿倒计时
+var _blip_tick := 0            # 漏字计数（每 2 个字响一声 blip）
+var _voice_pitch := 1.0        # 当前说话人的基准音高（按名字哈希）
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -32,6 +57,26 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if _guard > 0.0:
 		_guard -= delta
+	# P0 打字机: 逐字漏出 + 标点停一拍 + 每 2 字一声 blip
+	if _typing and _line_label != null:
+		if _pause > 0.0:
+			_pause -= delta
+			return
+		_reveal += delta * CHARS_PER_SEC
+		var shown := int(_reveal)
+		var txt := _line_label.text
+		var previous: int = _line_label.visible_characters
+		_line_label.visible_characters = shown
+		# 刚漏出的这个字如果是标点, 多停一拍（说话人喘口气）
+		if shown > previous and shown > 0 and shown < txt.length():
+			if PUNCT.contains(txt[shown - 1]):
+				_pause = PUNCT_PAUSE
+		# blip: 每 2 个字一声, 音高 = 角色基准 + 随机抖动
+		if shown >= _blip_tick + 2:
+			_blip_tick = shown
+			Audio.play_sfx("blip", -13.0, randf_range(_voice_pitch - 0.05, _voice_pitch + 0.08))
+		if shown >= txt.length():
+			_finish_typing()
 
 func is_open() -> bool:
 	return visible
@@ -39,34 +84,97 @@ func is_open() -> bool:
 func is_last_seg() -> bool:
 	return _seg_i >= _segs.size() - 1
 
-# portrait: 对面的像素头像; who: 名字行; segs: 台词段数组(每段一句)
-func open_multi(portrait: Texture2D, who: String, segs: Array) -> void:
-	_segs = segs if not segs.is_empty() else ["..."]
+# portrait: 对面的像素头像; who: 名字行; segs: 台词段数组(每段一句);
+# moods: 每段的表情差分（P3）, 如 ["normal","happy","shy"] —— 空 = 全普通;
+# pic_key: 头像的差分 key（P3, open_key 用）—— 空 = 裸纹理, 不做逐段换装
+func open_multi(portrait: Texture2D, who: String, segs: Array, moods: Array = [], pic_key := "") -> void:
+	var sentences: Array = []
+	for seg in segs:
+		sentences.append({"text": str(seg)})
+	_segs = []
+	for page: Dictionary in preload("res://story_dialogue.gd")._paragraphs(sentences):
+		_segs.append(page["text"])
+	if _segs.is_empty():
+		_segs = ["......"]
 	_seg_i = 0
+	_moods = moods
+	_pic_key = pic_key
+	# P0: 每个角色一个固定基准音高（名字哈希 -> 0.92~1.22）, blip 听起来是同一个人
+	_voice_pitch = 0.92 + float(abs(who.hash()) % 1000) / 1000.0 * 0.30
 	if _built != null:
 		_built.queue_free()
 	_built = _build(portrait, who)
 	add_child(_built)
 	visible = true
 	_guard = 0.25
+	_show_seg(0)
 	Audio.play_sfx("ui_open", -6.0)
+	# P0 pop: 对话条从 62% 弹到 100%（回弹曲线）, 遮罩同步淡入 —— 打开有"落桌"感
+	if _bar != null:
+		_bar.pivot_offset = Vector2(330.0, 196.0)   # 条子尺寸 660x196, 以底边中心为轴
+		_bar.scale = Vector2(0.62, 0.62)
+		var tw := create_tween()
+		tw.tween_property(_bar, "scale", Vector2.ONE, 0.30) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_built.modulate.a = 0.0
+	var tw2 := create_tween()
+	tw2.tween_property(_built, "modulate:a", 1.0, 0.14)
+
+# P3: 按头像 key 打开（走像素 Q 版 + 表情差分管线）。
+# key 形如 "player" / "slave_03"; 立绘文件缺失时退回 player, 再缺退裸 load。
+func open_key(key: String, who: String, segs: Array, moods: Array = []) -> void:
+	var tex: Texture2D = MOOD_PORTRAIT.tex_of(key)
+	if tex == null and key != "player":
+		key = "player"
+		tex = MOOD_PORTRAIT.tex_of(key)
+	if tex == null:
+		tex = MOOD_PORTRAIT.portrait_texture("player")
+	open_multi(tex, who, segs, moods, key if tex != null else "")
 
 func close() -> void:
 	if not visible:
 		return
 	visible = false
+	_typing = false
 	if _built != null:
 		_built.queue_free()
 		_built = null
+	_bar = null
+	_line_label = null
+	_hint_label = null
 	Audio.play_sfx("ui_close", -8.0)
 	closed.emit()
 
-# 点继续: 翻下一段; 已是最后一段 = 关框(这才算聊完)
+# 显示第 i 段: 重置打字机, 从第一个字开始漏; 头像按该段表情换差分
+func _show_seg(i: int) -> void:
+	_line_label.text = String(_segs[i])
+	_line_label.visible_characters = 0
+	_reveal = 0.0
+	_pause = 0.0
+	_blip_tick = 0
+	_typing = true
+	_hint_label.text = "[F / 空格 / 左键] 显示全文"
+	# P3: 该段的表情差分（moods 短于段数时沿用末项）
+	if _pic != null and _pic_key != "" and not _moods.is_empty():
+		var mood: String = _moods[mini(i, _moods.size() - 1)]
+		var tex: Texture2D = MOOD_PORTRAIT.tex_of(_pic_key, mood)
+		if tex != null:
+			_pic.texture = tex
+
+# 打字结束: 全文显示, 提示行浮现（带呼吸闪烁）
+func _finish_typing() -> void:
+	_typing = false
+	_line_label.visible_characters = -1
+	_hint_label.text = ("继续 (%d/%d)" % [_seg_i + 1, _segs.size()]) if _segs.size() > 1 else "点击任意处继续"
+
+# 点继续: 打字中 = 先补全; 已是最后一段 = 关框(这才算聊完)
 func _advance_or_close() -> void:
+	if _typing:
+		_finish_typing()
+		return
 	if not is_last_seg():
 		_seg_i += 1
-		_line_label.text = String(_segs[_seg_i])
-		_hint_label.text = "继续 (%d/%d)" % [_seg_i + 1, _segs.size()]
+		_show_seg(_seg_i)
 		Audio.play_sfx("ui_click", -10.0)
 	else:
 		close()
@@ -78,47 +186,41 @@ func _build(portrait: Texture2D, who: String) -> Control:
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	veil.mouse_filter = Control.MOUSE_FILTER_STOP
 	veil.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
-			_advance_or_close())
+			if _guard <= 0.0:
+				_advance_or_close())
 
 	# 底部对话框条: 左头像 + 右名字/台词
-	var bar := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.09, 0.07, 0.97)
-	style.border_color = Color(0.62, 0.47, 0.28)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 14
-	style.content_margin_right = 16
-	style.content_margin_top = 12
-	style.content_margin_bottom = 12
-	bar.add_theme_stylebox_override("panel", style)
+	# e53c: 改成程序化木框（木板 + 金斜面 + 四角包边）, 条子不上衬纸, 面积留给文字
+	var bar: Control = FRAME.new()
+	bar.mat_color = Color(0, 0, 0, 0)
+	bar.inner_color = Color(0.10, 0.07, 0.05, 0.82)   # 半透明深底（游戏画面透一点, e109 回退 material）
+	bar.inner_top_color = Color(0.14, 0.10, 0.07)
+	bar.set_frame_size(11, 5, 10, 18, 12)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bar = bar   # P0: open_multi 的弹出动画要动它
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(row)
 
-	var frame := PanelContainer.new()
-	var fstyle := StyleBoxFlat.new()
-	fstyle.bg_color = Color(0.16, 0.13, 0.10)
-	fstyle.set_corner_radius_all(6)
-	fstyle.content_margin_left = 3
-	fstyle.content_margin_right = 3
-	fstyle.content_margin_top = 3
-	fstyle.content_margin_bottom = 3
-	frame.add_theme_stylebox_override("panel", fstyle)
+	# e53c: 头像也套一圈同款木框 + 暖衬纸（参考图里就是这样: 金线 + 衬纸 + 四角包边）
+	var frame: Control = FRAME.new()
+	frame.mat_color = Color("c9a566")
+	frame.inner_color = Color(0.13, 0.10, 0.08, 0.82)   # 半透明深底（头像框, e109 回退 material）
+	frame.set_frame_size(6, 3, 7, 12, 4)
 	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # e30m: 不随行高拉伸, 头像贴住框底
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var pic := TextureRect.new()
 	pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	pic.custom_minimum_size = Vector2(104, 104)
+	pic.custom_minimum_size = Vector2(88, 88)   # 44px Q 版 x2 整数倍, 像素颗粒均匀
 	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	pic.texture = portrait
 	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pic = pic   # P3: 翻段换差分用
 	frame.add_child(pic)
 	row.add_child(frame)
 
@@ -162,14 +264,17 @@ func _build(portrait: Texture2D, who: String) -> Control:
 	bar.anchor_right = 0.5
 	bar.offset_left = -330
 	bar.offset_right = 330
-	bar.offset_top = -158
-	bar.offset_bottom = -18
+	bar.offset_top = -212
+	bar.offset_bottom = -16
 	veil.add_child(bar)
 	return veil
 
 func _input(event: InputEvent) -> void:
-	if not visible or _guard > 0.0:
+	if not visible or not is_visible_in_tree():
 		return
-	if event.is_action_pressed("interact") or event.is_action_pressed("ui_cancel"):
+	if event is InputEventKey and event.echo:
+		return
+	if event.is_action_pressed("interact") or event.is_action_pressed("ui_cancel") or event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
-		_advance_or_close()
+		if _guard <= 0.0:
+			_advance_or_close()

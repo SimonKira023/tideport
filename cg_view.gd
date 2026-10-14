@@ -61,6 +61,8 @@ var _clouds: CloudLayer
 var _sun_moon: SunMoon
 var _sea: SeaField
 var _glow: GlowOrb
+var _rays: GodRays
+var _fog: FogLayer
 var _mid: Control
 var _tint: ColorRect
 var _vig: Vignette
@@ -118,14 +120,25 @@ func _build_tree() -> void:
 	_sun_moon = SunMoon.new()
 	_sea = SeaField.new()
 	_glow = GlowOrb.new()
+	_rays = GodRays.new()
+	_fog = FogLayer.new()
 	_mid = Control.new()
 	_mid.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for n in [_sky_a, _sky_b, _stars, _clouds, _sun_moon, _sea, _glow, _mid]:
+	# 顺序: 天后 -> 星 -> 云 -> 日月 -> 海 -> 火光辉 -> 体积光 -> 雾 -> 布景
+	# 雾放在布景之前: 角色说话时脸是清楚的, 只把背景压进去
+	for n in [_sky_a, _sky_b, _stars, _clouds, _sun_moon, _sea, _glow, _rays, _fog, _mid]:
 		n.set_anchors_preset(Control.PRESET_FULL_RECT)
 		if n is Control:
 			n.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_far_g.add_child(n)
+	# 天幕是 TextureRect, 自己不会出血 —— 视差推轨时边上会露底,
+	# 单独给它一圈 SKY_PAD 出血 (其余自绘层内部已经各自铺出了边)
+	for sk in [_sky_a, _sky_b]:
+		sk.offset_left = -SKY_PAD
+		sk.offset_top = -SKY_PAD
+		sk.offset_right = SKY_PAD
+		sk.offset_bottom = SKY_PAD
 
 	_near = Control.new()
 	_near.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -174,8 +187,10 @@ func _mk_sky_rect() -> TextureRect:
 func _process(delta: float) -> void:
 	_t += delta
 	# 视差：far 净速 0.45x，near 净速 1.35x
-	_far_g.position = Vector2(-EDGE, -EDGE) - _pan_base * 0.55
-	_near_g.position = Vector2(-EDGE, -EDGE) + _pan_base * 0.35
+	# ❗这里不能再减 EDGE —— 各层是按视口尺寸画的, 整组再挪 -150 会害得
+	#   布景从右下角缺一条 (自绘层够不到挪出去的那 150px, 露出黑底)
+	_far_g.position = -_pan_base * 0.55
+	_near_g.position = _pan_base * 0.35
 	# 震屏
 	var sh := Vector2.ZERO
 	if _shake_k > 0.001:
@@ -361,15 +376,27 @@ func _set_scene(scene: String, tod: String, dur: float) -> void:
 	_sky_to(td["top"], td["bot"], dur if tod_changed else minf(dur, 0.6))
 	_stars.alpha = float(td["stars"])
 	_sun_moon.setup(tod, td["sun"], td["sun_p"], td["moon_p"])
+	# 云的受光/背光跟着时段走: 白天暖白压冷底, 夜里被月光染成青灰
+	_clouds.lit_col = td["sun"].lerp(Color(1, 1, 1), 0.30 if tod == "night" else 0.55)
+	_clouds.shade_col = td["top"].lerp(td["bot"], 0.35).darkened(0.18)
+	# 体积光: 从日月那一列斜插下来; 夜里收掉 (不然黑天上一片白柱很假)
+	_rays.src = td["sun_p"]
+	_rays.rcol = td["sun"]
+	_rays.amount = 0.0 if tod == "night" else (0.50 if tod == "dawn" or tod == "dusk" else 0.24)
+	# 分层雾: 晨昏最重, 正午最轻
+	_fog.horizon = _cur_horizon
+	_fog.fcol = td["bot"].lerp(td["top"], 0.35).lightened(0.10)
+	_fog.amount = float({"dawn": 0.42, "day": 0.16, "dusk": 0.34, "night": 0.28}.get(tod, 0.20))
 	_glow.visible = scene == "camp"
 	if scene == "camp":
-		_glow.position = Vector2(_vw().x * 0.5, _vw().y * 0.80)
+		_glow.position = Vector2.ZERO
 		_glow.base_col = Color(1.0, 0.62, 0.24)
 	# 海
 	_sea.visible = _cur_horizon > 0.0
 	if _sea.visible:
 		_sea.horizon = _cur_horizon
 		_sea.deep = td["bot"].darkened(0.35)
+		_sea.light_x = float(td["sun_p"].x)
 	# props 重建
 	if scene_changed or tod_changed:
 		_rebuild_props(scene, td)
@@ -677,30 +704,80 @@ func _circle_poly(center: Vector2, r: float, col: Color) -> Polygon2D:
 # ============ 内件（复刻 cutscene_base） ============
 
 class StarField extends Control:
+	const MM := 240.0
 	var alpha := 0.0
 	var _pts: Array = []
+	var _dust: Array = []
+	var _meteors: Array = []
 	var _t := 0.0
-	const MM := 240.0
+	var _mt := 5.0
 	func _init() -> void:
 		set_anchors_preset(Control.PRESET_FULL_RECT)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 20260925
-		for i in 110:
-			_pts.append({"x": rng.randf(), "y": rng.randf() * 0.62, "sp": rng.randf_range(0.5, 1.6), "p": rng.randf() * TAU, "r": rng.randf_range(0.8, 1.8)})
+		# 主星: 亮一点、会眨 —— 每颗带自己的相位, 整片天就不会「一起闪」
+		for i in 130:
+			_pts.append({"x": rng.randf(), "y": rng.randf() * 0.66,
+				"sp": rng.randf_range(0.5, 1.8), "p": rng.randf() * TAU,
+				"r": rng.randf_range(0.7, 1.9)})
+		# 银河带: 沿一条斜带撒细星, 天空才有纵深, 不是「黑布上戳白点」
+		for i in 170:
+			var u := rng.randf()
+			var v := 0.28 + u * 0.24 + rng.randf_range(-0.055, 0.055)
+			_dust.append({"x": u, "y": clampf(v, 0.02, 0.72),
+				"r": rng.randf_range(0.5, 1.3), "a": rng.randf_range(0.25, 0.85)})
 	func _process(d: float) -> void:
 		_t += d
+		if alpha > 0.01:
+			_mt -= d
+			if _mt <= 0.0:
+				_mt = 5.5 + randf() * 6.0
+				_spawn_meteor()
+			for i in range(_meteors.size() - 1, -1, -1):
+				var m: Dictionary = _meteors[i]
+				m["life"] += d
+				if m["life"] > m["dur"]:
+					_meteors.remove_at(i)
 		queue_redraw()
+	func _spawn_meteor() -> void:
+		_meteors.append({
+			"x": (0.15 + randf() * 0.7) * _ww(), "y": (0.05 + randf() * 0.22) * _hh(),
+			"vx": 260.0 + randf() * 200.0, "vy": 110.0 + randf() * 80.0,
+			"life": 0.0, "dur": 0.85 + randf() * 0.5})
 	func _draw() -> void:
 		if alpha <= 0.01:
 			return
 		var w := _ww()
 		var h := _hh()
-		for s in _pts:
-			var x := fposmod(s["x"] * w - _t * 3.0, w)
-			var y: float = s["y"] * h
-			var a: float = alpha * (0.30 + 0.70 * (0.5 + 0.5 * sin(_t * s["sp"] + s["p"])))
-			draw_circle(Vector2(x, y), s["r"], Color(1.0, 0.98, 0.90, a))
+		# 星野横铺得比视口宽一圈: 视差推轨时边上不许空
+		var ws := w + 300.0
+		# 银河雾: 先铺一层几乎看不见的白, 再往上撒星 —— 那才像星云
+		for i in 26:
+			var u := float(i) / 26.0
+			var cx := u * (w + 300.0) - 150.0
+			var cy := (0.28 + u * 0.24) * h
+			draw_circle(Vector2(cx, cy), 92.0, Color(0.72, 0.78, 0.95, 0.022 * alpha))
+		for s in _dust:
+			draw_circle(Vector2(s["x"] * ws - 150.0, s["y"] * h), s["r"],
+				Color(0.90, 0.93, 1.0, s["a"] * 0.55 * alpha))
+		for s2 in _pts:
+			var x := fposmod(s2["x"] * ws - _t * 3.0, ws) - 150.0
+			var y: float = s2["y"] * h
+			var a: float = alpha * (0.30 + 0.70 * (0.5 + 0.5 * sin(_t * s2["sp"] + s2["p"])))
+			draw_circle(Vector2(x, y), s2["r"], Color(1.0, 0.98, 0.90, a))
+			# 亮星加一圈极淡的晕, 大小有别才像「星等」
+			if s2["r"] > 1.55:
+				draw_circle(Vector2(x, y), s2["r"] * 2.6, Color(1.0, 0.98, 0.90, a * 0.13))
+		# 流星: 一条带渐隐的拖尾 + 头部亮点
+		for m in _meteors:
+			var u2: float = m["life"] / m["dur"]
+			var fade := sin(u2 * PI)
+			var life: float = m["life"]
+			var p: Vector2 = Vector2(m["x"], m["y"]) + Vector2(m["vx"], m["vy"]) * life
+			var tail := Vector2(m["vx"], m["vy"]).normalized() * 78.0
+			draw_line(p - tail, p, Color(1.0, 0.98, 0.92, 0.42 * fade * alpha), 1.8)
+			draw_circle(p, 1.9, Color(1.0, 1.0, 0.96, 0.90 * fade * alpha))
 	func _ww() -> float:
 		return size.x if size.x > 1.0 else 1152.0
 	func _hh() -> float:
@@ -709,61 +786,152 @@ class StarField extends Control:
 class CloudLayer extends Control:
 	var _t := 0.0
 	var _clouds: Array = []
+	# 受光面 / 背光面: 由 _set_scene 按时段改, 这里再缓动追上去
+	var lit_col := Color(1.0, 1.0, 1.0)
+	var shade_col := Color(0.72, 0.76, 0.86)
+	var _lit := Color(1.0, 1.0, 1.0)
+	var _shade := Color(0.72, 0.76, 0.86)
 	func _init() -> void:
 		set_anchors_preset(Control.PRESET_FULL_RECT)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 9911
+		# 云团 = 一簇半径/位置都随机的球 (只摇一次, 免得每帧抖成噪点)
+		# ❗等大的球、规整的排布 -> 剪影一定是棉花球; 要极坐标 sqrt 散布 + 半径各异
 		for i in 14:
-			_clouds.append({"x": rng.randf(), "y": rng.randf_range(0.06, 0.42), "r": rng.randf_range(44, 96), "sp": rng.randf_range(4.0, 11.0), "a": rng.randf_range(0.35, 0.75)})
+			var puffs: Array = []
+			var n := 9 if i < 8 else 13
+			for k in n:
+				var ang := rng.randf() * TAU
+				var rad := sqrt(rng.randf())
+				puffs.append({"dx": cos(ang) * rad, "dy": sin(ang) * rad * 0.38,
+					"k": rng.randf_range(0.42, 1.15)})
+			_clouds.append({"x": rng.randf(), "y": rng.randf_range(0.05, 0.40),
+				"r": rng.randf_range(48, 104), "sp": rng.randf_range(4.0, 13.0),
+				"a": rng.randf_range(0.30, 0.68), "puffs": puffs, "near": i >= 8})
+		_lit = lit_col
+		_shade = shade_col
 	func _process(d: float) -> void:
 		_t += d
+		_lit = _lit.lerp(lit_col, minf(1.0, d * 1.6))
+		_shade = _shade.lerp(shade_col, minf(1.0, d * 1.6))
 		queue_redraw()
 	func _draw() -> void:
 		var w := size.x if size.x > 1.0 else 1152.0
 		var h := size.y if size.y > 1.0 else 648.0
 		for c in _clouds:
-			var x := fposmod(c["x"] * w + _t * c["sp"], w + 360.0) - 180.0
+			var x := fposmod(c["x"] * w + _t * float(c["sp"]), w + 420.0) - 210.0
 			var y: float = c["y"] * h
 			var r: float = c["r"]
-			for k in 5:
-				var ang := TAU * float(k) / 5.0
-				draw_circle(Vector2(x, y) + Vector2(cos(ang), sin(ang) * 0.4) * r * 0.5, r * 0.42, Color(1, 1, 1, 0.10 * c["a"]))
-			draw_circle(Vector2(x, y), r * 0.5, Color(1, 1, 1, 0.12 * c["a"]))
+			var ba: float = c["a"] * (0.95 if c["near"] else 0.70)
+			# 背光底: 整体压低一档, 下缘偏冷 —— 云有厚度才不糊成一坨白
+			for p in c["puffs"]:
+				var off: Vector2 = Vector2(p["dx"], p["dy"] + 0.16) * r * p["k"]
+				draw_circle(Vector2(x, y) + off, r * 0.40 * p["k"],
+					Color(_shade.r, _shade.g, _shade.b, 0.10 * ba))
+			# 受光顶: 偏左上
+			for p2 in c["puffs"]:
+				var off2: Vector2 = Vector2(p2["dx"] - 0.10, p2["dy"] - 0.10) * r * p2["k"]
+				draw_circle(Vector2(x, y) + off2, r * 0.34 * p2["k"],
+					Color(_lit.r, _lit.g, _lit.b, 0.13 * ba))
 
 class SunMoon extends Control:
 	var mode := "sun"
 	var col := Color(0.92, 0.80, 0.42)
 	var pos := Vector2(0.78, 0.14)
 	var moon_pos := Vector2(0.86, 0.10)
+	var _t := 0.0
+	var _tex: ImageTexture = null
+	func _init() -> void:
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# 加色混合: 日月是「发光体」, 压在天空上该是加法不是覆盖
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		material = mat
+		_tex = _mk_radial()
 	func setup(m: String, c: Color, sp: Vector2, mp: Vector2) -> void:
 		mode = m
 		col = c
 		pos = sp
 		moon_pos = mp
 		queue_redraw()
+	func _process(d: float) -> void:
+		_t += d
+		queue_redraw()
 	func _draw() -> void:
 		var w := size.x if size.x > 1.0 else 1152.0
 		var h := size.y if size.y > 1.0 else 648.0
-		var p := pos if mode != "night" else moon_pos
-		var c := col if mode != "night" else Color(0.82, 0.84, 0.90)
-		var r := 26.0 if mode != "night" else 20.0
+		var night: bool = mode == "night"
+		var p: Vector2 = moon_pos if night else pos
+		var c: Color = Color(0.84, 0.86, 0.94) if night else col
+		var r: float = 20.0 if night else 26.0
 		var center := Vector2(p.x * w, p.y * h)
-		for i in 8:
-			var u := float(i) / 8.0
-			draw_circle(center, r * (1.0 + u * 0.9), Color(c.r, c.g, c.b, 0.035 * (1.0 - u)))
-		draw_circle(center, r, c)
+		# 大气晕: 径向贴图平方衰减, 比叠一圈圈圆干净
+		# ❗月亮压到很淡 —— 加色光一重, 月牙的空心就被洗成一团灰, 牙就不亮了
+		var hr := r * 6.4
+		draw_texture_rect(_tex, Rect2(center - Vector2(hr, hr), Vector2(hr * 2.0, hr * 2.0)),
+			false, Color(c.r, c.g, c.b, 0.12 if night else 0.30))
+		var hr2 := r * 2.6
+		draw_texture_rect(_tex, Rect2(center - Vector2(hr2, hr2), Vector2(hr2 * 2.0, hr2 * 2.0)),
+			false, Color(c.r, c.g, c.b, 0.14 if night else 0.30))
+		if not night:
+			# 太阳: 一圈缓慢自转的冕针 + 本体 + 内核
+			var spin := _t * 0.06
+			for i in 12:
+				var ang := spin + TAU * float(i) / 12.0
+				var ln := r * (1.9 + 0.9 * sin(_t * 0.9 + float(i) * 1.7))
+				var a2 := 0.10 + 0.05 * sin(_t * 1.3 + float(i))
+				var tip := center + Vector2(cos(ang), sin(ang)) * ln
+				var side := Vector2(-sin(ang), cos(ang)) * r * 0.16
+				draw_colored_polygon(PackedVector2Array([center + side, center - side, tip]),
+					Color(c.r, c.g, c.b, a2))
+			# 日面: 外两层递减的薄圈 = 临边昏暗, 单画一个实心圆就是贴上去的圆盘
+			draw_circle(center, r * 1.12, Color(c.r, c.g, c.b, 0.14))
+			draw_circle(center, r * 1.05, Color(c.r, c.g, c.b, 0.26))
+			draw_circle(center, r, c)
+			draw_circle(center - Vector2(r * 0.16, r * 0.16), r * 0.72,
+				Color(1.0, 0.99, 0.92, 0.18))
+			return
+		# 月亮: 真月牙 (外圆减内圆, 圆弧交点几何) —— 不是画个圆再贴个黑圆
+		var d := r * 0.42
+		var r1 := r * 0.88
+		if d <= absf(r - r1) or d >= r + r1:
+			draw_circle(center, r, c)
+			return
+		var cx := (d * d + r * r - r1 * r1) / (2.0 * d)
+		var cy := sqrt(maxf(0.0, r * r - cx * cx))
+		var a0 := atan2(cy, cx)
+		var pts := PackedVector2Array()
+		var n := 40
+		for i in n + 1:
+			var th: float = lerp(a0, TAU - a0, float(i) / float(n))
+			pts.append(center + Vector2(cos(th), sin(th)) * r)
+		# ❗两端点跟外弧首尾重合, 不能重复塞 (零长边会让三角化整体失败)
+		var pa := atan2(cy, cx - d)
+		var pb := atan2(-cy, cx - d)
+		if pb < pa:
+			pb += TAU
+		for i in range(1, n):
+			var ph: float = lerp(pb, pa, float(i) / float(n))
+			pts.append(center + Vector2(d, 0.0) + Vector2(cos(ph), sin(ph)) * r1)
+		draw_colored_polygon(pts, c)
+	static func _mk_radial(px := 64) -> ImageTexture:
+		var img := Image.create_empty(px, px, false, Image.FORMAT_RGBA8)
+		var cc := float(px) * 0.5
+		for y in px:
+			for x in px:
+				var dd := Vector2(float(x) - cc + 0.5, float(y) - cc + 0.5).length() / cc
+				var aa := clampf(1.0 - dd, 0.0, 1.0)
+				img.set_pixel(x, y, Color(1, 1, 1, aa * aa))
+		return ImageTexture.create_from_image(img)
 
 class SeaField extends Control:
 	const MM := 240.0
 	var horizon := 0.60
 	var deep := Color(0.16, 0.26, 0.34)
+	var light_x := 0.5          # 日月那一列: 碎光路径从这儿铺下来
 	var _t := 0.0
-	var _waves := [
-		{"dy": 0.010, "amp": 0.016, "len": 0.30, "sp": 0.9},
-		{"dy": 0.075, "amp": 0.022, "len": 0.24, "sp": 1.5},
-		{"dy": 0.170, "amp": 0.028, "len": 0.20, "sp": 2.2},
-	]
 	func _process(d: float) -> void:
 		_t += d
 		queue_redraw()
@@ -771,44 +939,177 @@ class SeaField extends Control:
 		var w := size.x if size.x > 1.0 else 1152.0
 		var h := size.y if size.y > 1.0 else 648.0
 		var hy := horizon * h
-		for wi in _waves.size():
-			var wv: Dictionary = _waves[wi]
-			var base_y: float = hy + wv["dy"] * h
-			var amp: float = wv["amp"] * h
-			var lw: float = wv["len"] * w
-			var pts := PackedVector2Array()
-			var steps := 44
-			for i in steps + 1:
-				var x: float = -MM + (w + 2.0 * MM) * float(i) / float(steps)
-				var ph: float = x / (lw * 0.37)
-				var yy := base_y + sin(ph + _t * wv["sp"]) * amp + sin(ph * 0.37 + _t * wv["sp"] * 1.7) * amp * 0.4
-				pts.append(Vector2(x, yy))
-			var col := deep.lightened(0.10 * float(wi + 1))
-			col.a = 0.85
-			draw_polyline(pts, col, 2.0)
-		# 反光
-		for i in 10:
-			var gx := w * 0.5
-			var rx := gx + sin(_t * 0.7 + float(i) * 2.1) * w * 0.06
-			var ry := hy + 8.0 + float(i) * 6.0
-			var rl := 14.0 + 10.0 * sin(_t * 1.3 + float(i))
-			draw_line(Vector2(rx - rl, ry), Vector2(rx + rl, ry), Color(1, 1, 1, 0.06), 2.0)
+		var span := h - hy
+		# 水体: 由远及近的渐变带 —— 一块平涂没有纵深, 这是海的底子
+		# ❗渐变参数与几何必须同一个分母: 一个除 /13 一个除 /14 会错位露缝,
+		#   每条缝就是一条硬边, 14 条叠起来整片海成了横条布
+		var bands := 44
+		var near := deep.darkened(0.30)
+		for i in bands:
+			var u := float(i) / float(bands - 1)
+			var y0 := hy + span * u
+			var y1 := hy + span * (float(i + 1) / float(bands - 1))
+			draw_rect(Rect2(-MM, y0, w + MM * 2.0, (y1 - y0) + 1.0), deep.lerp(near, u))
+		# 贴着海平线的天空倒影亮带
+		draw_rect(Rect2(-MM, hy, w + MM * 2.0, span * 0.16), Color(1, 1, 1, 0.06))
+		# 碎光路径: 从日月那一列一路摇到近处
+		var lx := light_x * w
+		for i in 16:
+			var u2 := float(i) / 16.0
+			var y := hy + span * (0.06 + u2 * 0.86)
+			var spread := 10.0 + u2 * 46.0
+			var cx := lx + sin(_t * 1.1 + float(i) * 1.7) * spread * 0.7
+			var seg := 8.0 + u2 * 30.0
+			draw_line(Vector2(cx - seg, y), Vector2(cx + seg, y),
+				Color(1.0, 0.96, 0.86, 0.16 * (1.0 - u2 * 0.5)), 2.0 + u2 * 2.0)
+		# 海平线: 一条亮线把天和海分开
+		draw_line(Vector2(-MM, hy), Vector2(w + MM, hy), Color(1, 1, 1, 0.22), 1.6)
+		# 七层浪: 越近越粗越亮
+		# ❗每层一个固定相位 + 频率漂移 + 波包, 还要切成小段各自明灭 ——
+		#   同频同相的整根高光线横铺七条, 叠出来就是一张规则菱形网, 一眼假
+		for wi in 7:
+			var u3 := float(wi) / 6.0
+			var base_y := hy + span * (0.10 + u3 * 0.86)
+			var amp := 2.0 + u3 * 12.0
+			var lw := maxf(24.0, (0.34 - u3 * 0.18) * w)
+			var wph: float = float(wi) * 2.399 + 0.7
+			var chirp := 0.30 + 0.09 * float(wi)
+			var col := deep.lightened(0.06 + u3 * 0.16)
+			var seg := 22
+			for si in seg:
+				var gate: float = 0.20 + 0.80 * absf(sin(float(si) * 1.137 + wph))
+				if gate < 0.32:
+					continue
+				var xa: float = -MM + (w + 2.0 * MM) * float(si) / float(seg)
+				var xb: float = -MM + (w + 2.0 * MM) * float(si + 1) / float(seg)
+				var pts := PackedVector2Array()
+				for j in 8:
+					var x: float = lerp(xa, xb, float(j) / 7.0)
+					var ph: float = x / (lw * 0.37) * (1.0 + chirp * 0.5 * sin(x / w * 2.1 + wph))
+					var env: float = 0.40 + 0.60 * absf(sin(x / w * 3.3 + wph * 1.6))
+					var yy := base_y + sin(ph + _t * (0.9 + u3 * 2.4) + wph) * amp * env \
+						+ sin(ph * 0.37 + _t * 1.7 + wph * 2.1) * amp * 0.4 * env
+					pts.append(Vector2(x, yy))
+				var c2 := col
+				c2.a = (0.20 + u3 * 0.22) * gate
+				draw_polyline(pts, c2, 1.0 + u3 * 2.0)
+		# 近岸泡沫: 最下面两条浪加白边
+		for k in 2:
+			var fy := h - 12.0 + float(k) * 7.0
+			var fpts := PackedVector2Array()
+			for i in 41:
+				var x2: float = -MM + (w + 2.0 * MM) * float(i) / 40.0
+				fpts.append(Vector2(x2, fy + sin(x2 / 90.0 + _t * (1.4 + float(k) * 0.7))
+					* (3.0 + float(k) * 2.0)))
+			draw_polyline(fpts, Color(1, 1, 1, 0.16 - float(k) * 0.05), 2.0)
 
 class GlowOrb extends Control:
 	var base_col := Color(1.0, 0.62, 0.24)
 	var _t := 0.0
+	var _tex: ImageTexture = null
+	func _init() -> void:
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		material = mat
+		_tex = _mk_radial()
 	func _process(d: float) -> void:
 		_t += d
 		queue_redraw()
 	func _draw() -> void:
 		var w := size.x if size.x > 1.0 else 1152.0
 		var h := size.y if size.y > 1.0 else 648.0
-		var center := Vector2(w * 0.5, h * 0.80)
-		var breathe := 1.0 + 0.035 * sin(_t * 1.3)
-		var r := 90.0 * breathe
-		for i in 18:
-			var u := float(i) / 18.0
-			draw_circle(center, r * (1.0 - u * 0.92), Color(base_col.r, base_col.g, base_col.b, 0.030))
+		# 篝火在 camp 场景的 (0.50, 0.88) 脚下 —— 光心就压在那儿
+		var center := Vector2(w * 0.50, h * 0.84)
+		var breathe := 1.0 + 0.045 * sin(_t * 1.3)
+		var r := 250.0 * breathe
+		draw_texture_rect(_tex, Rect2(center - Vector2(r, r), Vector2(r * 2.0, r * 2.0)),
+			false, Color(base_col.r, base_col.g, base_col.b, 0.42))
+		var r2 := 86.0 * breathe
+		draw_texture_rect(_tex, Rect2(center - Vector2(r2, r2), Vector2(r2 * 2.0, r2 * 2.0)),
+			false, Color(1.0, 0.90, 0.66, 0.62))
+	static func _mk_radial(px := 64) -> ImageTexture:
+		var img := Image.create_empty(px, px, false, Image.FORMAT_RGBA8)
+		var cc := float(px) * 0.5
+		for y in px:
+			for x in px:
+				var dd := Vector2(float(x) - cc + 0.5, float(y) - cc + 0.5).length() / cc
+				var aa := clampf(1.0 - dd, 0.0, 1.0)
+				img.set_pixel(x, y, Color(1, 1, 1, aa * aa))
+		return ImageTexture.create_from_image(img)
+
+class GodRays extends Control:
+	var src := Vector2(0.5, 0.10)
+	var rcol := Color(1.0, 0.90, 0.65)
+	var amount := 0.35
+	var _t := 0.0
+	var _a := 0.35
+	func _init() -> void:
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		material = mat
+	func _process(d: float) -> void:
+		_t += d
+		_a = lerp(_a, amount, minf(1.0, d * 1.2))
+		queue_redraw()
+	func _draw() -> void:
+		if _a <= 0.01:
+			return
+		var w := size.x if size.x > 1.0 else 1152.0
+		var h := size.y if size.y > 1.0 else 648.0
+		var o := Vector2(src.x * w, src.y * h)
+		# 9 条从日月那个点斜插下来的光柱, 缓慢摆 —— 丁达尔光就是这么来的
+		for i in 9:
+			var ang := -PI * 0.5 + (float(i) / 8.0 - 0.5) * 2.1 + sin(_t * 0.07 + float(i)) * 0.04
+			var ln := h * (1.15 + 0.25 * sin(_t * 0.5 + float(i) * 2.3))
+			var tip := o + Vector2(cos(ang), sin(ang)) * ln
+			var side := Vector2(-sin(ang), cos(ang)) * w * (0.030 + 0.022 * float(i % 3))
+			var a2 := _a * (0.055 + 0.030 * sin(_t * 0.7 + float(i) * 1.9))
+			draw_colored_polygon(PackedVector2Array([o, tip + side, tip - side]),
+				Color(rcol.r, rcol.g, rcol.b, maxf(0.0, a2)))
+
+class FogLayer extends Control:
+	var horizon := 0.60
+	var amount := 0.20
+	var fcol := Color(0.72, 0.78, 0.86)
+	var _t := 0.0
+	var _a := 0.20
+	var _bands: Array = []
+	func _init() -> void:
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 6060
+		for i in 6:
+			var puffs: Array = []
+			for k in 5:
+				puffs.append({"dx": rng.randf_range(-1.6, 1.6), "dy": rng.randf_range(-0.25, 0.25),
+					"k": rng.randf_range(0.6, 1.3)})
+			_bands.append({"y": 0.30 + rng.randf() * 0.62, "sp": rng.randf_range(3.0, 9.0),
+				"r": rng.randf_range(70, 150), "puffs": puffs, "ph": rng.randf() * TAU})
+	func _process(d: float) -> void:
+		_t += d
+		_a = lerp(_a, amount, minf(1.0, d * 0.9))
+		queue_redraw()
+	func _draw() -> void:
+		if _a <= 0.01:
+			return
+		var w := size.x if size.x > 1.0 else 1152.0
+		var h := size.y if size.y > 1.0 else 648.0
+		# 6 条横铺的雾带, 每条 = 一簇压扁的圆 —— 有分层才有雾的厚度
+		for b in _bands:
+			var y: float = b["y"] * h
+			var drift := sin(_t * 0.12 + b["ph"]) * w * 0.05
+			for p in b["puffs"]:
+				var cx: float = (p["dx"] + 0.5) * w + drift * p["k"]
+				var x2 := fposmod(cx + _t * float(b["sp"]), w + 600.0) - 300.0
+				var r: float = b["r"] * p["k"]
+				draw_set_transform(Vector2(x2, y + p["dy"] * h * 0.12), 0.0, Vector2(1.0, 0.26))
+				draw_circle(Vector2.ZERO, r, Color(fcol.r, fcol.g, fcol.b, 0.045 * _a))
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 class Vignette extends Control:
 	func _draw() -> void:
@@ -1044,6 +1345,8 @@ func _reset_stage() -> void:
 	_stars.alpha = 0.0
 	_sea.visible = false
 	_glow.visible = false
+	_rays.amount = 0.0
+	_fog.amount = 0.0
 	_sun_moon.setup("day", TODS["day"]["sun"], TODS["day"]["sun_p"], TODS["day"]["moon_p"])
 	_set_weather("off", 0)
 	_tint.color = Color(1, 1, 1, 0)

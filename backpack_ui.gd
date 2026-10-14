@@ -1,7 +1,7 @@
 # backpack_ui.gd —— Esc（或 B）打开的「模块面板」
 #
-# 上方是一排**模块选择**：背包 / 角色 / 团队 / 科技 / 行政 / 地图 / 日历 / 制作 / 建造 / 外交 / 设置，
-# 点哪个下面就显示哪个。默认停在「背包」。
+# 上方是一排**模块选择**：背包 / 角色 / 团队 / 发展 / 地图 / 日历 / 制作 / 建造 / 外交 / 任务 / 设置。
+# 「发展」里再分 战斗 / 科技 / 行政 三个子页。未解锁的模块灰掉 (见 Quests.MODULE_UNLOCK)。
 #
 # 目前真正有内容的：
 #   · 背包   —— 快捷栏 + 背包 30 格，点两格交换/合并
@@ -21,22 +21,26 @@ const DIPLOMACY_PAGE := preload("res://diplomacy_ui.gd")  # 外交页：五国�
 const CardsData := preload("res://scene/cards_data.gd")   # 行政页「出征编组」: 解锁牌表在这
 const IRIS := preload("res://scene/iris_wipe.gd")         # d9: 回主页面的 iris 黑幕转场
 const GIFT_PICKER := preload("res://gift_picker.gd")      # 赠送选物弹窗（团队详情页 / 对话窗共用）
+const ROMANCE_UI := preload("res://romance_ui.gd")        # 恋爱界面弹窗（恋爱线互动）
+
+# A3-1: 三个「树状图」视图拆到 scene/backpack/tree_views.gd（自包含 Control 子类）
+const SkillTreeView = preload("res://scene/backpack/tree_views.gd").SkillTreeView
+const ClassTreeView = preload("res://scene/backpack/tree_views.gd").ClassTreeView
+const ResearchTreeView = preload("res://scene/backpack/tree_views.gd").ResearchTreeView
 
 # 模块表：key / 名字 / 下面那行灰字说明
 const MODULES := [
-	{"key": "bag",   "name": "背包",           "hint": "点击两格交换物品 / 右键盔甲穿戴或脱下  -  B / Esc 关闭"},
-	{"key": "hero",  "name": "角色个人及技能", "hint": "属性 / 技能树"},
-	{"key": "team",  "name": "团队管理",       "hint": "查看伙伴人数与今天的派活进度"},
-	{"key": "battle", "name": "战斗",          "hint": "卡组编成 - 同伴/法术/部队选 12 张带出征, 点科技或行政可看详情"},
-	{"key": "tech",  "name": "科技",           "hint": "派劳动力研究 - 给作物/木材/制作加增益"},
-	{"key": "admin", "name": "行政",           "hint": "派劳动力研究 - 解锁政策卡并赚卡槽"},
-	{"key": "map",   "name": "地图",           "hint": "滚轮放缩  /  按住左键或中键拖拽移动视角"},
-	{"key": "calendar", "name": "日历",        "hint": "四季 28 天 - 粉色格子是伙伴的生日, 金边是今天"},
-	{"key": "craft", "name": "物品制作",       "hint": "消耗材料做食物 / 地板  -  点配方即可"},
-	{"key": "build", "name": "建造",           "hint": "选建筑 -> 回地图摆放: 左键放置 / 右键取消"},
-	{"key": "diplomacy", "name": "外交",       "hint": "五国关系 / 武备 / 送礼 / 签约"},
-	{"key": "quests", "name": "任务",          "hint": "当前进行中的任务一览 (e13j 从屏幕左侧搬进来)"},
-	{"key": "set",   "name": "设置",           "hint": "音乐 / 画面 / 返回主页面"},
+	{"key": "bag",   "name": "背包",     "hint": "点击两格交换物品 / 右键盔甲穿戴或脱下  -  B / Esc 关闭"},
+	{"key": "hero",  "name": "角色",     "hint": "属性 / 技能树 (首次收获后开放)"},
+	{"key": "team",  "name": "团队",     "hint": "查看伙伴人数与今天的派活进度"},
+	{"key": "grow",  "name": "发展",     "hint": "科技先开放, 修好码头后再准备战斗"},
+	{"key": "map",   "name": "地图",     "hint": "滚轮放缩  /  按住左键或中键拖拽移动视角"},
+	{"key": "calendar", "name": "日历",  "hint": "四季 28 天 - 粉色格子是伙伴的生日, 金边是今天 (安顿住处后开放)"},
+	{"key": "craft", "name": "制作",     "hint": "消耗材料做食物 / 地板 (首次浇水后开放)"},
+	{"key": "build", "name": "建造",     "hint": "选建筑 -> 回地图摆放 (首次售卖后开放)"},
+	{"key": "diplomacy", "name": "外交", "hint": "五国关系 / 送礼 / 签约 (第一次出海后开放)"},
+	{"key": "quests", "name": "任务",    "hint": "点击任务切换追踪 / 查看操作和解锁条件"},
+	{"key": "set",   "name": "设置",     "hint": "音乐 / 画面 / 返回主页面"},
 ]
 
 var _visible := false
@@ -48,17 +52,26 @@ var _hint: Label
 var _box: PanelContainer = null  # 内容盒：科技/行政/团队页要撑大，切页时改它的 min 尺寸
 # 大页面尺寸：这几页内容多（树图 / 卡片列表），把内容盒撑到接近全屏；其余页按内容收缩
 const PAGE_SIZES := {
+	"grow": Vector2(1080, 620),
 	"tech": Vector2(1080, 588),
 	"admin": Vector2(1080, 610),
 	"team": Vector2(1080, 620),
 	"hero": Vector2(1080, 620),
 	"battle": Vector2(1080, 600),
 	"build": Vector2(760, 420),
+	#"craft" 也定死高度：制作页三档配方叠起来比屏幕还高，靠下面的滚动兜底（不然面板顶穿屏幕下沿）
+	"craft": Vector2(760, 430),
 	"calendar": Vector2(820, 400),
 	"diplomacy": Vector2(560, 560),
 }
+var _future_btn: Button
+var _future_label: Label
+var _growth_box: VBoxContainer
+var _build_names := {}
 var _tab_btns := {}             # key -> Button
-var _pages := {}                # key -> Control
+var _pages := {}                # key -> Control (含 grow + battle/tech/admin 子页)
+var _grow_sub := "tech"         # 发展页当前子页: battle / tech / admin
+var _grow_sub_btns := {}        # 子页签按钮
 var _current := "bag"
 var _team_info: Label = null
 var _team_list: VBoxContainer = null
@@ -78,6 +91,9 @@ var _detail_rename: LineEdit = null
 var _detail_rename_btn: Button = null
 var _detail_give_btn: Button = null
 var _detail_like_label: Label = null          # 生日 + 爱好提示行
+var _romance_btn: Button = null               # 恋爱线: 打开恋爱界面的按钮
+var _rom_love_label: Label = null             # 恋爱线: 心动条
+var _rom_status_label: Label = null           # 恋爱线: 状态行（未婚进度 / 已婚纪念）
 var _detail_back_btn: Button = null
 var _detail_class_benefit: Label = null       # e24: 当前战斗收益行
 var _detail_labor_benefit: Label = null       # e24: 当前劳动收益行
@@ -115,6 +131,7 @@ var _rsch_tree := "tech"
 var _team_stats := []            # 统计卡上的数字 Label（顺序：人数/可派/已派/已干完）
 
 func _ready() -> void:
+	add_to_group("backpack_panel")
 	# 见 shop_ui.gd 的注释：挂在 HUD(CanvasLayer) 下的 Control 默认是 0 尺寸，
 	# 不自己声明全屏的话遮罩和居中都会失效（面板会挤在左上角）。
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -123,6 +140,7 @@ func _ready() -> void:
 	_build_panel()
 	Inventory.inventory_changed.connect(_refresh)
 	Inventory.inventory_changed.connect(_refresh_craft)
+	Quests.changed.connect(_refresh_module_tabs)
 
 # ---------------- 搭界面 ----------------
 func _build_panel() -> void:
@@ -149,20 +167,30 @@ func _build_panel() -> void:
 	for m in MODULES:
 		var b := Button.new()
 		b.text = m["name"]
-		b.custom_minimum_size = Vector2(0, 30)
+		b.custom_minimum_size = Vector2(0, 34)
 		b.add_theme_font_override("font", PIXEL_FONT)
-		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_font_size_override("font_size", 15)     # 2026-10-06: 页签字号 13 -> 15
 		b.pressed.connect(_select_module.bind(m["key"]))
 		tabs.add_child(b)
 		_tab_btns[m["key"]] = b
 
+	_future_btn = Button.new()
+	_future_btn.text = "未来发展 (展开查看条件)"
+	_future_btn.add_theme_font_override("font", PIXEL_FONT)
+	_future_btn.add_theme_font_size_override("font_size", 12)
+	outer.add_child(_future_btn)
+	_future_label = _mk_label("", 12, Color(0.8, 0.75, 0.66), HORIZONTAL_ALIGNMENT_CENTER)
+	_future_label.visible = false
+	outer.add_child(_future_label)
+	_future_btn.pressed.connect(func(): _future_label.visible = not _future_label.visible)
 	# ---------- 下面：内容盒 ----------
 	var box := PanelContainer.new()
 	var box_style := StyleBoxFlat.new()
-	box_style.bg_color = Color(0.12, 0.10, 0.09, 0.96)
-	box_style.border_color = Color(0.55, 0.42, 0.28)
-	box_style.set_border_width_all(3)
-	box_style.set_corner_radius_all(6)
+	box_style.bg_color = UiStyle.INK
+	box_style.border_color = UiStyle.EDGE
+	box_style.set_border_width_all(1)
+	box_style.border_width_top = 2
+	box_style.set_corner_radius_all(2)
 	box_style.content_margin_left = 20
 	box_style.content_margin_right = 20
 	box_style.content_margin_top = 14
@@ -187,6 +215,7 @@ func _build_panel() -> void:
 		_pages[m["key"]] = page
 
 	_switch_to(_current)
+	_refresh_module_tabs()
 
 # 每个模块一页；现在只做「背包 / 团队管理 / 地图 / 物品制作」四页有内容
 func _build_page(key: String) -> Control:
@@ -195,8 +224,8 @@ func _build_page(key: String) -> Control:
 			return _build_bag_page()
 		"team":
 			return _build_team_page()
-		"battle":
-			return _build_battle_page()
+		"grow":
+			return _build_grow_page()
 		"map":
 			return _build_map_page()
 		"calendar":
@@ -207,10 +236,6 @@ func _build_page(key: String) -> Control:
 			return _build_build_page()
 		"hero":
 			return _build_hero_page()
-		"tech":
-			return _build_tech_page()
-		"admin":
-			return _build_admin_page()
 		"diplomacy":
 			return _build_diplomacy_page()
 		"quests":
@@ -915,14 +940,14 @@ func _build_battle_page() -> Control:
 	for i in Slaves.count:
 		_btl_rows["p_%d" % i] = _add_deck_card(_btl_partner_grid, "p_%d" % i)
 
-	left.add_child(_mk_label("法术卡 -- 每研究一个科技/行政解锁一张, 越后期越强力",
+	left.add_child(_mk_label("法术卡 -- 研究解锁 + 书院已建成才能编入 (书院是法术的来源)",
 		12, Color(0.85, 0.78, 0.6)))
 	var spell_grid := _mk_battle_grid()
 	left.add_child(spell_grid)
 	for id in CardsData.SPELLS.keys():
 		_btl_rows[String(id)] = _add_deck_card(spell_grid, String(id))
 
-	left.add_child(_mk_label("部队牌 -- 随科技/行政研究解锁的部队 (强力卡限 4 张 / 精英卡限 2 张)",
+	left.add_child(_mk_label("部队牌 -- 研究解锁 + 军营已建成才能编入 (强力卡限 4 张 / 精英卡限 2 张)",
 		12, Color(0.85, 0.78, 0.6)))
 	var unit_grid := _mk_battle_grid()
 	left.add_child(unit_grid)
@@ -1154,7 +1179,10 @@ func _troop_color(troop: String) -> Color:
 func _slave_portrait(i: int) -> Texture2D:
 	if _portrait_cache.has(i):
 		return _portrait_cache[i] as Texture2D
-	var tex: Texture2D = null
+	var tex: Texture2D = preload("res://scene/mood_portrait.gd").tex_of("slave_%02d" % i)
+	if tex != null:
+		_portrait_cache[i] = tex
+		return tex
 	var model := String(NPC_SCRIPT.model_for(i))
 	if model != "":
 		# e29c: 改色贴图管线 —— 每个伙伴的发色/服装色烘在贴图里, 静态直调
@@ -1362,6 +1390,17 @@ func _build_slave_detail() -> void:
 	box.add_child(_detail_info_label)
 	box.add_child(_mk_label("---", 11, Color(0.72, 0.64, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 
+	var advanced := Button.new()
+	advanced.text = "展开职业成长 (劳动 / 战斗)"
+	advanced.add_theme_font_override("font", PIXEL_FONT)
+	advanced.add_theme_font_size_override("font_size", 12)
+	box.add_child(advanced)
+	_growth_box = VBoxContainer.new()
+	_growth_box.visible = false
+	box.add_child(_growth_box)
+	advanced.pressed.connect(func(): _growth_box.visible = not _growth_box.visible)
+	var summary_box := box
+	box = _growth_box
 	# e27g: 两棵升级树从团队页挪进来 —— 看谁的详情树就归谁, 点树上的职业直接转职
 	_tree_target = _mk_label("", 11, Color(0.98, 0.85, 0.45), HORIZONTAL_ALIGNMENT_CENTER)
 	box.add_child(_tree_target)
@@ -1388,6 +1427,7 @@ func _build_slave_detail() -> void:
 	box.add_child(_mk_label("劳动: 营造线=建造 +1/2/4 (工地与铁匠铺)  学问线=知识 +2/3/6 (研究)  丰饶线=劳动 +6/12/20 (浇水/下矿)",
 		10, Color(0.66, 0.62, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 
+	box = summary_box
 	# 改名
 	var rename_row := HBoxContainer.new()
 	rename_row.add_theme_constant_override("separation", 6)
@@ -1410,7 +1450,7 @@ func _build_slave_detail() -> void:
 	# 生日 + 爱好一行（_refresh_slave_detail 里按当前伙伴填）
 	_detail_like_label = _mk_label("", 12, Color(0.98, 0.78, 0.55), HORIZONTAL_ALIGNMENT_CENTER)
 	box.add_child(_detail_like_label)
-	box.add_child(_mk_label("(赠送: 每天一次, 挑背包里的作物/食物/材料送 Ta; 好感每 4 点换伙伴 1 点攻击)",
+	box.add_child(_mk_label("(好感线: 每天送一次礼, 挑背包里的作物/食物/材料送 Ta; 好感每 4 点换伙伴 1 点攻击)",
 		11, Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER))
 
 	# 赠送（打开选物弹窗 gift_picker, 从背包挑一份作物/食物/材料）
@@ -1425,6 +1465,25 @@ func _build_slave_detail() -> void:
 	_detail_give_btn.add_theme_font_size_override("font_size", 13)
 	_detail_give_btn.pressed.connect(_on_give_pressed_detail)
 	give_row.add_child(_detail_give_btn)
+
+	# 恋爱线（只有六位可婚姑娘开放; 心里话开线后可做恋爱互动攒心动值）
+	box.add_child(_mk_label("--- 恋爱线 ---", 12, Color(0.95, 0.66, 0.76),
+		HORIZONTAL_ALIGNMENT_CENTER))
+	_rom_love_label = _mk_label("", 13, Color(0.98, 0.75, 0.82), HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_rom_love_label)
+	_rom_status_label = _mk_label("", 11, Color(0.80, 0.72, 0.68), HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_rom_status_label)
+	var rom_row := HBoxContainer.new()
+	rom_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	rom_row.add_theme_constant_override("separation", 8)
+	box.add_child(rom_row)
+	_romance_btn = Button.new()
+	_romance_btn.text = "恋爱互动 (牵手散步 / 月下相拥 ...)"
+	_romance_btn.custom_minimum_size = Vector2(280, 30)
+	_romance_btn.add_theme_font_override("font", PIXEL_FONT)
+	_romance_btn.add_theme_font_size_override("font_size", 13)
+	_romance_btn.pressed.connect(_on_romance_pressed_detail)
+	rom_row.add_child(_romance_btn)
 
 	_detail_back_btn = Button.new()
 	_detail_back_btn.text = "回到列表"
@@ -1446,6 +1505,8 @@ func _refresh_slave_detail() -> void:
 	var hearts := ""
 	for _k in aff:
 		hearts += "*"
+	if _growth_box != null:
+		_growth_box.visible = false
 	_detail_info_label.text = "好感 %s  %d/%d\n今天%s送过东西" % [
 		hearts, aff, Slaves.AFFECTION_MAX,
 		"" if bool(s.get("gift_today", false)) else "没",
@@ -1462,6 +1523,27 @@ func _refresh_slave_detail() -> void:
 	if _detail_give_btn != null:
 		_detail_give_btn.disabled = bool(s.get("gift_today", false))
 		_detail_give_btn.modulate = Color(0.7, 0.7, 0.7) if bool(s.get("gift_today", false)) else Color(1, 1, 1)
+	# 恋爱线区：按这位伙伴的身份填（已婚 / 恋爱线开放 / 只是并肩伙伴）
+	var sid := Slaves.roster_id(_detail_index)
+	if _romance_btn != null and _rom_love_label != null and _rom_status_label != null:
+		if Marriage.is_married_to(sid):
+			var pk: Dictionary = Marriage.perk()
+			_rom_love_label.text = "心动 %d/%d" % [Marriage.love_of(sid), Marriage.LOVE_MAX]
+			_rom_status_label.text = "已婚 第 %d 天  专属: %s" % [Marriage.married_day,
+				String(pk.get("desc", "")) if not pk.is_empty() else ""]
+			_romance_btn.visible = true
+		elif Marriage.romance_open(sid):
+			_rom_love_label.text = "心动 %d/%d" % [Marriage.love_of(sid), Marriage.LOVE_MAX]
+			_rom_status_label.text = "心里话 %d/5 段  (篝火聊天解锁更多互动)" % Marriage.stage(sid)
+			_romance_btn.visible = true
+		elif Marriage.is_bride(sid):
+			_rom_love_label.text = "心动 --"
+			_rom_status_label.text = "(先在篝火讲第 1 段心里话, 恋爱线才开启)"
+			_romance_btn.visible = true
+		else:
+			_rom_love_label.text = "心动 --"
+			_rom_status_label.text = "(并肩伙伴: 恋爱线只对六位姑娘开放)"
+			_romance_btn.visible = false
 	# e27g: 树的皮肤由 _refresh_class_trees 统一刷, 这里只更新两行当前收益
 	var troop := String(s.get("troop", "新兵"))
 	var cur_atk: int = int(Slaves.CLASSES.get(troop, {}).get("atk", 0))
@@ -1506,6 +1588,15 @@ func _on_give_pressed_detail() -> void:
 	add_child(gp)
 	gp.picked.connect(_on_gift_picked_detail)
 	gp.open_for(_detail_index)
+
+# 恋爱互动：打开恋爱界面（romance_ui）, 挑一件小事做攒心动值
+func _on_romance_pressed_detail() -> void:
+	if _detail_index < 0:
+		return
+	var rui: Control = ROMANCE_UI.new()
+	add_child(rui)
+	rui.closed.connect(_refresh_slave_detail)
+	rui.open_for(_detail_index)
 
 # 选物弹窗点了某件物品 → 落账（give 记好感 + 扣背包一份, 跟弹窗约定配对）
 func _on_gift_picked_detail(item: ItemData) -> void:
@@ -1586,10 +1677,12 @@ func _build_calendar_page() -> Control:
 
 func _make_calendar_cell(season: int, day: int) -> PanelContainer:
 	var panel := PanelContainer.new()
+	# 今天与生日是状态提示, 不能被通用面板底色覆盖。
+	panel.set_meta("keep_ui_palette", true)
 	panel.custom_minimum_size = Vector2(24, 36)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.16, 0.14, 0.12, 0.9)
-	sb.border_color = Color(0.4, 0.35, 0.3)
+	sb.bg_color = UiStyle.SURFACE
+	sb.border_color = UiStyle.EDGE
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(3)
 	sb.content_margin_left = 1
@@ -1601,10 +1694,10 @@ func _make_calendar_cell(season: int, day: int) -> PanelContainer:
 	v.add_theme_constant_override("separation", 0)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(v)
-	var dl := _mk_label(str(day), 10, Color(0.8, 0.76, 0.68), HORIZONTAL_ALIGNMENT_CENTER)
+	var dl := _mk_label(str(day), 10, UiStyle.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(dl)
-	var nl := _mk_label("", 9, Color(0.98, 0.62, 0.72), HORIZONTAL_ALIGNMENT_CENTER)
+	var nl := _mk_label("", 9, Color("944d62"), HORIZONTAL_ALIGNMENT_CENTER)
 	nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nl.clip_text = true          # 改过 8 字名的也塞得下（截断, 全名在 tooltip）
 	nl.custom_minimum_size = Vector2(0, 12)
@@ -1638,9 +1731,9 @@ func _refresh_calendar() -> void:
 				names.append(str(bd[2]))
 		var is_today: bool = TimeManager.season == season and TimeManager.day == day
 		var is_bd := not names.is_empty()
-		sb.bg_color = Color(0.32, 0.14, 0.18, 0.95) if is_bd else Color(0.16, 0.14, 0.12, 0.9)
-		sb.border_color = Color(1, 0.85, 0.4) if is_today \
-			else (Color(0.95, 0.55, 0.66) if is_bd else Color(0.4, 0.35, 0.3))
+		sb.bg_color = Color("f1cbd0") if is_bd else UiStyle.SURFACE
+		sb.border_color = Color("b68a2e") if is_today \
+			else (Color("ba7789") if is_bd else UiStyle.EDGE)
 		sb.set_border_width_all(2 if is_today else 1)
 		nl.text = ", ".join(names)
 		panel.tooltip_text = ("%s的生日" % ", ".join(names)) if is_bd \
@@ -1690,10 +1783,19 @@ var _craft_info: Label = null
 var _craft_sub_pages := {}           # 子页 key -> VBoxContainer
 var _craft_sub_btns := {}            # 子页 key -> 页签按钮
 var _smith_queue_label: Label = null # e41c: 铁匠铺页顶上的队列一览（排队顺序 + 进度）
+var _smith_points: Label = null      # 2026-10-06: 锻造点池（伙伴打铁产出）
+var _smith_invest: Button = null     # 2026-10-06: 投入锻造点 -> 当场出件
 
 func _build_craft_page() -> Control:
+	# 2026-10-06: 整页套滚动兜底 —— 三档配方（个人 10 + 工作台 + 铁匠铺整套盔甲）叠起来
+	# 远超内容盒的高, 矮窗口下底部配方会被面板下沿裁掉。跟建造页(_build_build_page)同款。
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(720, 430)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 6)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(wrap)
 
 	var intro := _mk_label("点配方即可制作 -- 缺材料时按钮会灰掉", 12,
 		Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER)
@@ -1709,9 +1811,9 @@ func _build_craft_page() -> Control:
 			{"key": "smith", "name": "铁匠铺"}]:
 		var tb := Button.new()
 		tb.text = str(s["name"])
-		tb.custom_minimum_size = Vector2(150, 28)
+		tb.custom_minimum_size = Vector2(170, 30)
 		tb.add_theme_font_override("font", PIXEL_FONT)
-		tb.add_theme_font_size_override("font_size", 13)
+		tb.add_theme_font_size_override("font_size", 15)   # 2026-10-06: 跟顶层页签同号
 		tb.pressed.connect(_select_craft_sub.bind(str(s["key"])))
 		sub_tabs.add_child(tb)
 		_craft_sub_btns[str(s["key"])] = tb
@@ -1725,6 +1827,7 @@ func _build_craft_page() -> Control:
 		var r: Dictionary = Crafting.RECIPES[i]
 		var row := _craft_row_btn()
 		row.pressed.connect(_on_craft_pressed.bind(i, false))
+		_apply_craft_facility_tooltip(row, r["result"])
 		base_page.add_child(row)
 		_craft_rows.append({"btn": row, "idx": i, "result": r["result"], "wb": false})
 	base_page.add_child(_mk_label("(手持木板时点到草地/耕地上即可铺设)",
@@ -1738,6 +1841,7 @@ func _build_craft_page() -> Control:
 		var wb_r: Dictionary = Crafting.WORKBENCH_RECIPES[i]
 		var wb_row := _craft_row_btn()
 		wb_row.pressed.connect(_on_craft_pressed.bind(i, true))
+		_apply_craft_facility_tooltip(wb_row, wb_r["result"])
 		wb_page.add_child(wb_row)
 		_craft_rows.append({"btn": wb_row, "idx": i, "result": wb_r["result"], "wb": true})
 
@@ -1749,6 +1853,16 @@ func _build_craft_page() -> Control:
 		Color(0.8, 0.7, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
 	_smith_queue_label = _mk_label("", 12, Color(0.92, 0.84, 0.66), HORIZONTAL_ALIGNMENT_CENTER)
 	sm_page.add_child(_smith_queue_label)
+	# 2026-10-06 锻造点：跟建造点同一套 —— 伙伴打铁攒点, 在这里当场出件
+	_smith_points = _mk_label("", 12, Color(1.0, 0.92, 0.68), HORIZONTAL_ALIGNMENT_CENTER)
+	sm_page.add_child(_smith_points)
+	_smith_invest = Button.new()
+	_smith_invest.text = "投入锻造点 -- 立刻打出队首那件"
+	_smith_invest.custom_minimum_size = Vector2(620, 34)
+	_smith_invest.add_theme_font_override("font", PIXEL_FONT)
+	_smith_invest.add_theme_font_size_override("font_size", 13)
+	_smith_invest.pressed.connect(_on_smith_invest)
+	sm_page.add_child(_smith_invest)
 	for i in Crafting.SMITH_RECIPES.size():
 		var sm_r: Dictionary = Crafting.SMITH_RECIPES[i]
 		var sm_row := _craft_row_btn()
@@ -1757,7 +1871,7 @@ func _build_craft_page() -> Control:
 		_craft_rows.append({"btn": sm_row, "idx": i, "result": sm_r["result"], "smith": true})
 
 	_select_craft_sub("base")
-	return wrap
+	return scroll
 
 func _craft_sub_page(key: String, wrap: VBoxContainer) -> VBoxContainer:
 	var p := VBoxContainer.new()
@@ -1768,11 +1882,20 @@ func _craft_sub_page(key: String, wrap: VBoxContainer) -> VBoxContainer:
 
 func _craft_row_btn() -> Button:
 	var row := Button.new()
-	row.custom_minimum_size = Vector2(420, 44)
+	row.custom_minimum_size = Vector2(560, 44)
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.add_theme_font_override("font", PIXEL_FONT)
-	row.add_theme_font_size_override("font_size", 13)
+	row.add_theme_font_size_override("font_size", 14)   # 2026-10-06: 13 -> 14, 跟建造页一致
 	return row
+
+func _apply_craft_facility_tooltip(row: Button, result: ItemData) -> void:
+	if result == null:
+		return
+	var path := result.resource_path
+	if path.ends_with("workbench.tres"):
+		row.tooltip_text = Structures.facility_tip(Structures.KIND_WORKBENCH)
+	elif path.ends_with("furnace.tres"):
+		row.tooltip_text = Structures.facility_tip(Structures.KIND_FURNACE)
 
 # e28f: 切制作子页签 —— 只显当前那段, 选中的页签字点亮
 func _select_craft_sub(key: String) -> void:
@@ -1781,9 +1904,21 @@ func _select_craft_sub(key: String) -> void:
 	for k in _craft_sub_btns.keys():
 		var b: Button = _craft_sub_btns[k]
 		if k == key:
-			b.add_theme_color_override("font_color", Color(1, 0.92, 0.7))
+			b.add_theme_color_override("font_color", UiStyle.PAPER)
 		else:
-			b.add_theme_color_override("font_color", Color(0.72, 0.68, 0.62))
+			b.add_theme_color_override("font_color", UiStyle.MUTED)
+	_refresh_craft()
+
+# 2026-10-06: 投入锻造点 —— 把池子里的点灌进打铁队列, 够一件当场出一件。
+func _on_smith_invest() -> void:
+	if not Crafting.smith_busy():
+		return
+	var made: Array = Crafting.invest_smith_points()
+	Audio.play_sfx("plant", -8.0)      # 借放置的锤子音
+	if not made.is_empty():
+		Audio.play_sfx("bin")
+		if _craft_info != null:
+			_craft_info.text = "打出来了: %s" % ", ".join(made)
 	_refresh_craft()
 
 func _refresh_craft() -> void:
@@ -1794,6 +1929,21 @@ func _refresh_craft() -> void:
 				Crafting.smith_queued(), Crafting.smith_queue_text()]
 		else:
 			_smith_queue_label.text = "打铁队列: 空 (点了配方就排进来)"
+	# 2026-10-06: 锻造点池 —— 伙伴打铁每晚攒点, 在这里当场出件
+	if _smith_points != null:
+		_smith_points.text = "锻造点: %d  (派伙伴去铁匠铺打铁, 每晚攒点进池)" % Crafting.smith_points
+	if _smith_invest != null:
+		var busy: bool = Crafting.smith_busy()
+		_smith_invest.visible = busy
+		_smith_invest.disabled = (not busy) or Crafting.smith_points <= 0
+		if busy:
+			var job: Dictionary = Crafting.smith_top()
+			var left := maxi(0, int(job["need"]) - int(job["work"]))
+			if Crafting.smith_points >= left:
+				_smith_invest.text = "投入锻造点 -- 立刻打出 %s" % Crafting.smith_name()
+			else:
+				_smith_invest.text = "投入锻造点 -- 投入 %d 点 (还差 %d 点)" % [
+					Crafting.smith_points, left]
 	if _craft_rows.is_empty():
 		return
 	for entry in _craft_rows:
@@ -1886,70 +2036,143 @@ func _on_craft_pressed(idx: int, wb := false, smith := false) -> void:
 var _build_rows := {}          # kind -> Button, 刷新时按支付能力灰显
 var _build_info: Label = null
 var _upgrade_box: VBoxContainer = null   # e28f: 建筑升级列表（刷新时整段重建）
-var _site_label: Label = null      # e24c: 当前工地进度
-var _site_cancel: Button = null    # e24c: 取消建筑
-var _move_btn: Button = null       # e44: 建筑模式（搬已建好的建筑）入口
+var _site_points: Label = null      # 2026-10-06: 建造点总池（伙伴施工产出的点数）
+var _site_box: VBoxContainer = null # 2026-10-06: 每座工地一行（进度 + 投入 + 取消），刷新时整段重建
+var _move_btn: Button = null        # e44: 建筑模式（搬已建好的建筑）入口
+# 2026-10-06: 建造页分四类（建筑一多, 平铺长列表就找不到东西了）。
+# 分类表在 _build_build_page 里按 Structures.KIND_* 现搭（const 里不能用 autoload）。
+var _build_sub_pages := {}         # 分类 key -> VBoxContainer
+var _build_sub_btns := {}          # 分类 key -> Button
+
+# 2026-10-06: 建造页分类 —— 顺序就是页签顺序。没被任何一类收走的 kind
+# 会自动落进最后的"其它"页（加新建筑忘了归类也不会凭空消失）。
+const BUILD_TAB_DEFS := [
+	{"key": "town", "name": "城镇", "kinds": ["barracks", "academy", "market", "lighthouse", "bakery", "weaver"]},
+	{"key": "life", "name": "生计", "kinds": ["well", "coop", "lamp", "hut", "hive", "chest"]},
+	{"key": "farm", "name": "农牧", "kinds": ["barn", "stable", "silo", "greenhouse", "mill"]},
+	{"key": "misc", "name": "材料与路桥", "kinds": ["blacksmith", "fence", "bridge"]},
+]
+const BUILD_SUB_FONT := 15
+const BUILD_ROW_FONT := 14
 
 func _build_build_page() -> Control:
+	# e55: 整页套滚动兜底 —— 工地一览 + 建筑升级区 + 每个建筑两行（名字/选位置）
+	# 叠起来远超内容盒的高, 底部几个建筑会被面板下沿裁掉。
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(720, 430)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 6)
+	wrap.add_theme_constant_override("separation", 8)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(wrap)
 
-	# e24c: 当前工地一览 —— 进度 + 取消（取消退材料, 钱和人工不退）
-	_site_label = _mk_label("", 13, Color(0.85, 0.92, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
-	wrap.add_child(_site_label)
-	_site_cancel = Button.new()
-	_site_cancel.text = "取消这块工地 (返还木头/石头/铁; 金币和已花人工不退)"
-	_site_cancel.custom_minimum_size = Vector2(620, 32)
-	_site_cancel.add_theme_font_override("font", PIXEL_FONT)
-	_site_cancel.add_theme_font_size_override("font_size", 12)
-	_site_cancel.pressed.connect(_on_site_cancel)
-	wrap.add_child(_site_cancel)
+	# 2026-10-06 建造点：伙伴在工地干活 -> 每晚攒点进**总池** -> 在这里对任意一座工地当场兑现。
+	# 工地可多座并行（上限 Structures.SITE_MAX），所以这里是「一个总点数 + 每座一行」。
+	_site_points = _mk_label("", 15, Color(1.0, 0.92, 0.68), HORIZONTAL_ALIGNMENT_CENTER)
+	wrap.add_child(_site_points)
+	_site_box = VBoxContainer.new()
+	_site_box.add_theme_constant_override("separation", 6)
+	wrap.add_child(_site_box)
 
-	var intro := _mk_label("选建筑 -> 回地图摆放: 左键放置 / 右键取消", 12,
-		Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER)
-	wrap.add_child(intro)
-
-	_build_info = _mk_label("", 13, Color(0.95, 0.85, 0.6), HORIZONTAL_ALIGNMENT_CENTER)
+	_build_info = _mk_label("", 14, Color(0.95, 0.85, 0.6), HORIZONTAL_ALIGNMENT_CENTER)
 	wrap.add_child(_build_info)
 
 	# e44 建筑模式：已盖好的建筑可以随便挪地方（不花钱不扣料, 等级/鸡/蜂蜜都跟着走）
 	_move_btn = Button.new()
 	_move_btn.text = "建筑模式 -- 随意搬动已盖好的建筑 (不花钱)"
-	_move_btn.custom_minimum_size = Vector2(620, 34)
+	_move_btn.custom_minimum_size = Vector2(640, 34)
 	_move_btn.add_theme_font_override("font", PIXEL_FONT)
-	_move_btn.add_theme_font_size_override("font_size", 13)
+	_move_btn.add_theme_font_size_override("font_size", 14)
 	_move_btn.pressed.connect(_on_move_mode)
 	wrap.add_child(_move_btn)
-	wrap.add_child(_mk_label("点它回地图: 左键点建筑拾起来 / 再左键放下 / 右键放回原处或退出",
-		11, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
 
 	# e28f: 建筑升级区 —— 铁匠铺升级从「站旁边按 F」搬进背包, 建造页也能花钱提级
-	wrap.add_child(_mk_label("-- 建筑升级 --", 13, Color(1, 0.92, 0.75),
+	wrap.add_child(_mk_label("-- 建筑升级 --", 15, Color(1, 0.92, 0.75),
 		HORIZONTAL_ALIGNMENT_CENTER))
 	_upgrade_box = VBoxContainer.new()
 	_upgrade_box.add_theme_constant_override("separation", 4)
 	wrap.add_child(_upgrade_box)
 
-	for kind in Structures.BUILDINGS:
-		var info: Dictionary = Structures.BUILDINGS[kind]
-		wrap.add_child(_mk_label("%s -- %s" % [info["name"], info["desc"]],
-			13, Color(0.95, 0.9, 0.8)))
-		var cost_text := "金币 %d   木头 %d   石头 %d   铁 %d   劳动力 %d" \
-			% [int(info["coin"]), int(info["wood"]), int(info["stone"]),
-			int(info["iron"]), int(info["labor"])]
-		var row := Button.new()
-		row.text = "选位置   " + cost_text
-		row.custom_minimum_size = Vector2(620, 34)
-		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.add_theme_font_override("font", PIXEL_FONT)
-		row.add_theme_font_size_override("font_size", 13)
-		row.pressed.connect(_on_build_pick.bind(kind))
-		wrap.add_child(row)
-		_build_rows[kind] = row
+	# ---------- 分类页签（建筑多了, 一页只看一类） ----------
+	wrap.add_child(_mk_label("选建筑 -> 回地图摆放: 左键放置 / 右键取消", 13,
+		Color(0.7, 0.66, 0.6), HORIZONTAL_ALIGNMENT_CENTER))
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	wrap.add_child(tabs)
+	var defs: Array = _build_tab_defs()
+	for d in defs:
+		var tb := Button.new()
+		tb.text = str(d["name"])
+		tb.custom_minimum_size = Vector2(150, 32)
+		tb.add_theme_font_override("font", PIXEL_FONT)
+		tb.add_theme_font_size_override("font_size", BUILD_SUB_FONT)
+		tb.pressed.connect(_select_build_sub.bind(str(d["key"])))
+		tabs.add_child(tb)
+		_build_sub_btns[str(d["key"])] = tb
 
-	wrap.add_child(_mk_label("劳动力: 点建造当天占用, 第二天早上伙伴回归",
-		11, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
-	return wrap
+	for d in defs:
+		var page := VBoxContainer.new()
+		page.add_theme_constant_override("separation", 6)
+		wrap.add_child(page)
+		_build_sub_pages[str(d["key"])] = page
+		for kind in d["kinds"]:
+			var k := String(kind)
+			if not Structures.BUILDINGS.has(k):
+				continue
+			var info: Dictionary = Structures.BUILDINGS[k]
+			var btip: String = Structures.building_tip(k)
+			var name_lab := _mk_label("%s  --  %s" % [info["name"], info["desc"]],
+				BUILD_ROW_FONT, Color(0.95, 0.9, 0.8))
+			name_lab.tooltip_text = btip
+			name_lab.mouse_filter = Control.MOUSE_FILTER_STOP
+			page.add_child(name_lab)
+			var cost_text := "金币 %d   木头 %d   石头 %d   铁 %d   劳动力 %d" \
+				% [int(info["coin"]), int(info["wood"]), int(info["stone"]),
+				int(info["iron"]), int(info["labor"])]
+			var row := Button.new()
+			row.text = "选位置   " + cost_text
+			row.custom_minimum_size = Vector2(640, 36)
+			row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			row.add_theme_font_override("font", PIXEL_FONT)
+			row.add_theme_font_size_override("font_size", BUILD_ROW_FONT)
+			row.tooltip_text = btip
+			row.pressed.connect(_on_build_pick.bind(k))
+			page.add_child(row)
+			_build_rows[k] = row
+			_build_names[k] = name_lab
+
+	_select_build_sub("life")
+	wrap.add_child(_mk_label("建造点: 每晚派伙伴去工地干活来攒, 攒够在这里当场把楼盖完",
+		12, Color(0.6, 0.57, 0.52), HORIZONTAL_ALIGNMENT_CENTER))
+	return scroll
+
+# 分类表：BUILD_TAB_DEFS 里登记的 + 一个"其它"兜底页（把 BUILDINGS 里漏归类的收进来）
+func _build_tab_defs() -> Array:
+	var defs: Array = []
+	var claimed := {}
+	for d in BUILD_TAB_DEFS:
+		defs.append({"key": str(d["key"]), "name": str(d["name"]), "kinds": d["kinds"]})
+		for k in d["kinds"]:
+			claimed[String(k)] = true
+	var rest: Array = []
+	for kind in Structures.BUILDINGS:
+		if not claimed.has(String(kind)):
+			rest.append(String(kind))
+	if not rest.is_empty():
+		defs.append({"key": "other", "name": "其它", "kinds": rest})
+	return defs
+
+# 切建造子页签 —— 只显当前那一类, 选中的页签字点亮
+func _select_build_sub(key: String) -> void:
+	for k in _build_sub_pages.keys():
+		(_build_sub_pages[k] as Control).visible = (k == key)
+	for k in _build_sub_btns.keys():
+		var b: Button = _build_sub_btns[k]
+		if k == key:
+			b.add_theme_color_override("font_color", UiStyle.PAPER)
+		else:
+			b.add_theme_color_override("font_color", UiStyle.MUTED)
 
 func _refresh_build() -> void:
 	var g: Node = get_tree().get_first_node_in_group("game")
@@ -1957,17 +2180,25 @@ func _refresh_build() -> void:
 		var btn: Button = _build_rows[kind]
 		var ok: bool = g != null and g.has_method("_can_pay_build") \
 			and g._can_pay_build(kind)
-		btn.disabled = not ok
+		var lock: String = Quests.building_lock_hint(String(kind))
+		btn.disabled = not ok or not lock.is_empty()
+		btn.tooltip_text = lock if not lock.is_empty() else Structures.building_tip(String(kind))
+		btn.visible = lock.is_empty()
+		(_build_names[kind] as Control).visible = lock.is_empty()
 		btn.modulate = Color(1, 1, 1) if ok else Color(0.75, 0.72, 0.7)
-	# e24c: 当前工地进度 + 取消按钮（没有工地就藏起来）
-	if Structures.site_busy():
-		_site_label.text = "当前工地: %s  进度 %d/%d 人天" % [
-			Structures.site_name(), int(Structures.site["work"]), int(Structures.site["need"])]
-		_site_label.visible = true
-		_site_cancel.visible = true
-	else:
-		_site_label.visible = false
-		_site_cancel.visible = false
+	if _build_info != null:
+		var locks: Array[String] = []
+		for kind in _build_rows:
+			var lock: String = Quests.building_lock_hint(String(kind))
+			if not lock.is_empty():
+				locks.append(String(Structures.BUILDINGS[kind]["name"]) + ": " + lock)
+		_build_info.text = "还有 %d 种设施待开放, 悬停这里查看条件" % locks.size() if not locks.is_empty() else "按自己的节奏建设家园"
+		_build_info.tooltip_text = "\n".join(locks)
+		_build_info.mouse_filter = Control.MOUSE_FILTER_STOP
+	# 2026-10-06: 建造点总池 —— 伙伴在工地干活每晚攒点, 在这里对任意一座工地当场兑现
+	if _site_points != null:
+		_site_points.text = "建造点: %d  (派伙伴去工地干活, 每晚攒点进池)" % Structures.build_points
+	_rebuild_site_rows()
 	# e44: 岛上连一座能搬的建筑都没有（只有工作台/熔炉）就把入口灰掉
 	if _move_btn != null:
 		_move_btn.disabled = not Structures.has_movable()
@@ -1982,9 +2213,9 @@ func _on_move_mode() -> void:
 	g.start_move_mode()
 	close()
 
-# e24c: 取消工地 —— 材料全额退回背包（金币和已花的人工不退, 跟拆房同一套规矩）
-func _on_site_cancel() -> void:
-	var cost: Dictionary = Structures.cancel_site()
+# e24c: 取消第 idx 座工地 —— 材料全额退回背包（金币和已花的人工不退, 跟拆房同一套规矩）
+func _on_site_cancel(idx: int) -> void:
+	var cost: Dictionary = Structures.cancel_site(idx)
 	if cost.is_empty():
 		return
 	for key in ["wood", "stone", "iron"]:
@@ -1993,6 +2224,67 @@ func _on_site_cancel() -> void:
 			Inventory.add_item(load("res://item/%s.tres" % key), n)
 	Audio.play_sfx("bin")
 	_refresh_build()
+
+# 2026-10-06: 投入建造点 —— 把总池里的点灌进第 idx 座工地, 投满当场落成。
+# 这是"建造点"体系的兑现入口：伙伴每晚施工攒点, 玩家在这里主动花掉（可跨天攒、可挑工地）。
+func _on_site_invest(idx: int) -> void:
+	var list: Array = Structures.site_list()
+	if idx < 0 or idx >= list.size():
+		return
+	var nm := String(list[idx]["name"])
+	var done: bool = Structures.invest_build_points(idx)
+	Audio.play_sfx("plant", -8.0)      # 借放置的锤子音
+	if done:
+		Audio.play_sfx("bin")
+		_build_info.text = "%s 盖好了!" % nm
+	_refresh_build()
+
+# 2026-10-06: 工地行 —— 每座工地一行（进度字 + 投入按钮 + 取消按钮），刷新时整段重建。
+# 仿 _refresh_upgrades 的做法；工地可多座并行, 行数跟着变, 所以不缓存按钮。
+func _rebuild_site_rows() -> void:
+	if _site_box == null:
+		return
+	for c in _site_box.get_children():
+		_site_box.remove_child(c)
+		c.queue_free()
+	var list: Array = Structures.site_list()
+	if list.is_empty():
+		_site_box.add_child(_mk_label("当前没有工地 -- 选一座建筑回地图摆放, 付清钱料就开工",
+			13, Color(0.62, 0.6, 0.56), HORIZONTAL_ALIGNMENT_CENTER))
+		return
+	for i in list.size():
+		var s: Dictionary = list[i]
+		var work := int(s["work"])
+		var need := int(s["need"])
+		var left := maxi(0, need - work)
+		var row := VBoxContainer.new()
+		row.add_theme_constant_override("separation", 2)
+		row.add_child(_mk_label("工地 %d/%d: %s  进度 %d/%d 点" % [
+			i + 1, list.size(), String(s["name"]), work, need],
+			14, Color(0.85, 0.92, 1.0)))
+		var btns := HBoxContainer.new()
+		btns.add_theme_constant_override("separation", 8)
+		var invest := Button.new()
+		invest.custom_minimum_size = Vector2(380, 36)
+		invest.add_theme_font_override("font", PIXEL_FONT)
+		invest.add_theme_font_size_override("font_size", 14)
+		# 点数为 0 才灰掉；点不够也允许投（进度条照样往前走, 攒够那一下才落成）
+		invest.disabled = Structures.build_points <= 0
+		if Structures.build_points >= left:
+			invest.text = "投入建造点 -- 立刻完工"
+		else:
+			invest.text = "投入建造点 -- 投 %d 点 (还差 %d)" % [Structures.build_points, left]
+		invest.pressed.connect(_on_site_invest.bind(i))
+		btns.add_child(invest)
+		var cancel := Button.new()
+		cancel.text = "取消 (返还材料)"
+		cancel.custom_minimum_size = Vector2(210, 36)
+		cancel.add_theme_font_override("font", PIXEL_FONT)
+		cancel.add_theme_font_size_override("font_size", 13)
+		cancel.pressed.connect(_on_site_cancel.bind(i))
+		btns.add_child(cancel)
+		row.add_child(btns)
+		_site_box.add_child(row)
 
 # e28f: 建筑升级列表 —— 每次刷新整段重建（仿派活面板 _rebuild_dock 的做法）。
 # 目前能升的只有铁匠铺（Lv.1-3, 一级比一级贵 150*现级）, 其余建筑没有等级概念。
@@ -2013,11 +2305,15 @@ func _refresh_upgrades() -> void:
 		var lab := _mk_label("铁匠铺 Lv.%d -- 等级越高能打越好的甲" % lv, 13,
 			Color(0.95, 0.9, 0.8))
 		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var btip: String = Structures.building_tip(Structures.KIND_BLACKSMITH)
+		lab.tooltip_text = btip
+		lab.mouse_filter = Control.MOUSE_FILTER_STOP
 		row.add_child(lab)
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(230, 30)
 		btn.add_theme_font_override("font", PIXEL_FONT)
 		btn.add_theme_font_size_override("font_size", 13)
+		btn.tooltip_text = btip
 		if lv >= 3:
 			btn.text = "已满级"
 			btn.disabled = true
@@ -2102,9 +2398,9 @@ func _on_back_to_menu() -> void:
 	Audio.play_sfx("ui_click")
 	Audio.set_scene_bgm("")          # 万一停在海图/战场，把定曲交还给昼夜
 	close()
-	# d9: iris 收黑后再回主页面
+	# d9: iris 收黑后再回主页面（P4: 回菜单 = 合上这本手册, 翻页转场）
 	IRIS.play("out", func() -> void:
-		get_tree().change_scene_to_file("res://scene/main_menu.tscn"))
+		get_tree().change_scene_to_file("res://scene/main_menu.tscn"), "page")
 
 func _on_bgm_toggled(on: bool) -> void:
 	_bgm_on = on
@@ -2149,8 +2445,102 @@ func _refresh_diplomacy() -> void:
 	if p != null and p.has_method("_rebuild"):
 		p.call("_rebuild")
 
+# ---------------- 发展页 (战斗 / 科技 / 行政) ----------------
+func _build_grow_page() -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 6)
+	var sub_tabs := HBoxContainer.new()
+	sub_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	sub_tabs.add_theme_constant_override("separation", 6)
+	var subs: Array = [
+		{"key": "battle", "name": "战斗"},
+		{"key": "tech", "name": "科技"},
+		{"key": "admin", "name": "行政"},
+	]
+	for sd in subs:
+		var sk := String(sd["key"])
+		var tb := Button.new()
+		tb.text = String(sd["name"])
+		tb.add_theme_font_override("font", PIXEL_FONT)
+		tb.add_theme_font_size_override("font_size", 14)
+		tb.pressed.connect(_select_grow_sub.bind(sk))
+		sub_tabs.add_child(tb)
+		_grow_sub_btns[sk] = tb
+	wrap.add_child(sub_tabs)
+	var stack := VBoxContainer.new()
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var battle_p: Control = _build_battle_page()
+	var tech_p: Control = _build_tech_page()
+	var admin_p: Control = _build_admin_page()
+	_pages["battle"] = battle_p
+	_pages["tech"] = tech_p
+	_pages["admin"] = admin_p
+	for p in [battle_p, tech_p, admin_p]:
+		p.visible = false
+		stack.add_child(p)
+	wrap.add_child(stack)
+	_select_grow_sub("tech")
+	return wrap
+
+func _select_grow_sub(sub: String) -> void:
+	if sub != "battle" and sub != "tech" and sub != "admin":
+		return
+	if not Quests.grow_sub_unlocked(sub):
+		return
+	_grow_sub = sub
+	for k in ["battle", "tech", "admin"]:
+		if _pages.has(k):
+			(_pages[k] as Control).visible = (_current == "grow" and k == sub)
+	_update_grow_sub_tab_colors()
+	if _current == "grow":
+		if _box != null:
+			var sz: Vector2 = PAGE_SIZES.get(sub, PAGE_SIZES["grow"])
+			sz.y = minf(sz.y, get_viewport_rect().size.y - 60.0)
+			_box.custom_minimum_size = sz
+		_refresh_page(sub)
+
+func _update_grow_sub_tab_colors() -> void:
+	for k in _grow_sub_btns.keys():
+		var b: Button = _grow_sub_btns[k]
+		b.visible = Quests.grow_sub_unlocked(String(k))
+		if k == _grow_sub:
+			b.add_theme_color_override("font_color", UiStyle.PAPER)
+		else:
+			b.add_theme_color_override("font_color", UiStyle.MUTED)
+
+func _refresh_module_tabs() -> void:
+	for m in MODULES:
+		var k := String(m["key"])
+		if not _tab_btns.has(k):
+			continue
+		var b: Button = _tab_btns[k]
+		var ok: bool = Quests.module_unlocked(k)
+		b.visible = ok
+		b.disabled = not ok
+		b.modulate = Color(1, 1, 1) if ok else Color(0.55, 0.52, 0.48)
+		b.tooltip_text = "" if ok else Quests.module_lock_hint(k)
+	if _future_label != null:
+		var hints: Array[String] = []
+		for m in MODULES:
+			if not Quests.module_unlocked(String(m["key"])):
+				hints.append(String(m["name"]) + ": " + Quests.module_lock_hint(String(m["key"])))
+		_future_label.text = "\n".join(hints)
+		_future_btn.visible = not hints.is_empty()
+	_update_grow_sub_tab_colors()
+
+func _unlocked_module_list() -> Array:
+	var out: Array = []
+	for m in MODULES:
+		if Quests.module_unlocked(String(m["key"])):
+			out.append(m)
+	return out
+
 # ---------------- 模块切换 ----------------
 func _select_module(key: String) -> void:
+	if not Quests.module_unlocked(key):
+		Audio.play_sfx("cancel", -8.0)
+		_hint.text = Quests.module_lock_hint(key)
+		return
 	if key == _current:
 		return
 	Audio.play_sfx("ui_click", -10.0)
@@ -2158,29 +2548,31 @@ func _select_module(key: String) -> void:
 
 func _switch_to(key: String) -> void:
 	_current = key
-	# 科技/行政/团队页内容多，把内容盒撑大；其它页收回按内容自适应
 	if _box != null:
-		var sz: Vector2 = PAGE_SIZES.get(key, Vector2.ZERO)
-		# 内容盒再想要多大，也不能把面板顶出屏幕：视口高 - 页签行(30) - 间距(8) - 余量
-		# ❗hero 页 620 + 页签 38 = 658 > 默认视口 648，整块面板被顶出屏幕下沿。
+		var sz_key: String = _grow_sub if key == "grow" else key
+		var sz: Vector2 = PAGE_SIZES.get(sz_key, Vector2.ZERO)
 		sz.y = minf(sz.y, get_viewport_rect().size.y - 60.0)
 		_box.custom_minimum_size = sz
 	for k in _pages.keys():
 		var p: Control = _pages[k]
-		p.visible = (k == key)
+		if k == "battle" or k == "tech" or k == "admin":
+			p.visible = (key == "grow" and k == _grow_sub)
+		else:
+			p.visible = (k == key)
 	for k in _tab_btns.keys():
 		var b: Button = _tab_btns[k]
 		b.modulate = Color(1, 1, 1) if k == key else Color(0.68, 0.65, 0.6)
 		if k == key:
-			b.add_theme_color_override("font_color", Color(1, 0.92, 0.7))
+			b.add_theme_color_override("font_color", UiStyle.PAPER)
 		else:
-			b.add_theme_color_override("font_color", Color(0.72, 0.68, 0.62))
+			b.add_theme_color_override("font_color", UiStyle.MUTED)
 	for m in MODULES:
 		if m["key"] == key:
 			_title.text = str(m["name"])
 			_hint.text = str(m["hint"])
-	# 每页打开时刷一次自己的内容
-	_refresh_page(key)
+	if key == "grow":
+		_update_grow_sub_tab_colors()
+	_refresh_page(key if key != "grow" else _grow_sub)
 	page_changed.emit(key)
 
 func _refresh_page(key: String) -> void:
@@ -2191,6 +2583,8 @@ func _refresh_page(key: String) -> void:
 			_refresh_hero()
 		"team":
 			_refresh_team()
+		"grow":
+			_refresh_page(_grow_sub)
 		"battle":
 			_refresh_battle()
 		"map":
@@ -2208,7 +2602,7 @@ func _refresh_page(key: String) -> void:
 		"diplomacy":
 			_refresh_diplomacy()
 		"set":
-			pass      # 设置页没有要刷新的东西（读档列表搬去主页面后只剩几排静态开关）
+			pass
 
 # 地图页每次切过来都重画一遍：地形（新锄的地/刚播的种）和岛的范围都可能有变化
 func _refresh_map_page() -> void:
@@ -2253,183 +2647,6 @@ func _refresh_team() -> void:
 	if _detail_panel != null and _detail_panel.visible:
 		_refresh_slave_detail()
 
-# ═══════════════ 技能树视图（e20: 跟科技树一样摆开, 替代旧的三行卡片）═══════════════
-# 五条主干各一棵横树: 主干 Lv1..5 一排 → 5 级分叉 → A/B 两排各 Lv6..10。
-# 节点状态: 金底=已点亮 / 绿边=下一个可点(点它升级) / 青边=5 级选支 / 灰=未解锁。
-# 5 级未选支时 A/B 首节点就是「选支」按钮, 点了锁死另一条(老规矩)。
-class SkillTreeView:
-	extends Control
-
-	const FONT := preload("res://resources/font/IPix.ttf")
-	const NODE_W := 56.0
-	const NODE_H := 22.0
-	const GAP_X := 64.0
-	const ROW_H := 100.0
-	const LEFT_X := 96.0
-	const FORK_DY := 24.0
-
-	signal node_clicked(id: String, which: String)   # which="" 升级 / "a"/"b" 选支
-
-	func _init() -> void:
-		# 与 _build_hero_page 里的覆盖值保持一致（760, 508）：宽度到第 9 列节点，
-		# 高度 = 22 顶距 + 5x100 行距 + 24 分叉下探 + 22 节点高 + 行底小字
-		custom_minimum_size = Vector2(760, 508)
-		mouse_filter = Control.MOUSE_FILTER_STOP
-
-	func refresh() -> void:
-		queue_redraw()
-
-	# 第 idx 棵树的局部原点 y
-	func _origin(idx: int) -> float:
-		return 22.0 + float(idx) * ROW_H
-
-	# 节点矩形: kind="trunk"(主干 Lv1..5) / "branch"(支线 Lv6..10, which="a"/"b")
-	func _rect(id: String, kind: String, which: String, t: int) -> Rect2:
-		var row := 0
-		for key in Legion.SKILLS.keys():
-			if String(key) == id:
-				break
-			row += 1
-		var oy := _origin(row)
-		if kind == "trunk":
-			return Rect2(LEFT_X + float(t) * GAP_X, oy, NODE_W, NODE_H)
-		return Rect2(LEFT_X + float(Legion.SKILL_SPLIT + t) * GAP_X,
-			oy - FORK_DY if which == "a" else oy + FORK_DY, NODE_W, NODE_H)
-
-	func _draw() -> void:
-		var ids: Array = Legion.SKILLS.keys()
-		for row in ids.size():
-			var id: String = String(ids[row])
-			var info: Dictionary = Legion.SKILLS[id]
-			var oy := _origin(row)
-			var lv := Legion.skill_lv(id)
-			var br := Legion.branch_of(id)
-			# 主干名
-			draw_string(FONT, Vector2(6, oy + 6), String(info["name"]),
-				HORIZONTAL_ALIGNMENT_LEFT, 84, 13, Color(0.95, 0.86, 0.62))
-			# 主干连线
-			for t in Legion.SKILL_SPLIT - 1:
-				var a := _rect(id, "trunk", "", t)
-				var b := _rect(id, "trunk", "", t + 1)
-				draw_line(Vector2(a.end.x, a.get_center().y),
-					Vector2(b.position.x, b.get_center().y),
-					Color(0.5, 0.42, 0.3), 2.0)
-			# 分叉连线: 主干末节点 → A 首 / B 首(曼哈顿)
-			var last := _rect(id, "trunk", "", Legion.SKILL_SPLIT - 1)
-			var fa := _rect(id, "branch", "a", 0)
-			var fb := _rect(id, "branch", "b", 0)
-			var fork_x := last.end.x + 16.0
-			var mid := Vector2(fork_x, last.get_center().y)
-			draw_line(Vector2(last.end.x, last.get_center().y), mid,
-				Color(0.5, 0.42, 0.3), 2.0)
-			draw_line(mid, Vector2(fork_x, fa.get_center().y), Color(0.5, 0.42, 0.3), 2.0)
-			draw_line(Vector2(fork_x, fa.get_center().y), fa.position, Color(0.5, 0.42, 0.3), 2.0)
-			draw_line(mid, Vector2(fork_x, fb.get_center().y), Color(0.5, 0.42, 0.3), 2.0)
-			draw_line(Vector2(fork_x, fb.get_center().y), fb.position, Color(0.5, 0.42, 0.3), 2.0)
-			# 主干节点
-			for t in Legion.SKILL_SPLIT:
-				_draw_node(id, "trunk", "", t, lv, br, info)
-			# 分支节点
-			for t in Legion.SKILL_MAX - Legion.SKILL_SPLIT:
-				_draw_node(id, "branch", "a", t, lv, br, info)
-				_draw_node(id, "branch", "b", t, lv, br, info)
-			# e24: 行底收益标注 —— 主干每级收益 + 已选/两条分支的收益
-			# (行内节点带占 oy-24..oy+46, oy+56 往下是行间空带, 正好放一行小字)
-			var tip := String(info["desc"])
-			var a_info: Dictionary = info["a"]
-			var b_info: Dictionary = info["b"]
-			if br == "a":
-				tip += "   |   %s: %s" % [String(a_info["name"]), String(a_info["desc"])]
-			elif br == "b":
-				tip += "   |   %s: %s" % [String(b_info["name"]), String(b_info["desc"])]
-			else:
-				tip += "   |   %s: %s  /  %s: %s" % [String(a_info["name"]),
-					String(a_info["desc"]), String(b_info["name"]), String(b_info["desc"])]
-			draw_string(FONT, Vector2(LEFT_X, oy + 66), tip,
-				HORIZONTAL_ALIGNMENT_LEFT, 660, 10, Color(0.72, 0.66, 0.52))
-
-	func _node_state(id: String, kind: String, which: String, t: int,
-			lv: int, br: String) -> Dictionary:
-		# 返回 {lit, clickable, dim, text}
-		var absolute := t + 1 if kind == "trunk" else Legion.SKILL_SPLIT + t + 1
-		var lit := lv >= absolute
-		var dim := false
-		var clickable := false
-		var text := "Lv.%d" % absolute
-		if kind == "branch":
-			var bn: Dictionary = Legion.SKILLS[id][which]
-			text = "%s %d" % [String(bn["name"]), absolute]
-			if br != "" and br != which:
-				dim = true                     # 没选的那条整排褪色
-		if lit:
-			return {"lit": true, "clickable": false, "dim": dim, "text": text}
-		var sp := Legion.skill_points > 0
-		if lv < Legion.SKILL_SPLIT:
-			# 主干区: 下一个 = 第 lv+1 级(分支节点全锁)
-			if kind == "trunk" and t == lv and sp:
-				clickable = true
-		else:
-			if br == "":
-				# 5 级未选支: A/B 首节点 = 选支按钮
-				if kind == "branch" and t == 0 and sp:
-					clickable = true
-					text = "选 %s" % which.to_upper()
-			else:
-				# 已选支: 选中那条的下一个可升
-				if kind == "branch" and which == br and t == lv - Legion.SKILL_SPLIT and sp:
-					clickable = true
-		return {"lit": false, "clickable": clickable, "dim": dim, "text": text}
-
-	func _draw_node(id: String, kind: String, which: String, t: int,
-			lv: int, br: String, info: Dictionary) -> void:
-		var r := _rect(id, kind, which, t)
-		var st: Dictionary = _node_state(id, kind, which, t, lv, br)
-		var bg := Color(0.32, 0.30, 0.27)
-		var border := Color(0.45, 0.40, 0.34)
-		var txt := Color(0.62, 0.58, 0.52)
-		if bool(st["lit"]):
-			bg = Color(0.85, 0.68, 0.25)
-			border = Color(0.55, 0.40, 0.10)
-			txt = Color(0.25, 0.16, 0.05)
-		elif bool(st["clickable"]):
-			bg = Color(0.30, 0.42, 0.30)
-			border = Color(0.55, 0.9, 0.45)
-			txt = Color(0.9, 0.95, 0.85)
-		if bool(st["dim"]):
-			bg.a = 0.4
-			border.a = 0.3
-			txt.a = 0.35
-		draw_rect(r, bg)
-		draw_rect(r, border, false, 2.0)
-		var ts := FONT.get_string_size(String(st["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 10)
-		draw_string(FONT, Vector2(r.position.x + (r.size.x - ts.x) * 0.5,
-			r.position.y + r.size.y * 0.5 + 4.0), String(st["text"]),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, txt)
-
-	func _gui_input(event: InputEvent) -> void:
-		var mb := event as InputEventMouseButton
-		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
-			return
-		var ids: Array = Legion.SKILLS.keys()
-		for row in ids.size():
-			var id: String = String(ids[row])
-			var lv := Legion.skill_lv(id)
-			var br := Legion.branch_of(id)
-			for t in Legion.SKILL_SPLIT:
-				if _rect(id, "trunk", "", t).has_point(mb.position):
-					var st: Dictionary = _node_state(id, "trunk", "", t, lv, br)
-					if bool(st["clickable"]):
-						node_clicked.emit(id, "")
-					return
-			for which in ["a", "b"]:
-				for t in Legion.SKILL_MAX - Legion.SKILL_SPLIT:
-					if _rect(id, "branch", which, t).has_point(mb.position):
-						var st2: Dictionary = _node_state(id, "branch", which, t, lv, br)
-						if bool(st2["clickable"]):
-							# 5 级未选支时 A/B 首节点 = 选支(发 which); 已选支 = 升级(发 "")
-							node_clicked.emit(id, which if (lv >= Legion.SKILL_SPLIT
-								and br == "") else "")
-						return
 
 # ---------------- 职业树（e12: 像科技树那样摆开两棵树, 点节点转职） ----------------
 # 把伙伴上下文（走过链 / 当前职业 / 可转列表 / 钱料够不够）喂给两棵树并刷新提示行
@@ -2612,12 +2829,17 @@ func _toggle_wear(index: int) -> void:
 # ---------------- 开合 ----------------
 # e18f: A/D 左右切页签（game.gd 在背包开着时把 move_left/right 转发过来）, 循环
 func cycle_tab(dir: int) -> void:
-	var n := MODULES.size()
-	for i in n:
-		if String(MODULES[i]["key"]) == _current:
-			_switch_to(String(MODULES[(i + dir + n) % n]["key"]))
-			Audio.play_sfx("ui_click", -10.0)
-			return
+	var mods: Array = _unlocked_module_list()
+	if mods.is_empty():
+		return
+	var idx := 0
+	for i in mods.size():
+		if String(mods[i]["key"]) == _current:
+			idx = i
+			break
+	var nxt: String = String(mods[(idx + dir + mods.size()) % mods.size()]["key"])
+	_switch_to(nxt)
+	Audio.play_sfx("ui_click", -10.0)
 
 func toggle() -> void:
 	if _visible:
@@ -2627,19 +2849,44 @@ func toggle() -> void:
 
 # e30p: 对工作台/铁匠铺按 F 直达对应制造子页（"wb"/"smith"，缺省开在个人页）
 func open_craft(sub: String = "base") -> void:
-	open()
-	_switch_to("craft")
-	_select_craft_sub(sub)
-
-func open() -> void:
+	# 工作台/铁匠铺按 F: 制作页可能尚未任务解锁, 仍允许打开
+	var was := _visible
 	_visible = true
 	_drag_from = -1
-	_switch_to("bag")      # 每次打开都回到背包首页（上次关在团队/科技页也不带回来）
+	_refresh_module_tabs()
+	_switch_to("craft")
+	_select_craft_sub(sub)
 	_refresh()
-	show()
-	TimeManager.push_ui_pause()      # 翻背包的时候时间停住
-	Audio.play_sfx("ui_open")
-	opened.emit()
+	if not was:
+		show()
+		preload("res://scene/ui_anim.gd").pop_in(self)
+		TimeManager.push_ui_pause()
+		Audio.play_sfx("ui_open")
+		opened.emit()
+
+func open_to(page: String, grow_sub: String = "") -> void:
+	var was := _visible
+	_visible = true
+	_drag_from = -1
+	_refresh_module_tabs()
+	if Quests.module_unlocked(page):
+		_switch_to(page)
+	else:
+		_switch_to("bag")
+	if page == "grow" and grow_sub != "":
+		_select_grow_sub(grow_sub)
+	elif _current == "grow":
+		_select_grow_sub(_grow_sub)
+	_refresh()
+	if not was:
+		show()
+		preload("res://scene/ui_anim.gd").pop_in(self)
+		TimeManager.push_ui_pause()
+		Audio.play_sfx("ui_open")
+		opened.emit()
+
+func open() -> void:
+	open_to("bag", "")
 
 func close() -> void:
 	if not _visible:
@@ -2655,580 +2902,3 @@ func close() -> void:
 
 func is_open() -> bool:
 	return _visible
-
-
-# ═══════════════ 科技/行政树视图（文明6 式）═══════════════
-# 一整块 Control：tier 分列的节点卡片 + 前置连线 + 时代列标题 + 淡点阵底。
-# 节点可点（点击 = 研究），状态四档：已研究金 / 可研究绿 / 点数未满米 / 前置未开灰。
-# 布局算法：先把各列竖排，然后迭代几轮「子节点往父节点中线均值靠拢」，
-# 同列按目标 y 排序后自上而下排（挤了就顺延），最后每列整体垂直居中 ——
-# 数据量小，几轮就能摆出文明6 那种主干分叉的缠绕感。
-# ============ 职业树视图（e12: 团队页两棵树, 摆法仿下面的 ResearchTreeView） ============
-# 战斗树（新兵 -> 三岔 -> 二线 -> 满阶）/ 劳动树（帮工起步）都从 CLASSES 表自动推 tier。
-# 节点皮肤按「晋升对象」画: 当前职业金边 / 走过的链亮棕 / 可转且钱够绿 / 可转缺钱暗黄 / 无关灰。
-class ClassTreeView:
-	extends Control
-
-	const FONT := preload("res://resources/font/IPix.ttf")
-	const COL_NAMES := ["起步", "一线", "二线", "三线", "四线"]
-	# e27g: 尺寸改成变量 —— 详情弹窗里用窄版(compact)把两棵树收进 600 宽的卡片
-	var NODE_W := 168.0
-	var NODE_H := 42.0
-	var COL_GAP := 44.0
-	var ROW_GAP := 10.0
-	var HEAD_H := 24.0
-	var _name_fs := 13
-	var _cost_fs := 10
-
-	var labor := false
-	var _cb: Callable
-	var _cards := {}        # 职业名 -> PanelContainer
-	var _rects := {}        # 职业名 -> Rect2
-	var _tiers: Array = []  # 每层职业名列表（布局 + 列标题用）
-	var _chain: Array = []  # 晋升对象走过的链（根 -> 当前）
-	var _cur := ""          # 晋升对象当前职业
-	var _targets: Array = []    # 可转职业
-	var _afford := {}           # 职业 -> 钱料够不够
-
-	func setup(is_labor: bool, cb: Callable, compact := false) -> void:
-		labor = is_labor
-		_cb = cb
-		if compact:
-			# e27g: 详情弹窗里的窄版 —— 卡片收窄/列距收紧/字号小一档
-			NODE_W = 136.0
-			NODE_H = 38.0
-			COL_GAP = 18.0
-			ROW_GAP = 8.0
-			HEAD_H = 18.0
-			_name_fs = 12
-			_cost_fs = 9
-		mouse_filter = Control.MOUSE_FILTER_PASS
-		_build_cards()
-		refresh()
-
-	func _table() -> Dictionary:
-		return Slaves.LABOR_CLASSES if labor else Slaves.CLASSES
-
-	func _root_id() -> String:
-		return "帮工" if labor else "新兵"
-
-	func _prev_of(sid: String) -> String:
-		return Slaves.labor_prev_of(sid) if labor else Slaves.prev_of(sid)
-
-	# b10: 这份职业给的具体加成 —— 劳动树念 build/study/labor, 战斗树念攻
-	func _benefit_text(sid: String) -> String:
-		if labor:
-			var d: Dictionary = Slaves.LABOR_CLASSES.get(sid, {})
-			var parts: Array = []
-			for k in ["build", "study", "labor"]:
-				if d.has(k):
-					parts.append("%s +%d" % [Slaves.ATTR_NAMES[k], int(d[k])])
-			return " / ".join(parts) if not parts.is_empty() else "无特殊收益"
-		return "攻 +%d" % int(Slaves.CLASSES.get(sid, {}).get("atk", 0))
-
-	# 外部把晋升对象的上下文喂进来（backpack_ui._refresh_class_trees）
-	func set_target(chain: Array, cur: String, targets: Array, afford: Dictionary) -> void:
-		_chain = chain
-		_cur = cur
-		_targets = targets
-		_afford = afford
-		refresh()
-
-	func _build_cards() -> void:
-		for c in get_children():
-			c.queue_free()
-		_cards.clear()
-		var table := _table()
-		for id in table.keys():
-			var sid := String(id)
-			var panel := PanelContainer.new()
-			panel.custom_minimum_size = Vector2(NODE_W, NODE_H)
-			var sb := StyleBoxFlat.new()
-			sb.set_corner_radius_all(5)
-			sb.set_border_width_all(2)
-			sb.content_margin_left = 8
-			sb.content_margin_right = 8
-			sb.content_margin_top = 4
-			sb.content_margin_bottom = 4
-			panel.add_theme_stylebox_override("panel", sb)
-			panel.gui_input.connect(_on_card_input.bind(sid))
-			panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			var v := VBoxContainer.new()
-			v.add_theme_constant_override("separation", 0)
-			v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			panel.add_child(v)
-			# e52e: 名字行 = 小图标 + 职业名（图标 16x16 像素风, NEAREST 防糊）
-			var name_row := HBoxContainer.new()
-			name_row.add_theme_constant_override("separation", 4)
-			name_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			v.add_child(name_row)
-			var icon := TextureRect.new()
-			icon.custom_minimum_size = Vector2(16, 16)
-			icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-			icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			name_row.add_child(icon)
-			var name_l := _card_label(_name_fs)
-			name_row.add_child(name_l)
-			var cost_l := _card_label(_cost_fs)
-			cost_l.clip_text = true
-			v.add_child(cost_l)
-			add_child(panel)
-			_cards[sid] = panel
-			panel.set_meta("name", name_l)
-			panel.set_meta("icon", icon)
-			panel.set_meta("cost", cost_l)
-
-	func _card_label(sz: int) -> Label:
-		var l := Label.new()
-		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		l.add_theme_font_override("font", FONT)
-		l.add_theme_font_size_override("font_size", sz)
-		return l
-
-	func _on_card_input(ev: InputEvent, sid: String) -> void:
-		var mb := ev as InputEventMouseButton
-		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
-			if _cb.is_valid():
-				_cb.call(sid, labor)
-
-	func refresh() -> void:
-		var table := _table()
-		_layout()
-		for id in table.keys():
-			var sid := String(id)
-			if not _cards.has(sid):
-				continue
-			var panel: PanelContainer = _cards[sid]
-			var on_chain: bool = _chain.has(sid)
-			var is_cur := sid == _cur
-			var is_target: bool = _targets.has(sid)
-			# 四档皮肤: 当前金 / 可转(绿=钱够, 暗黄=缺钱) / 走过亮棕 / 无关灰
-			var bg := Color(0.15, 0.125, 0.105, 0.98)
-			var border := Color(0.34, 0.3, 0.26)
-			var bw := 2
-			var name_col := Color(0.62, 0.59, 0.54)
-			if is_cur:
-				bg = Color(0.34, 0.27, 0.12, 0.98)
-				border = Color(1, 0.85, 0.4)
-				bw = 3
-				name_col = Color(1, 0.9, 0.55)
-			elif is_target:
-				if bool(_afford.get(sid, false)):
-					bg = Color(0.13, 0.22, 0.11, 0.98)
-					border = Color(0.55, 0.9, 0.45)
-					bw = 3
-					name_col = Color(0.78, 0.95, 0.62)
-				else:
-					bg = Color(0.2, 0.17, 0.1, 0.98)
-					border = Color(0.72, 0.6, 0.34)
-					name_col = Color(0.9, 0.84, 0.68)
-			elif on_chain:
-				bg = Color(0.22, 0.18, 0.13, 0.98)
-				border = Color(0.85, 0.7, 0.35)
-				name_col = Color(0.9, 0.84, 0.68)
-			var sb: StyleBoxFlat = panel.get_theme_stylebox("panel")
-			sb.bg_color = bg
-			sb.border_color = border
-			sb.set_border_width_all(bw)
-			var name_l: Label = panel.get_meta("name")
-			name_l.text = sid
-			name_l.add_theme_color_override("font_color", name_col)
-			# e52e: 职业小图 —— 表里没配或素材缺失时隐藏, 只留名字
-			var ic: TextureRect = panel.get_meta("icon")
-			ic.texture = Slaves.class_icon_for(sid)
-			ic.visible = ic.texture != null
-			var cost: Dictionary = table[sid]["cost"]
-			var cost_l: Label = panel.get_meta("cost")
-			var ct := Slaves.cost_text(cost)
-			cost_l.text = "  " + (ct if ct != "" else "免费")
-			cost_l.add_theme_color_override("font_color",
-				name_col.darkened(0.22) if is_cur or is_target or on_chain
-				else Color(0.5, 0.46, 0.42))
-			panel.tooltip_text = "%s\n收益: %s\n点一下 = 给晋升对象转到这份职业\n消耗: %s" \
-				% [sid, _benefit_text(sid), ct if ct != "" else "免费"]
-			panel.position = (_rects[sid] as Rect2).position
-		queue_redraw()
-
-	# 布局: 沿 next 推 tier 分列, 子节点往父节点中线靠（同 ResearchTreeView 的收法）
-	func _layout() -> void:
-		var table := _table()
-		var tm := {_root_id(): 0}
-		var frontier: Array = [_root_id()]
-		var t := 0
-		while not frontier.is_empty():
-			t += 1
-			var nxt: Array = []
-			for f in frontier:
-				for n in table[String(f)]["next"]:
-					if not tm.has(n):
-						tm[n] = t
-						nxt.append(String(n))
-			frontier = nxt
-		var maxt := 0
-		for id in tm:
-			maxt = maxi(maxt, int(tm[id]))
-		_tiers.clear()
-		for i in maxt + 1:
-			_tiers.append([])
-		for id in tm:
-			_tiers[int(tm[id])].append(String(id))
-		for ti in _tiers.size():
-			for i in (_tiers[ti] as Array).size():
-				_rects[String(_tiers[ti][i])] = Rect2(
-					ti * (NODE_W + COL_GAP), HEAD_H + i * (NODE_H + ROW_GAP), NODE_W, NODE_H)
-		# 子节点往父节点中线靠, 同列挤了就顺延
-		for _i in 3:
-			var want := {}
-			for id in tm:
-				var sid := String(id)
-				var req := _prev_of(sid)
-				if req == "" or not _rects.has(req):
-					continue
-				want[sid] = (_rects[req] as Rect2).get_center().y - NODE_H * 0.5
-			for ti in _tiers.size():
-				var list: Array = _tiers[ti]
-				list.sort_custom(func(a, b) -> bool:
-					var wa: float = float(want.get(a, (_rects[a] as Rect2).position.y))
-					var wb: float = float(want.get(b, (_rects[b] as Rect2).position.y))
-					return wa < wb)
-				var prev_bottom := -1.0e9
-				for id in list:
-					var sid := String(id)
-					var rc: Rect2 = _rects[sid]
-					rc.position.y = maxf(float(want.get(sid, rc.position.y)),
-						prev_bottom + ROW_GAP)
-					_rects[sid] = rc
-					prev_bottom = rc.position.y + NODE_H
-		var max_h := 0.0
-		for ti in _tiers.size():
-			var list: Array = _tiers[ti]
-			max_h = maxf(max_h, (_rects[String(list[list.size() - 1])] as Rect2).end.y)
-		var cols: int = _tiers.size()
-		custom_minimum_size = Vector2(cols * (NODE_W + COL_GAP) - COL_GAP, max_h + 6.0)
-
-	func _draw() -> void:
-		var sz := custom_minimum_size
-		var dot := Color(1, 1, 1, 0.045)
-		var gx := 14.0
-		while gx < sz.x:
-			var gy := 14.0
-			while gy < sz.y:
-				draw_rect(Rect2(gx, gy, 1.5, 1.5), dot)
-				gy += 26.0
-			gx += 26.0
-		# 列标题（起步/一线/二线/...）
-		for ti in _tiers.size():
-			var x := float(ti) * (NODE_W + COL_GAP)
-			draw_rect(Rect2(x, 4, NODE_W - 10, 3), Color(0.45, 0.38, 0.26, 0.5))
-			draw_string(FONT, Vector2(x, HEAD_H - 4.0),
-				String(COL_NAMES[mini(ti, COL_NAMES.size() - 1)]),
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.62, 0.46))
-		# 父 -> 子连线（曼哈顿折线 + 箭头）: 两端都在链上就描金
-		var table := _table()
-		for id in table.keys():
-			var sid := String(id)
-			var req := _prev_of(sid)
-			if req == "" or not _rects.has(req):
-				continue
-			var ra: Rect2 = _rects[req]
-			var rb: Rect2 = _rects[sid]
-			var p0 := Vector2(ra.end.x, ra.get_center().y)
-			var p3 := Vector2(rb.position.x, rb.get_center().y)
-			var mid := (p0.x + p3.x) * 0.5
-			var col := Color(0.33, 0.28, 0.21, 0.85)
-			var w := 2.0
-			var both_on: bool = _chain.has(sid) and (_chain.has(String(req)) or _cur == req)
-			var gold: bool = _chain.has(sid) and _chain.has(String(req))
-			if gold:
-				col = Color(0.98, 0.83, 0.4, 0.95)
-				w = 3.0
-			elif _targets.has(sid):
-				col = Color(0.5, 0.7, 0.38, 0.75) if bool(_afford.get(sid, false)) \
-					else Color(0.72, 0.6, 0.34, 0.75)
-			elif both_on:
-				col = Color(0.85, 0.7, 0.35, 0.8)
-			draw_line(p0, Vector2(mid, p0.y), col, w)
-			draw_line(Vector2(mid, p0.y), Vector2(mid, p3.y), col, w)
-			draw_line(Vector2(mid, p3.y), p3 + Vector2(2, 0), col, w)
-			var tri := PackedVector2Array([
-				p3 + Vector2(8, 0), p3 + Vector2(-1, -4.5), p3 + Vector2(-1, 4.5)])
-			draw_colored_polygon(tri, col)
-
-class ResearchTreeView:
-	extends Control
-
-	const FONT := preload("res://resources/font/IPix.ttf")
-
-	const NODE_W := 174.0
-	const NODE_H := 66.0
-	const COL_GAP := 34.0        # 列间距（留出连线走廊）
-	const ROW_GAP := 14.0
-	const HEAD_H := 26.0         # 顶部：时代列标题占的高度
-
-	const TIER_NAMES := {
-		"tech": ["初启", "革新", "跃迁"],
-		"admin": ["奠基", "建制", "扩张", "中枢"],
-	}
-
-	var kind := "tech"
-	var _cb: Callable
-	var _cards := {}             # id -> PanelContainer（节点卡）
-	var _rects := {}             # id -> Rect2（当前布局）
-
-	func setup(k: String, cb: Callable) -> void:
-		kind = k
-		_cb = cb
-		mouse_filter = Control.MOUSE_FILTER_PASS
-		_build_cards()
-		refresh()
-
-	func card_of(id: String) -> PanelContainer:
-		return _cards.get(id)
-
-	func _table() -> Dictionary:
-		return Research.TECHS if kind == "tech" else Research.ADMINS
-
-	func _done(id: String) -> bool:
-		return Research.has_tech(id) if kind == "tech" else Research.has_admin(id)
-
-	func _ready_ok(id: String) -> bool:
-		return Research.tech_ready(id) if kind == "tech" else Research.admin_ready(id)
-
-	func _can(id: String) -> bool:
-		return Research.can_research_tech(id) if kind == "tech" \
-			else Research.can_research_admin(id)
-
-	func _summary(id: String) -> String:
-		return Research.tech_summary(id) if kind == "tech" else Research.admin_summary(id)
-
-	# ---------------- 建节点卡 ----------------
-	func _build_cards() -> void:
-		for c in get_children():
-			c.queue_free()
-		_cards.clear()
-		var table := _table()
-		for id in table.keys():
-			var sid := String(id)
-			var panel := PanelContainer.new()
-			panel.custom_minimum_size = Vector2(NODE_W, NODE_H)
-			var sb := StyleBoxFlat.new()
-			sb.set_corner_radius_all(5)
-			sb.set_border_width_all(2)
-			sb.content_margin_left = 9
-			sb.content_margin_right = 9
-			sb.content_margin_top = 5
-			sb.content_margin_bottom = 5
-			panel.add_theme_stylebox_override("panel", sb)
-			panel.gui_input.connect(_on_card_input.bind(sid))
-			panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			panel.mouse_entered.connect(_on_card_hover.bind(panel, true))
-			panel.mouse_exited.connect(_on_card_hover.bind(panel, false))
-
-			var v := VBoxContainer.new()
-			v.add_theme_constant_override("separation", 0)
-			v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			panel.add_child(v)
-			var nh := HBoxContainer.new()
-			nh.add_theme_constant_override("separation", 5)
-			nh.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			v.add_child(nh)
-			var icon := TextureRect.new()
-			icon.texture = Research.icon_for(sid)
-			icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			icon.custom_minimum_size = Vector2(16, 16)
-			icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			nh.add_child(icon)
-			var name_l := _card_label(13)
-			nh.add_child(name_l)
-			var desc_l := _card_label(10)
-			desc_l.clip_text = true
-			v.add_child(desc_l)
-			var st_l := _card_label(10)
-			v.add_child(st_l)
-			add_child(panel)
-			_cards[sid] = panel
-			panel.set_meta("name", name_l)
-			panel.set_meta("desc", desc_l)
-			panel.set_meta("state", st_l)
-
-	func _card_label(sz: int) -> Label:
-		var l := Label.new()
-		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		l.add_theme_font_override("font", FONT)
-		l.add_theme_font_size_override("font_size", sz)
-		return l
-
-	func _on_card_hover(panel: Control, over: bool) -> void:
-		panel.modulate = Color(1.14, 1.12, 1.04) if over else Color(1, 1, 1)
-
-	func _on_card_input(ev: InputEvent, id: String) -> void:
-		var mb := ev as InputEventMouseButton
-		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
-			if _cb.is_valid():
-				_cb.call(id, kind)
-
-	# ---------------- 刷新：重摆位置 + 换状态皮肤 ----------------
-	func refresh() -> void:
-		var table := _table()
-		_layout()
-		for id in table.keys():
-			var sid := String(id)
-			if not _cards.has(sid):
-				continue
-			var panel: PanelContainer = _cards[sid]
-			var info: Dictionary = table[sid]
-			var done := _done(sid)
-			var ready := _ready_ok(sid)
-			var can := _can(sid)
-			# 四档配色
-			var bg := Color(0.15, 0.125, 0.105, 0.98)
-			var border := Color(0.34, 0.3, 0.26)
-			var bw := 2
-			var name_col := Color(0.62, 0.59, 0.54)
-			var st_col := Color(0.5, 0.46, 0.42)
-			if done:
-				bg = Color(0.34, 0.27, 0.12, 0.98)
-				border = Color(1, 0.85, 0.4)
-				bw = 3
-				name_col = Color(1, 0.9, 0.55)
-				st_col = Color(0.95, 0.82, 0.45)
-			elif can:
-				bg = Color(0.13, 0.22, 0.11, 0.98)
-				border = Color(0.55, 0.9, 0.45)
-				bw = 3
-				name_col = Color(0.78, 0.95, 0.62)
-				st_col = Color(0.6, 0.9, 0.48)
-			elif ready:
-				bg = Color(0.19, 0.155, 0.11, 0.98)
-				border = Color(0.72, 0.6, 0.34)
-				name_col = Color(0.9, 0.84, 0.68)
-				st_col = Color(0.8, 0.72, 0.55)
-			var sb: StyleBoxFlat = panel.get_theme_stylebox("panel")
-			sb.bg_color = bg
-			sb.border_color = border
-			sb.set_border_width_all(bw)
-			var name_l: Label = panel.get_meta("name")
-			name_l.text = "%s  %d 点" % [info["name"], int(info["cost"])]
-			name_l.add_theme_color_override("font_color", name_col)
-			var desc_l: Label = panel.get_meta("desc")
-			desc_l.text = "  " + str(info["desc"])
-			desc_l.add_theme_color_override("font_color",
-				Color(0.85, 0.76, 0.5) if done else name_col.darkened(0.22))
-			var st_l: Label = panel.get_meta("state")
-			st_l.text = "  " + _summary(sid)
-			st_l.add_theme_color_override("font_color", st_col)
-			panel.tooltip_text = "%s\n%s\n%s" % [info["name"], info["desc"], _summary(sid)]
-			panel.position = (_rects[sid] as Rect2).position
-		queue_redraw()
-
-	# ---------------- 布局：tier 分列 + 朝父节点中线收敛 ----------------
-	func _layout() -> void:
-		var table := _table()
-		var tiers := {}
-		for id in table.keys():
-			var t := int(table[id]["tier"])
-			if not tiers.has(t):
-				tiers[t] = []
-			tiers[t].append(String(id))
-		# 第一遍：每列自上而下堆
-		for t in tiers.keys():
-			var list: Array = tiers[t]
-			for i in list.size():
-				_rects[String(list[i])] = Rect2(
-					(int(t) - 1) * (NODE_W + COL_GAP), HEAD_H + i * (NODE_H + ROW_GAP),
-					NODE_W, NODE_H)
-		# 迭代对齐：子节点往「各前置节点中线均值」靠，同列挤了就顺延
-		for _i in 3:
-			var want := {}
-			for id in table.keys():
-				var sid := String(id)
-				var reqs: Array = table[sid]["req"]
-				if reqs.is_empty():
-					continue
-				var sum := 0.0
-				for r in reqs:
-					sum += (_rects[String(r)] as Rect2).get_center().y
-				want[sid] = sum / float(reqs.size()) - NODE_H * 0.5
-			for t in tiers.keys():
-				var list: Array = tiers[t]
-				list.sort_custom(func(a, b) -> bool:
-					var wa: float = float(want.get(a, (_rects[a] as Rect2).position.y))
-					var wb: float = float(want.get(b, (_rects[b] as Rect2).position.y))
-					return wa < wb)
-				var prev_bottom := -1.0e9
-				for id in list:
-					var sid := String(id)
-					var rc: Rect2 = _rects[sid]
-					rc.position.y = maxf(float(want.get(sid, rc.position.y)),
-						prev_bottom + ROW_GAP)
-					_rects[sid] = rc
-					prev_bottom = rc.position.y + NODE_H
-		# 每列整体垂直居中（相对最高的那列）
-		var max_h := 0.0
-		for t in tiers.keys():
-			var list: Array = tiers[t]
-			max_h = maxf(max_h, (_rects[String(list[list.size() - 1])] as Rect2).end.y)
-		for t in tiers.keys():
-			var list: Array = tiers[t]
-			var top := (_rects[String(list[0])] as Rect2).position.y
-			var bottom := (_rects[String(list[list.size() - 1])] as Rect2).end.y
-			var off := (max_h - (bottom - top)) * 0.5 - top
-			for id in list:
-				var sid := String(id)
-				var rc: Rect2 = _rects[sid]
-				rc.position.y += off
-				_rects[sid] = rc
-		var cols := tiers.keys().size()
-		custom_minimum_size = Vector2(cols * (NODE_W + COL_GAP) - COL_GAP, max_h + 6.0)
-
-	# ---------------- 画：点阵底 + 列标题 + 前置连线 + 箭头 ----------------
-	func _draw() -> void:
-		var sz := custom_minimum_size
-		var dot := Color(1, 1, 1, 0.045)
-		var gx := 14.0
-		while gx < sz.x:
-			var gy := 14.0
-			while gy < sz.y:
-				draw_rect(Rect2(gx, gy, 1.5, 1.5), dot)
-				gy += 26.0
-			gx += 26.0
-		# 时代列标题（短横线 + 字）
-		var names: Array = TIER_NAMES.get(kind, [])
-		for t in names.size():
-			var x := float(t) * (NODE_W + COL_GAP)
-			draw_rect(Rect2(x, 4, NODE_W - 10, 3), Color(0.45, 0.38, 0.26, 0.5))
-			draw_string(FONT, Vector2(x, 23), str(names[t]),
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.62, 0.46))
-		# 前置连线：曼哈顿折线（右出 -> 中途拐 -> 左进）+ 箭头
-		var table := _table()
-		for id in table.keys():
-			var sid := String(id)
-			var done_id := _done(sid)
-			for r in table[sid]["req"]:
-				var rid := String(r)
-				if not _rects.has(rid):
-					continue
-				var ra: Rect2 = _rects[rid]
-				var rb: Rect2 = _rects[sid]
-				var p0 := Vector2(ra.end.x, ra.get_center().y)
-				var p3 := Vector2(rb.position.x, rb.get_center().y)
-				var mid := (p0.x + p3.x) * 0.5
-				var col := Color(0.33, 0.28, 0.21, 0.85)
-				var w := 2.0
-				if done_id and _done(rid):
-					col = Color(0.98, 0.83, 0.4, 0.95)
-					w = 3.0
-				elif done_id or _done(rid):
-					col = Color(0.85, 0.7, 0.35, 0.8)
-				elif _ready_ok(sid):
-					col = Color(0.5, 0.7, 0.38, 0.75)
-				draw_line(p0, Vector2(mid, p0.y), col, w)
-				draw_line(Vector2(mid, p0.y), Vector2(mid, p3.y), col, w)
-				draw_line(Vector2(mid, p3.y), p3 + Vector2(2, 0), col, w)
-				var tri := PackedVector2Array([
-					p3 + Vector2(8, 0), p3 + Vector2(-1, -4.5), p3 + Vector2(-1, 4.5)])
-				draw_colored_polygon(tri, col)

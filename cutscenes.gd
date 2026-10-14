@@ -168,7 +168,7 @@ func play(id: String, delay := 0.0, ctx := {}) -> bool:
 		return false
 	if _active != "":
 		for q in _queue:
-			if String(q["id"]) == id:
+			if String(q["id"]) == id and String(q.get("ctx", {}).get("seen", "")) == String(ctx.get("seen", "")):
 				return true
 		_queue.append({"id": id, "ctx": ctx})
 		return true
@@ -200,9 +200,27 @@ func _begin(id: String, delay: float, ctx := {}) -> void:
 		await get_tree().create_timer(delay).timeout
 		if _active != id:
 			return                # 期间被 reset_for_new_game 清掉了
+	# 海图覆盖在岛上时先等返港. 不能在隐藏/停处理的岛上播放.
+	var cur: Node = get_tree().current_scene
+	if SaveManager.enabled and cur != null and cur.is_in_group("game"):
+		while Voyage.traveling or cur.process_mode == Node.PROCESS_MODE_DISABLED or not cur.visible \
+				or (cur.get("story_dialogue_panel") != null and cur.get("story_dialogue_panel").is_open()):
+			await get_tree().create_timer(0.25).timeout
+			if _active != id:
+				return
 	_was_time_running = TimeManager.time_running
 	TimeManager.time_running = false
+	# e100: 岛上场景改播「实机演出」—— 同一套幕词, 走 story_dialogue 的实机舞台;
+	# ❗只认 current_scene 是游戏本尊的场景（自检里 add_child 的 game 实例不算）;
+	# 找不到（战斗/大地图/自检）退回旧画布过场兜底。
+	cur = get_tree().current_scene
+	var sd: Node = get_tree().get_first_node_in_group("story_dialogue")
+	if cur != null and cur.is_in_group("game") and cur.get("player") != null \
+			and sd != null and sd.has_method("play_directed"):
+		_play_live(id)
+		return
 	start_steps(_steps_for(id))
+	cinema(true, 1.2)             # 每段都从无遮幅拉到有遮幅 —— 电影感从第一秒就立起来
 	await finished
 	TimeManager.time_running = _was_time_running
 	var next: Dictionary = {}
@@ -211,6 +229,26 @@ func _begin(id: String, delay: float, ctx := {}) -> void:
 	_active = ""
 	if not next.is_empty():
 		await get_tree().create_timer(0.2).timeout
+		_begin(String(next["id"]), 0.0, next.get("ctx", {}))
+
+# 实景里程碑有明确的交谈对象和信件/货物交接, 不再将抽象旁白配岛上空镜.
+# 海上事件等返港后播放. 收尾/接排下一段必须走 on_done 回调.
+func _play_live(id: String) -> void:
+	var script: Array = preload("res://scene/event_scripts.gd").milestone(id, _ctx)
+	var sd: Node = get_tree().get_first_node_in_group("story_dialogue")
+	if sd == null:
+		_active = ""
+		return
+	sd.play_directed(script, _after_live)
+
+func _after_live() -> void:
+	TimeManager.time_running = _was_time_running
+	var next: Dictionary = {}
+	if not _queue.is_empty():
+		next = _queue.pop_front()
+	_active = ""
+	finished.emit()   # house.gd 等收片进对话; game.gd 拿它解冻主角 (live_view 已自解冻, 重复无害)
+	if not next.is_empty():
 		_begin(String(next["id"]), 0.0, next.get("ctx", {}))
 
 # 幕表: 标了 dyn 的段落按当下 ctx 现拼一份 (国名/城名进台词), 否则用静态那份
@@ -222,12 +260,16 @@ func _steps_for(id: String) -> Array:
 	return act["steps"]
 
 # ---------------- 通用起手 ----------------
-# 标题卡 + 换天 + 铺海 + 压暗角, 四段共用
-func _open(title: String, sub: String, top: Color, bot: Color, horizon := 0.62) -> void:
+# 标题卡 + 换天 + 铺海 + 压暗角 + 推轨, 共用
+# light_x >= 0 时在海面那一列铺一道日月倒影的碎光路径 (跟这一幕的日月同列)
+func _open(title: String, sub: String, top: Color, bot: Color, horizon := 0.62,
+		light_x := -1.0) -> void:
 	title_card(title, sub)
 	sky_to(top, bot, 1.6)
-	sea_on(horizon, 1.0, 1.6)
+	sea_on(horizon, 1.0, 1.6, light_x)
 	vignette_on(0.45, 1.4)
+	# 极慢的 dolly 推轨: 整块布景在 7 秒里悄悄推近 5%, 画面就不会「死」在那儿
+	dolly(1.05, Vector2(0.5, 0.48), 7.0)
 
 # 一条帆船剪影 (跟序章的孤舟同款, 换色用): 返回节点, 调用方自己摆 x/y
 func _boat_prop(x_frac: float, y_frac: float, s: float, hull_c: Color, sail_c: Color) -> Node2D:
@@ -265,10 +307,12 @@ func _boat_prop(x_frac: float, y_frac: float, s: float, hull_c: Color, sail_c: C
 
 # ---------------- 一: 码头落成, 潮风号下水 ----------------
 func _harbor_1() -> void:
-	_open("潮汐港", "码头落成", NIGHT_TOP, GOLD_BOT, 0.58)
+	_open("潮汐港", "码头落成", NIGHT_TOP, GOLD_BOT, 0.58, 0.20)
 	stars_on(0.0, 0.2)
 	clouds_on(0.55, 1.6)
+	luminary(Vector2(0.20, 0.30), Color(1.0, 0.90, 0.70), 74.0, true, 1.8)
 	glow_at(Vector2(0.20, 0.30), Color(1.0, 0.90, 0.70), 360.0, 0.55, 1.6)
+	fog_on(0.30, 2.2)             # 港湾夜里那层贴水的薄雾
 	# 远山 + 一条伸进海里的栈桥
 	_ridge([[0.0, 0.05], [0.12, 0.11], [0.24, 0.04], [0.34, 0.09], [0.46, 0.03],
 		[0.58, 0.08], [0.70, 0.03], [0.84, 0.10], [1.0, 0.05]],
@@ -293,6 +337,9 @@ func _harbor_1() -> void:
 func _harbor_2() -> void:
 	sky_to(GOLD_BOT, Color(1.0, 0.84, 0.62), 1.2)
 	glow_at(Vector2(0.46, 0.62), Color(1.0, 0.84, 0.50), 480.0, 0.60, 1.0)
+	rays_at(0.46, Color(1.0, 0.86, 0.60), 0.32, 1.4)   # 船台上方斜射下来的光柱
+	birds_on(7, 1.6)                                    # 惊起的海鸟
+	fog_off(1.6)
 	# 新船顺着滚木滑进水里
 	var boat := _boat_prop(-0.06, 0.66, 1.9, Color(0.34, 0.22, 0.14), Color(0.96, 0.93, 0.86))
 	boat.rotation_degrees = -4.0
@@ -307,16 +354,23 @@ func _harbor_2() -> void:
 func _harbor_3() -> void:
 	sky_to(Color(0.34, 0.44, 0.56), Color(1.0, 0.88, 0.70), 1.6)
 	clouds_on(0.70, 1.6)
-	glow_at(Vector2(0.62, 0.52), Color(1.0, 0.86, 0.52), 520.0, 0.55, 1.6)
+	sea_on(0.62, 1.0, 1.2, 0.62)
+	luminary(Vector2(0.62, 0.52), Color(1.0, 0.88, 0.62), 96.0, false, 1.6)
+	# ❗日头的辉光交给 luminary 的 halo, 这里只补一层薄雾扩散 ——
+	#   两个大半径加色光叠在一起会把太阳炸成一坨纯白
+	glow_at(Vector2(0.62, 0.52), Color(1.0, 0.86, 0.52), 300.0, 0.22, 1.6)
+	birds_on(9, 1.6)
 	fx_on("fireflies", 30)
 	title_card("潮风号", "出海")
 
 # ---------------- 二: 出海首胜 ----------------
 func _navy_1() -> void:
-	_open("初战", "海上首胜", NIGHT_TOP, NIGHT_BOT, 0.60)
+	_open("初战", "海上首胜", NIGHT_TOP, NIGHT_BOT, 0.60, 0.76)
 	stars_on(0.95, 1.6)
 	clouds_on(0.30, 1.6)
+	luminary(Vector2(0.76, 0.26), Color(0.92, 0.94, 1.0), 58.0, true, 1.8)
 	glow_at(Vector2(0.76, 0.26), Color(0.92, 0.94, 1.0), 300.0, 0.55, 1.6)
+	fog_on(0.34, 2.2)
 	# 敌船: 黑帆, 从右边压过来
 	_navy_foe = _boat_prop(1.06, 0.56, 2.1, Color(0.14, 0.13, 0.16), Color(0.26, 0.24, 0.28))
 	var tw := create_tween()
@@ -325,6 +379,9 @@ func _navy_1() -> void:
 func _navy_2() -> void:
 	fx_on("embers", 90)
 	glow_at(Vector2(0.72, 0.50), Color(1.0, 0.48, 0.20), 420.0, 0.70, 0.9)
+	fire_prop(0.70, 0.585, 1.9)        # 敌船甲板烧起来
+	fire_prop(0.76, 0.60, 1.3)
+	rays_off(0.6)
 	shake(7.0, 1.0)
 	flash(Color(1.0, 0.60, 0.34), 0.30, 0.6)
 	if _navy_foe != null:
@@ -335,7 +392,10 @@ func _navy_3() -> void:
 	sky_to(Color(0.20, 0.24, 0.36), Color(0.92, 0.72, 0.54), 1.8)
 	stars_on(0.0, 1.0)
 	clouds_on(0.60, 1.6)
-	sea_on(0.60, 1.0, 1.0)
+	sea_on(0.60, 1.0, 1.0, 0.62)
+	luminary(Vector2(0.62, 0.56), Color(1.0, 0.88, 0.58), 88.0, false, 1.8)
+	rays_at(0.62, Color(1.0, 0.86, 0.58), 0.34, 2.0)
+	birds_on(8, 1.8)
 	fx_off(1.2)
 	glow_at(Vector2(0.62, 0.56), Color(1.0, 0.88, 0.58), 520.0, 0.60, 1.8)
 	# 敌船沉下去
@@ -352,15 +412,21 @@ func _siege_1() -> void:
 	_open("城破", "旗色易主", DUSK_TOP, DUSK_BOT, 0.80)
 	stars_on(0.35, 1.4)
 	clouds_on(0.45, 1.6)
+	luminary(Vector2(0.14, 0.20), Color(0.86, 0.88, 1.0), 46.0, true, 1.8)
 	_wall_tower(0.02, 0.34, 0.62, Color(0.11, 0.07, 0.08, 0.96))
 	_wall_tower(0.36, 0.28, 0.66, Color(0.13, 0.08, 0.09, 0.96))
 	_wall_tower(0.66, 0.34, 0.60, Color(0.11, 0.07, 0.08, 0.96))
+	fire_prop(0.18, 0.635, 1.5)        # 城头上先烧起来的两处
+	fire_prop(0.78, 0.615, 1.2)
 	glow_at(Vector2(0.50, 0.72), Color(1.0, 0.46, 0.18), 480.0, 0.70, 1.6)
+	fog_on(0.42, 2.0)                  # 攻城的烟
 	vignette_on(0.62, 1.2)
 
 func _siege_2() -> void:
 	fx_on("embers", 130)
 	glow_at(Vector2(0.42, 0.66), Color(1.0, 0.40, 0.14), 560.0, 0.85, 1.0)
+	fire_prop(0.30, 0.70, 2.2)
+	fire_prop(0.66, 0.72, 1.7)
 	shake(6.0, 1.0)
 	flash(Color(1.0, 0.62, 0.36), 0.32, 0.6)
 	# 旧主的旗被放下来 (从城头转到地上)
@@ -378,6 +444,10 @@ func _siege_3() -> void:
 	stars_on(0.0, 1.0)
 	clouds_on(0.65, 1.6)
 	fx_off(1.2)
+	fog_off(1.8)
+	luminary(Vector2(0.50, 0.42), Color(1.0, 0.86, 0.54), 110.0, false, 1.8)
+	rays_at(0.50, Color(1.0, 0.86, 0.56), 0.42, 2.0)
+	birds_on(10, 2.0)
 	glow_at(Vector2(0.50, 0.42), Color(1.0, 0.86, 0.54), 540.0, 0.70, 1.8)
 	# 你的旗升上城头
 	var fl := _flag_prop(0.50, 0.62, 84.0, Color(0.86, 0.30, 0.26))
@@ -393,12 +463,17 @@ func _lord_1() -> void:
 	title_card("封王", "裂土之盟")
 	sky_to(HALL_TOP, HALL_BOT, 1.6)
 	sea_off(0.02)
-	vignette_on(0.70, 1.4)
+	vignette_on(0.52, 1.4)
 	# 案几: 一条深色横带 + 两端烛火
 	_band(0.58, 0.16, Color(0.13, 0.08, 0.07, 0.96))
 	_band(0.575, 0.012, Color(0.24, 0.15, 0.11, 0.96))
-	glow_at(Vector2(0.26, 0.52), Color(1.0, 0.72, 0.36), 220.0, 0.85, 1.4)
-	glow_at(Vector2(0.74, 0.52), Color(1.0, 0.72, 0.36), 220.0, 0.85, 1.4)
+	# 殿里那层被烛火照到的暖雾: 不加的话满屏纯黑, 像没开灯的空屋子
+	glow_at(Vector2(0.50, 0.44), Color(0.72, 0.44, 0.22), 640.0, 0.22, 1.6)
+	fire_prop(0.26, 0.545, 1.5)        # 两支真在烧的蜡烛 (辉光 + 火舌 + 烟)
+	fire_prop(0.74, 0.545, 1.5)
+	glow_at(Vector2(0.26, 0.52), Color(1.0, 0.72, 0.36), 220.0, 0.55, 1.4)
+	glow_at(Vector2(0.74, 0.52), Color(1.0, 0.72, 0.36), 220.0, 0.55, 1.4)
+	fog_on(0.18, 1.6)                  # 殿里那一层淡淡的烛烟
 	fx_on("embers", 26)
 
 func _lord_2() -> void:
@@ -415,6 +490,7 @@ func _lord_2() -> void:
 
 func _lord_3() -> void:
 	glow_at(Vector2(0.50, 0.46), Color(1.0, 0.86, 0.52), 520.0, 0.70, 1.6)
+	rays_at(0.50, Color(1.0, 0.84, 0.50), 0.30, 1.2)   # 封王这一刻, 殿顶漏下一道光
 	flash(Color(1.0, 0.86, 0.55), 0.42, 0.8)
 	shake(2.5, 0.5)
 	# 印落下去: 一枚红印从上方压到契约上
@@ -430,10 +506,12 @@ func _lord_3() -> void:
 
 # ---------------- 五: 四海归一 (终章) ----------------
 func _unify_1() -> void:
-	_open("终章", "四海归一", NIGHT_TOP, NIGHT_BOT, 0.54)
+	_open("终章", "四海归一", NIGHT_TOP, NIGHT_BOT, 0.54, 0.60)
 	stars_on(1.0, 1.6)
 	clouds_on(0.30, 1.8)
+	luminary(Vector2(0.60, 0.24), Color(0.94, 0.95, 1.0), 62.0, true, 2.0)
 	glow_at(Vector2(0.60, 0.24), Color(0.94, 0.95, 1.0), 340.0, 0.55, 1.6)
+	fog_on(0.22, 2.4)
 	# 海平线上一排小旗 (五国的王都)
 	var tints := [Color(0.42, 0.30, 0.55), Color(0.30, 0.44, 0.52),
 		Color(0.52, 0.42, 0.24), Color(0.36, 0.30, 0.22), Color(0.34, 0.48, 0.30)]
@@ -461,7 +539,10 @@ func _unify_3() -> void:
 	sky_to(GOLD_TOP, GOLD_BOT, 2.4)
 	stars_on(0.0, 1.4)
 	clouds_on(0.80, 2.0)
-	sea_on(0.60, 1.0, 1.0)
+	sea_on(0.60, 1.0, 1.0, 0.50)
+	luminary(Vector2(0.50, 0.50), Color(1.0, 0.88, 0.54), 130.0, false, 2.2)
+	rays_at(0.50, Color(1.0, 0.88, 0.60), 0.45, 2.4)
+	birds_on(11, 2.2)
 	glow_at(Vector2(0.50, 0.50), Color(1.0, 0.88, 0.54), 640.0, 0.85, 2.2)
 	vignette_on(0.30, 1.8)
 	flash(Color(1.0, 0.92, 0.70), 0.40, 1.2)
@@ -546,10 +627,12 @@ func _float_prop(x_frac: float, y_frac: float) -> Node2D:
 	return n
 
 func _goblin_1() -> void:
-	_open("鱼竿", "河边偶遇", Color(0.10, 0.13, 0.21), Color(0.74, 0.68, 0.54), 0.62)
+	_open("鱼竿", "河边偶遇", Color(0.10, 0.13, 0.21), Color(0.74, 0.68, 0.54), 0.62, 0.78)
 	stars_on(0.22, 1.4)
 	clouds_on(0.35, 1.6)
+	luminary(Vector2(0.78, 0.26), Color(1.0, 0.90, 0.68), 60.0, false, 1.8)
 	glow_at(Vector2(0.78, 0.26), Color(1.0, 0.90, 0.68), 320.0, 0.50, 1.6)
+	fog_on(0.26, 2.0)                  # 河面上的晨雾
 	# 对岸的芦苇带
 	_ridge([[0.0, 0.05], [0.15, 0.09], [0.30, 0.04], [0.46, 0.08],
 		[0.62, 0.03], [0.80, 0.07], [1.0, 0.04]], 0.625, Color(0.15, 0.19, 0.19, 0.92))
@@ -587,6 +670,10 @@ func _goblin_3() -> void:
 	sky_to(Color(0.36, 0.46, 0.58), Color(1.0, 0.90, 0.72), 1.8)
 	stars_on(0.0, 1.2)
 	clouds_on(0.70, 1.6)
+	fog_off(1.6)
+	luminary(Vector2(0.50, 0.44), Color(1.0, 0.88, 0.54), 92.0, false, 1.8)
+	rays_at(0.50, Color(1.0, 0.86, 0.58), 0.32, 1.6)
+	birds_on(6, 1.4)
 	glow_at(Vector2(0.50, 0.44), Color(1.0, 0.88, 0.54), 560.0, 0.70, 1.8)
 	fx_on("fireflies", 42)
 	vignette_on(0.32, 1.6)
@@ -647,10 +734,12 @@ func _pact_steps() -> Array:
 
 func _pact_1() -> void:
 	_crates.clear()               # 上回放的货箱早就 free 了, 别揣着旧引用
-	_open("会盟", "通商之约", Color(0.12, 0.16, 0.26), Color(0.92, 0.78, 0.58), 0.60)
+	_open("会盟", "通商之约", Color(0.12, 0.16, 0.26), Color(0.92, 0.78, 0.58), 0.60, 0.22)
 	stars_on(0.28, 1.4)
 	clouds_on(0.42, 1.6)
+	luminary(Vector2(0.22, 0.26), Color(1.0, 0.90, 0.70), 66.0, true, 1.8)
 	glow_at(Vector2(0.22, 0.26), Color(1.0, 0.90, 0.70), 320.0, 0.55, 1.6)
+	fog_on(0.26, 2.0)
 	_ridge([[0.0, 0.04], [0.14, 0.09], [0.30, 0.04], [0.48, 0.08],
 		[0.66, 0.03], [0.84, 0.08], [1.0, 0.04]], 0.62, Color(0.17, 0.20, 0.26, 0.88))
 	var v := _vw()
@@ -690,7 +779,11 @@ func _pact_3() -> void:
 	sky_to(GOLD_TOP, GOLD_BOT, 2.0)
 	stars_on(0.0, 1.2)
 	clouds_on(0.72, 1.8)
-	sea_on(0.62, 1.0, 1.2)
+	sea_on(0.62, 1.0, 1.2, 0.58)
+	luminary(Vector2(0.58, 0.54), Color(1.0, 0.88, 0.56), 108.0, false, 2.0)
+	rays_at(0.58, Color(1.0, 0.88, 0.58), 0.38, 2.2)
+	birds_on(9, 1.8)
+	fog_off(1.6)
 	glow_at(Vector2(0.58, 0.54), Color(1.0, 0.88, 0.56), 560.0, 0.72, 2.0)
 	fx_on("fireflies", 36)
 	# 商船顺着光出海: 桅杆上挂这一场的国色帆
@@ -718,8 +811,11 @@ func _ally_1() -> void:
 	_band(0.60, 0.15, Color(0.13, 0.08, 0.07, 0.96))
 	_band(0.595, 0.012, Color(0.24, 0.15, 0.11, 0.96))
 	# 两碗血酒: 一左一右, 各压一团光 (右碗的光偏国色)
-	glow_at(Vector2(0.34, 0.545), Color(1.0, 0.70, 0.40), 180.0, 0.80, 1.4)
-	glow_at(Vector2(0.66, 0.545), Color(1.0, 0.70, 0.40), 180.0, 0.80, 1.4)
+	fire_prop(0.34, 0.578, 1.3)
+	fire_prop(0.66, 0.578, 1.3)
+	glow_at(Vector2(0.34, 0.545), Color(1.0, 0.70, 0.40), 180.0, 0.60, 1.4)
+	glow_at(Vector2(0.66, 0.545), Color(1.0, 0.70, 0.40), 180.0, 0.60, 1.4)
+	fog_on(0.16, 1.4)
 	var v := _vw()
 	for x in [0.34, 0.66]:
 		var bowl := Polygon2D.new()
@@ -738,10 +834,12 @@ func _ally_1() -> void:
 
 func _ally_2() -> void:
 	sky_to(Color(0.06, 0.09, 0.16), Color(0.14, 0.20, 0.30), 1.8)
+	luminary(Vector2(0.72, 0.22), Color(0.92, 0.94, 1.0), 54.0, true, 1.8)
 	glow_at(Vector2(0.72, 0.22), Color(0.92, 0.94, 1.0), 300.0, 0.50, 1.6)
 	stars_on(0.95, 1.4)
 	clouds_on(0.28, 1.6)
-	sea_on(0.60, 1.0, 1.4)
+	sea_on(0.60, 1.0, 1.4, 0.72)
+	fog_on(0.30, 2.0)                  # 夜巡时海面上的低雾
 	fx_off(0.9)
 	# 两条船并排巡航 (一条挂你的帆, 一条挂国色的帆)
 	var a := _boat_prop(-0.06, 0.60, 1.7, Color(0.30, 0.21, 0.15), Color(0.94, 0.90, 0.84))
@@ -755,6 +853,10 @@ func _ally_3() -> void:
 	sky_to(Color(0.20, 0.26, 0.38), Color(0.94, 0.78, 0.56), 2.2)
 	stars_on(0.0, 1.4)
 	clouds_on(0.68, 1.8)
+	luminary(Vector2(0.50, 0.52), Color(1.0, 0.86, 0.54), 116.0, false, 2.2)
+	rays_at(0.50, Color(1.0, 0.88, 0.60), 0.35, 2.2)
+	birds_on(10, 1.8)
+	fog_off(1.6)
 	glow_at(Vector2(0.50, 0.52), Color(1.0, 0.86, 0.54), 620.0, 0.78, 2.2)
 	fx_on("fireflies", 44)
 	# 两面旗交叉着立起来 (你的 + 他们的)
@@ -785,7 +887,9 @@ func _war_1() -> void:
 	# 殿: 两侧立柱剪影 + 中间的灯
 	for x in [0.10, 0.24, 0.76, 0.90]:
 		_band(x - 0.012, 0.90, Color(0.06, 0.04, 0.05, 0.96))
+	fire_prop(0.50, 0.52, 1.4)         # 殿中那盏灯: 真在烧
 	glow_at(Vector2(0.50, 0.46), Color(1.0, 0.62, 0.30), 300.0, 0.72, 1.4)
+	fog_on(0.20, 1.5)
 	# 使者: 一高一矮两个剪影, 高的那个捧着一卷书
 	var v := _vw()
 	var scroll := Polygon2D.new()
@@ -817,8 +921,12 @@ func _war_2() -> void:
 
 func _war_3() -> void:
 	sky_to(Color(0.12, 0.05, 0.07), Color(0.52, 0.14, 0.12), 2.0)
+	# 海图上那一角亮起血色: 用一颗血红的「日」压在海平线上
+	luminary(Vector2(0.50, 0.54), Color(1.0, 0.30, 0.20), 140.0, false, 2.0)
+	rays_at(0.50, Color(1.0, 0.32, 0.22), 0.34, 2.0)
 	glow_at(Vector2(0.50, 0.54), Color(1.0, 0.30, 0.20), 640.0, 0.80, 2.0)
 	stars_on(0.30, 1.2)
+	fog_on(0.24, 1.8)
 	shake(3.0, 0.7)
 	# 海图上那一角: 一面立起来的旗, 血色在它背后亮开
 	var fl := _flag_prop(0.50, 0.72, 88.0, _nat_color())
@@ -843,10 +951,14 @@ func _lost_1() -> void:
 	_open("失城", "城头易帜", DUSK_TOP, Color(0.26, 0.14, 0.12), 0.78)
 	stars_on(0.30, 1.4)
 	clouds_on(0.42, 1.6)
+	# 冷月: 这一夜月是白的、冷的 —— 和城下那把火对着
+	luminary(Vector2(0.14, 0.22), Color(0.86, 0.88, 1.0), 44.0, true, 1.8)
+	glow_at(Vector2(0.14, 0.22), Color(0.80, 0.86, 1.0), 300.0, 0.42, 1.6)
 	_wall_tower(0.04, 0.32, 0.64, Color(0.10, 0.06, 0.07, 0.96))
 	_wall_tower(0.38, 0.26, 0.68, Color(0.12, 0.07, 0.08, 0.96))
 	_wall_tower(0.66, 0.32, 0.62, Color(0.10, 0.06, 0.07, 0.96))
 	glow_at(Vector2(0.36, 0.78), Color(1.0, 0.44, 0.18), 460.0, 0.70, 1.6)
+	fog_on(0.45, 2.0)             # 城破后压着城头的浓烟
 	fx_on("embers", 80)
 
 func _lost_2() -> void:
@@ -865,7 +977,10 @@ func _lost_2() -> void:
 
 func _lost_3() -> void:
 	sky_to(Color(0.07, 0.06, 0.10), Color(0.30, 0.16, 0.18), 1.8)
+	# 天亮了, 只是这日头灰扑扑的 —— 一座城换了主人, 天不会替谁难过
+	luminary(Vector2(0.50, 0.50), Color(0.92, 0.70, 0.40), 96.0, false, 1.8)
 	glow_at(Vector2(0.50, 0.52), Color(0.92, 0.70, 0.40), 480.0, 0.55, 1.8)
+	fog_off(1.6)
 	fx_off(1.4)
 	# 他们的旗升上城头
 	var fl := _flag_prop(0.50, 0.66, 82.0, _nat_color())

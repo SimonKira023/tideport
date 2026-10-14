@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://item_data.gd" id="1_item"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "砾石路"
+type = "地板"
+max_stack = 99
+description = "最省料的碎石子路。手持点击草地或耕地就能铺上去, 铺个过渡段或临时小路都行。镐子可以撬回。"
+sell_price = 1

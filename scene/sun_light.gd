@@ -56,6 +56,12 @@ func _apply() -> void:
 	var warm := 1.0 - elev
 	var sun_col := Color(1.0, 0.97 - warm * 0.25, 0.88 - warm * 0.45)
 	var moon_col := Color(0.62, 0.72, 1.0)
-	_light.energy = lerpf(lerpf(ENERGY_DUSK, ENERGY_NOON, elev), ENERGY_MOON, night)
+	var energy := lerpf(lerpf(ENERGY_DUSK, ENERGY_NOON, elev), ENERGY_MOON, night)
+	# k4 冬天雪地反光强, 加法太阳叠上去整屏过曝 —— 雪季白天的太阳压狠一点
+	# （白刃雪场 255 底再叠光只会推平成 255 白板, 实测冬天白天 p75 全在裁切）,
+	# 夜里月光不动（冬夜亮度已四季对齐）
+	if TimeManager.season == 3:
+		energy = lerpf(energy * 0.20, energy, night)
+	_light.energy = energy
 	_light.color = sun_col.lerp(moon_col, night)
 	# 影子：不开（见文件头）。太阳只调能量/颜色/方向。

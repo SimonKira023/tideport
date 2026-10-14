@@ -83,7 +83,8 @@ func _seg_b() -> void:
 			if _frames >= 70:
 				var bp := _backpack()
 				if bp != null:
-					bp._switch_to("tech")
+					bp._switch_to("grow")
+					bp._select_grow_sub("tech")
 				_step = 2
 		2:
 			if _frames >= 160:

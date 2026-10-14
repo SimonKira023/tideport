@@ -14,6 +14,7 @@
 extends Node
 
 signal changed   # 每天翻日时发（面板刷新用）
+signal recruited # e89 有人入伙（game 连它做运镜: 镜头摇到篝火迎接新人）
 
 const WINDOW_DAYS := 7   # 候选人在篝火边坐几天（一轮窗口）
 const RETURN_GAP := 14   # 错过窗口后, 隔几天再回来开下一轮
@@ -73,6 +74,10 @@ func sync_quests() -> void:
 	if c.is_empty():
 		return
 	var id := String(c["id"])
+	# 咪露的相认指引已包含这次来访, 不重复挂两条同一目的任务。
+	if id == String(Slaves.ROSTER[0]["id"]) and Quests.has_active("meet_partner"):
+		Quests.cancel(id)
+		return
 	if visitor():
 		if not Quests.has_active(id):
 			Quests.add(id, TASK_TITLE % String(c["name"]), String(c["req"]))
@@ -117,6 +122,7 @@ func deliver() -> bool:
 	Slaves.recruit_roster()
 	Quests.complete(String(c["id"]))
 	changed.emit()
+	recruited.emit()   # e89: game._cinematic_pan 摇到篝火迎接新人
 	return true
 
 # 背包里有多少份「作物」（跟 Quests 里程碑同一口径: item.type == 作物, 跨槽位累计）
@@ -197,11 +203,11 @@ func _item_progress(cost: Dictionary) -> String:
 # ❗文案不用「·」字符（IPix.ttf 缺字形）。
 const DIALOGS := {
 	"rq_00": {
-		"intro": "我看见山下的烟了. 你是这火的主人? 我叫布恩, 没地方去了. 给口饭吃, 我就把力气留给这座岛.",
-		"ok": "行, 就这么说定. 你把火分我一半, 我把力气分你一半.",
-		"wait": "我就在火边坐坐, 不碍事.",
+		"intro": "......是你. 桅杆断的那天, 浪把我抛上这块坡. 我找了你一整夜, 只找到这堆火.",
+		"ok": "刀还在. 人也在. 从今晚起, 我不再找了.",
+		"wait": "我就在坡上再坐一天. 你想好了, 叫我.",
 	},
-	"rq_01": {
+	"rq_03": {
 		"intro": "我叫娜雅, 篮子空了三天. 锅里要是能添上 6 份收成, 我就留下帮你们烧粥.",
 		"ok": "香极了. 这一锅粥是我请的, 以后的日子, 我们一起过.",
 		"wait": "篮子还空着. 等田里收出 6 份作物, 我再回来.",
@@ -211,10 +217,10 @@ const DIALOGS := {
 		"ok": "梁正了, 家就成了. 这个家, 我来帮你们撑.",
 		"wait": "图纸我都画好了. 可你们连第一座房子都还没盖.",
 	},
-	"rq_03": {
-		"intro": "咪露. 我在坡上看了你半天, 手还是生的. 等历练到 2 级, 再来跟我谈入伙的事.",
-		"ok": "现在像样了. 我的刀, 从今天起归你的火.",
-		"wait": "手还在抖. 去历练, 练到 2 级再来.",
+	"rq_01": {
+		"intro": "我看见山下的烟了. 你是这火的主人? 我叫布恩. 等你历练到 2 级, 我就把力气留给这座岛.",
+		"ok": "行, 就这么说定. 你把火分我一半, 我把力气分你一半.",
+		"wait": "我就在火边坐坐. 等你历练到 2 级, 不碍事.",
 	},
 	"rq_04": {
 		"intro": "塔洛, 从前替人管账, 也替自己欠了账. 300 金币, 替我还清, 我的算盘就是你的.",
@@ -222,7 +228,7 @@ const DIALOGS := {
 		"wait": "300 金币, 一个子儿都不能少. 债主可不看火候.",
 	},
 	"rq_05": {
-		"intro": "海莉. 听说你们的船真出过海了? 带我走海路的人, 我也跟他走.",
+		"intro": "汐月. 听说你们的船真出过海了? 带我走海路的人, 我也跟他走.",
 		"ok": "海风的味道, 我在岸上闻了一辈子. 总算等到同行的人.",
 		"wait": "出了海再来叫我. 没出过海的火堆, 留不住我.",
 	},
@@ -255,12 +261,12 @@ func talk_lines(stage: String) -> Array:
 # 行 = ["he"/"me", 文案]; ❗标点只用 ASCII。
 const _ME := {"name": "我", "portrait": "player"}
 const JOINS := {
-	"rq_00": {"scene": "camp", "tod": "night", "weather": "embers", "lines": [
-		["he", "行, 就这么说定. 你把火分我一半, 我把力气分你一半."],
-		["me", "从今晚起, 火边就有你的位置了."],
-		["he", "位置.......好久没人给我留过位置了. 布恩记下了. 明天天一亮, 头一个上工."],
+	"rq_00": {"scene": "cliff", "tod": "dusk", "lines": [
+		["he", "浪里我以为你没了. 坡上看到这堆火, 我才敢下来."],
+		["me", "风暴把我们拆开了. 你还活着, 这就够了."],
+		["he", "够什么. 刀还在我手上. 这座岛, 我跟你一起守."],
 	]},
-	"rq_01": {"scene": "field", "tod": "day", "lines": [
+	"rq_03": {"scene": "field", "tod": "day", "lines": [
 		["he", "香极了. 这一锅粥是我请的, 以后的日子, 我们一起过."],
 		["me", "田里的活, 往后就多指望娜雅了."],
 		["he", "别客气. 一口锅, 一块田, 有来有往, 这就是家了."],
@@ -270,10 +276,10 @@ const JOINS := {
 		["me", "有珞琳在, 图纸和锤子都放心交出去."],
 		["he", "锤子可以借你. 图纸免谈--那上面还画着没盖的屋子呢."],
 	]},
-	"rq_03": {"scene": "cliff", "tod": "dusk", "lines": [
-		["he", "现在像样了. 我的刀, 从今天起归你的火."],
-		["me", "欢迎入伙. 往后守夜的活, 有你在就睡得踏实."],
-		["he", "那当然. 从今晚起, 敢靠近这座岛的野东西, 都得先问过我的刀."],
+	"rq_01": {"scene": "camp", "tod": "night", "weather": "embers", "lines": [
+		["he", "行, 就这么说定. 你把火分我一半, 我把力气分你一半."],
+		["me", "从今晚起, 火边就有你的位置了."],
+		["he", "位置.......好久没人给我留过位置了. 布恩记下了. 明天天一亮, 头一个上工."],
 	]},
 	"rq_04": {"scene": "camp", "tod": "night", "weather": "embers", "lines": [
 		["he", "债一笔勾销. 往后你的账, 我记得比我自己的命还牢."],
@@ -282,7 +288,7 @@ const JOINS := {
 	]},
 	"rq_05": {"scene": "docks", "tod": "dusk", "lines": [
 		["he", "海风的味道, 我在岸上闻了一辈子. 总算等到同行的人."],
-		["me", "以后出海, 船头就留给海莉."],
+		["me", "以后出海, 船头就留给汐月."],
 		["he", "说定了. 有风我顶着, 有浪我看着, 你们只管把船开稳."],
 	]},
 	"rq_06": {"scene": "field", "tod": "dawn", "lines": [
@@ -307,17 +313,26 @@ func join_script() -> Array:
 		return []
 	var idx := int(Slaves.count)   # 候选人 = 花名册下一位（与 ROSTER 同序）
 	var who: Dictionary = {"name": String(c["name"]), "portrait": "slave_%02d" % idx}
-	var lines: Array = []
-	lines.append({"fx": "bg", "scene": j["scene"], "tod": j["tod"], "dur": 1.4})
-	if j.has("weather"):
-		lines.append({"fx": "weather", "mode": j["weather"], "amount": 26})
-	lines.append({"fx": "show", "who": "s%02d" % idx, "at": "m"})
-	lines.append({"fx": "show", "who": "you", "at": "ml"})
+	var actor := "s%02d" % idx
+	var lines: Array = [
+		{"fx": "bg", "scene": j["scene"], "title": String(c["name"]) + " / 同行"},
+		{"fx": "show", "who": actor, "at": "ml"},
+		{"fx": "show", "who": "you", "at": "r", "from": "entry_r"},
+		{"fx": "face", "who": actor, "target": "you"},
+		{"fx": "face", "who": "you", "target": actor},
+		{"fx": "prop", "kind": ["sword", "wood", "plan", "bowl", "letter", "compass", "seeds", "plan"][idx], "at": [-1, -0.6]}]
+	var row_index := 0
 	for row in j["lines"]:
+		if row_index == 1:
+			lines.append({"fx": "move", "who": "you", "to": "mr"})
+			lines.append({"fx": "face", "who": "you", "target": actor})
+		elif row_index == 2:
+			lines.append({"fx": "act", "who": actor, "pose": "nod"})
 		if row[0] == "me":
 			lines.append({"name": _ME["name"], "portrait": _ME["portrait"], "text": row[1]})
 		else:
 			lines.append({"name": who["name"], "portrait": who["portrait"], "text": row[1]})
-	lines.append({"fx": "sfx", "name": "buy"})
-	lines.append({"fx": "hide", "who": "all"})
+		row_index += 1
+	lines.append({"fx": "emote", "who": actor, "kind": "note"})
+	lines.append({"fx": "wait", "t": 0.7})
 	return lines

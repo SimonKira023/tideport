@@ -91,6 +91,20 @@ var _fire_light: PointLight2D = null
 var _fire_glow: Sprite2D = null
 var _fire_audio: AudioStreamPlayer = null   # e54 炭火噼啪（进屋才响）
 
+# ---------------- 2026-10-06 夜里外墙亮窗（暖橘渔村） ----------------
+# 屋身 10.png（80x112）上两扇窗的像素位置，是扫描"冷色玻璃像素"量出来的：
+#   主窗 4 格玻璃 img(21..34, 72..84) -> 中心 img(27.5, 78)
+#   山墙圆窗     img(36..44, 52..62) -> 中心 img(40, 57)
+# Exterior 是 centered=false、position=(0,-112), 所以 img(px,py) -> 本节点局部 (px, py-112)。
+# ❗以前夜里自家外墙是全黑的（只有室内壁炉亮）, 从村里走回来根本认不出哪栋是家 ——
+#   这两扇窗就是"屋里有人"的信号，也是全村暖橘调的第一个锚点。
+const WIN_MAIN := Vector2(27.5, -34.0)      # 主窗（暖琥珀, 屋里的灯）
+const WIN_ATTIC := Vector2(40.0, -55.0)     # 山墙小圆窗（偏冷的白, 阁楼那盏小灯）
+var _win_glows: Array = []
+var _win_light: PointLight2D = null   # 主窗那盏真灯（关阴影）—— 夜色 CanvasModulate 是蓝主导的,
+                                      # 纯 sprite 窗火在夜里读不出暖, 得靠真灯把墙面铺暖（见 light_util）
+var _win_lit := false
+
 func _add_hint(parent: Node, key: String, word: String, height: float) -> Node2D:
 	var n: Node2D = preload("res://scene/key_hint.gd").new()
 	parent.add_child(n)
@@ -109,6 +123,9 @@ func _ready() -> void:
 	_build_veil()
 	_build_fire_light()
 	_build_fire_body()
+	_build_occluders()
+	_build_smoke()
+	_build_window_glow()
 
 	door.body_entered.connect(func(b): _set_flag(b, "front", true))
 	door.body_exited.connect(func(b): _set_flag(b, "front", false))
@@ -155,6 +172,7 @@ func _toggle_hint(h: Node2D, on: bool) -> void:
 
 # 室内时把玩家夹在房间里（地板范围内），不用给房间单独做一圈碰撞
 func _physics_process(_delta: float) -> void:
+	_sync_window_glow()          # 外墙窗火跟着色调钟点/熄（跟"在不在屋里"无关）
 	var p := _player_node()
 	if p == null or not p.indoors:
 		return
@@ -257,6 +275,89 @@ func _build_fire_body() -> void:
 	_fire_audio.volume_db = -16.0
 	_fire_audio.finished.connect(_fire_audio.play)
 	interior.add_child(_fire_audio)
+
+# q1 光影追踪：房身 + 大件家具当 LightOccluder2D，太阳/灯光被它们真实挡住。
+# ❗壁炉不加：火光光心在炉膛里，包进遮挡体会把整盏灯罩黑全场（铁律见 light_util.gd）。
+func _build_occluders() -> void:
+	add_child(LIGHT_UTIL.occluder_rect(Rect2(8, -110, 64, 94)))   # 房身(10.png 主体)
+	# 家具挂在 interior（局部坐标 = .tscn 里的摆位），进屋才参与挡光
+	var items: Array[Rect2] = [
+		Rect2(70, 0, 25, 36),      # 衣柜
+		Rect2(86, 36, 29, 20),     # 沙发
+		Rect2(240, 34, 30, 34),    # 书架
+		Rect2(240, 72, 29, 18),    # 钢琴
+		Rect2(150, 96, 63, 30),    # 餐桌
+		Rect2(16, 32, 33, 34),     # 床
+	]
+	for r in items:
+		interior.add_child(LIGHT_UTIL.occluder_rect(r))
+
+# q3 炊烟：烟囱口冒灰白烟，顺着风（云往左飘 = 风向左）慢慢斜着升上去。
+# 烟囱在 10.png (40, 9)（probe_chimney 扫出来的砖柱顶）， Exterior 在 (0,-112)
+# → House 局部 (40, -103)。烟从炉口往上冒，出门就能看见家是「活」的。
+func _build_smoke() -> void:
+	var p := CPUParticles2D.new()
+	p.name = "ChimneySmoke"
+	p.amount = 6
+	p.lifetime = 3.2
+	p.preprocess = 2.4                      # 进门时烟已经升在半空, 别从零开始憋
+	p.texture = _make_fire_dot()
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 1.5
+	p.direction = Vector2(0, -1)
+	p.spread = 9.0
+	p.gravity = Vector2(-16, -26)           # 往上飘 + 顺风向左斜
+	p.initial_velocity_min = 6.0
+	p.initial_velocity_max = 12.0
+	p.scale_amount_min = 1.1
+	p.scale_amount_max = 2.3
+	var g := Gradient.new()
+	g.set_color(0, Color(0.88, 0.89, 0.93, 0.24))
+	g.set_color(1, Color(0.82, 0.83, 0.88, 0.0))
+	g.add_point(0.25, Color(0.87, 0.88, 0.92, 0.20))
+	p.color_ramp = g
+	p.position = Vector2(40, -104)
+	p.z_index = 10                          # 屋顶之上、云(20)之下
+	add_child(p)
+
+# 2026-10-06 外墙两扇窗的暖光：天黑亮、天亮灭（跟路灯/栈桥灯同一套色调钟）。
+# sprite 窗火只做"窗格亮着"的形体；真正把外墙铺暖的是主窗那盏关阴影的真灯
+# （夜色 CanvasModulate 蓝主导, 纯 sprite 夜里读不出暖 —— 见 light_util.make_window_light）。
+func _build_window_glow() -> void:
+	var lu := preload("res://scene/light_util.gd")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x570BE                        # 固定种：自家窗火每次开局都一样, 玩家认得出自己的家
+	# 主窗：方形柔光（那块玻璃是方的, 用圆光会像飘着一团球）。
+	# ❗色偏深橘 + scale 1.8：加法叠在浅色玻璃上颜色越浅越发白, 光斑放大一点让暖晕溢到深色墙面。
+	var m := lu.make_window_glow(lu.window_tint(Color(1.0, 0.70, 0.34), rng), 1.8)
+	m.position = WIN_MAIN
+	m.visible = false
+	add_child(m)
+	_win_glows.append(m)
+	# 山墙圆窗：那块玻璃是圆的, 走径向柔光; 色偏冷白, 阁楼那盏小灯
+	var a := lu.make_glow(lu.window_tint(Color(0.90, 0.93, 1.0), rng), 0.62, 2.0)
+	a.position = WIN_ATTIC
+	a.visible = false
+	add_child(a)
+	_win_glows.append(a)
+	# 主窗那盏真灯：给自家外墙铺一层暖（sprite 窗火只做"窗格亮着"的形体）。
+	# ❗夜色 CanvasModulate 蓝主导, 纯 sprite 在夜里读不出暖, 得靠这盏真灯（见 light_util.make_window_light）。
+	_win_light = lu.make_window_light(Color(1.0, 0.72, 0.38), 0.85, 2.0)
+	_win_light.position = WIN_MAIN + Vector2(0.0, 8.0)
+	_win_light.enabled = false
+	add_child(_win_light)
+
+func _sync_window_glow() -> void:
+	if _win_glows.is_empty():
+		return
+	var want := preload("res://scene/light_util.gd").glow_hour_now()
+	if want == _win_lit:
+		return
+	_win_lit = want
+	for g in _win_glows:
+		(g as Sprite2D).visible = want
+	if _win_light != null:
+		_win_light.enabled = want
 
 # 火苗颜色渐变：白黄 -> 橙 -> 红 -> 透明（campfire.gd 同款）
 func _flame_ramp() -> Gradient:
@@ -429,9 +530,10 @@ func _leave_house(p: Node2D) -> void:
 	_try_rod_story()                     # e43: 第二天出门撞见哥布林钓鱼
 
 # ---------------- e43: 第二天出门, 撞见哥布林在河边钓鱼 ----------------
-# 开局他摊子上没有鱼竿 (shop_ui 那一行挂「未上架」)。第二天一出门: 先放一段
-# 过场 (cutscenes.gd 的 goblin_rod), 再进对话, 聊完才立旗 goblin_rod —— 商店
-# 那行鱼竿这时候才上架。flag 进 user://story_flags.cfg, 新档会被 flags_reset() 清掉。
+# 开局他摊子上没有鱼竿 (shop_ui 那一行挂「未上架」)。第二天一出门: 播一段
+# 实机演出（e101: 转场黑幕 → 桥头清场, 哥布林+主角同台）, 聊完才立旗
+# goblin_rod —— 商店那行鱼竿这时候才上架。flag 进 user://story_flags.cfg,
+# 新档会被 flags_reset() 清掉。
 const ROD_LINES := [
 	{"name": "哥布林", "portrait": "goblin",
 		"text": "哎哎哎, 别声张! 我就钓两条, 解解馋..."},
@@ -457,15 +559,13 @@ func _try_rod_story() -> void:
 	_play_rod_story()
 
 func _play_rod_story() -> void:
-	Cutscenes.play("goblin_rod")
-	# ❗等过场收片再进对话: 不然字幕条和对话框叠在一起, 两边的暂停开关也会互相踩
-	while Cutscenes.playing():
-		await Cutscenes.finished
+	# e101: 过场+对话合并成一段实机演出 —— 转场黑幕 → 桥头清场 → 哥布林/主角同台
 	var dlg := get_tree().get_first_node_in_group("story_dialogue")
 	if dlg == null:
 		_finish_rod_story()
 		return
-	dlg.play(ROD_LINES, _finish_rod_story)
+	var script: Array = preload("res://scene/event_scripts.gd").rod()
+	dlg.play_directed(script, _finish_rod_story)
 
 func _finish_rod_story() -> void:
 	preload("res://story_dialogue.gd").flag_set("goblin_rod")
@@ -478,7 +578,7 @@ const INTRO_LINES := [
 	{"name": "哥布林", "portrait": "goblin",
 		"text": "哦嚯嚯! 这屋子现在归你了, 别拘束, 就当自己家."},
 	{"name": "哥布林", "portrait": "goblin",
-		"text": "瞧你两手空空的样子... 床边那包家当拿去吧: 农具, 种子, 还有几颗土豆."},
+		"text": "床边的农具拿去用吧: 锄头, 斧头, 镐子和洒水壶. 种子和吃的要来摊位买, 木材也可以自己采."},
 	{"name": "哥布林", "portrait": "goblin",
 		"text": "不过嘛... 天下没有白住的房子. 条件只有一个: 多在我这儿买东西, 照顾照顾我的生意!"},
 	{"name": "主角", "portrait": "player",

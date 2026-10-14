@@ -1,5 +1,7 @@
 extends CharacterBody2D
 
+const CHARACTER_ART := preload("res://scene/slave_npc.gd")
+
 # 角色动画：Idle/Run 用 normal_/run_ + 朝向；工具动作单独一套放在 ToolSprite 上
 var NORMAL_ANIMATION_PREFIX := &"normal"
 
@@ -22,6 +24,9 @@ var indoors := false
 # 打开背包等 UI 时冻结：禁止移动和使用工具
 var frozen := false
 
+# e100 实机演出走位: live_view 设目标, _physics_process 只听导演的 (INF = 没演出)
+var _cs_walk := Vector2.INF
+
 # 脚步声的间隔（秒）—— 走一步响一下
 const STEP_INTERVAL := 0.34
 var _step_timer := 0.0
@@ -39,25 +44,25 @@ var _last_pos := Vector2.INF
 # Josh 的每套动作图都是「32px 一帧、一行一个朝向」：
 #   行 0 = 朝下, 行 1 = 朝上, 行 2 = 侧面（左/右靠 flip_h 复用）
 # 第三方素材不入库(见 README), 缺失时留空不崩
-var HOE_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Hoe.png")
-var AXE_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Axe.png")
-var WATER_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Watering.png")
-var SLEEP_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Sleep.png")
-var PICK_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Pickaxe.png")
-var FISH_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Fishing/Wait Idle.png")
-var FISH_HOOKED_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Fishing/Hooked.png")
+var HOE_TEX: Texture2D = CHARACTER_ART.player_texture("Hoe.png")
+var AXE_TEX: Texture2D = CHARACTER_ART.player_texture("Axe.png")
+var WATER_TEX: Texture2D = CHARACTER_ART.player_texture("Watering.png")
+var SLEEP_TEX: Texture2D = CHARACTER_ART.player_texture("Sleep.png")
+var PICK_TEX: Texture2D = CHARACTER_ART.player_texture("Pickaxe.png")
+var FISH_TEX: Texture2D = CHARACTER_ART.player_texture("Fishing/Wait Idle.png")
+var FISH_HOOKED_TEX: Texture2D = CHARACTER_ART.player_texture("Fishing/Hooked.png")
 # e49 钓鱼动画链补齐：甩竿 -> 等咬钩 -> 咬钩挣扎 -> 拉回（有鱼 / 空竿）
-var FISH_CAST_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Fishing/Casting.png")
-var FISH_CAPTURE_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Fishing/Captured Fish.png")
-var FISH_EMPTY_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Fishing/Captured No Fish.png")
+var FISH_CAST_TEX: Texture2D = CHARACTER_ART.player_texture("Fishing/Casting.png")
+var FISH_CAPTURE_TEX: Texture2D = CHARACTER_ART.player_texture("Fishing/Captured Fish.png")
+var FISH_EMPTY_TEX: Texture2D = CHARACTER_ART.player_texture("Fishing/Captured No Fish.png")
 # e49 游泳：蹚水（贴岸浅滩）时的移动 / 静止 / 上岸
-var SWIM_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Swim/Swim.png")
-var SWIM_SUBMERGED_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Swim/submerged.png")
-var SWIM_OUT_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Swim/Coming out of the water.png")
+var SWIM_TEX: Texture2D = CHARACTER_ART.player_texture("Swim/Swim.png")
+var SWIM_SUBMERGED_TEX: Texture2D = CHARACTER_ART.player_texture("Swim/submerged.png")
+var SWIM_OUT_TEX: Texture2D = CHARACTER_ART.player_texture("Swim/Coming out of the water.png")
 
 # 站立/奔跑的身体动画
-var IDLE_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Idle.png")
-var RUN_TEX: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Josh/Run.png")
+var IDLE_TEX: Texture2D = CHARACTER_ART.player_texture("Idle.png")
+var WALK_TEX: Texture2D = CHARACTER_ART.player_texture("Walk.png")
 const DEATH_TEX := preload("res://resources/texture/W.png")
 
 const HOE_FRAMES := 6        # Hoe.png      192x96 -> 6 帧 x 3 朝向
@@ -107,6 +112,10 @@ func _ready() -> void:
 	# g3: 主角提灯已整个删掉 —— 用户不要身边的光圈, 夜里跟着 CanvasModulate 一起暗
 	_build_body_frames()
 	_build_action_frames()
+	# 身体与工具使用同一比例和脚底锚点, 切换动作时不会忽胖忽瘦。
+	for sprite in [body_sprite, tool_sprite]:
+		sprite.scale = CHARACTER_ART.body_scale_for()
+		sprite.position = CHARACTER_ART.BODY_OFFSET
 	tool_sprite.visible = false
 	_update_animation()
 
@@ -130,7 +139,7 @@ func _process(delta: float) -> void:
 # 原来 Bake 在 player.tscn 里；现在代码里搭。
 func _build_body_frames() -> void:
 	var idle: Texture2D = IDLE_TEX
-	var run: Texture2D = RUN_TEX
+	var walk: Texture2D = WALK_TEX
 	var sf := SpriteFrames.new()
 	if sf.has_animation(&"default"):
 		sf.remove_animation(&"default")
@@ -139,11 +148,12 @@ func _build_body_frames() -> void:
 	_add_body_row(sf, "normal_up", idle, 1, 4)
 	_add_body_row(sf, "normal_left", idle, 2, 4)
 	_add_body_row(sf, "normal_right", idle, 2, 4)
-	_add_body_row(sf, "run_down", run, 0, 8)
-	_add_body_row(sf, "run_up", run, 1, 8)
-	_add_body_row(sf, "run_left", run, 2, 8)
-	_add_body_row(sf, "run_right", run, 2, 8)
-	_add_body_row(sf, "death", DEATH_TEX, 8, 4)
+	# 保留移动状态原有 run 前缀, 画面采用已确认的六帧行走周期。
+	_add_body_row(sf, "run_down", walk, 0, 6)
+	_add_body_row(sf, "run_up", walk, 1, 6)
+	_add_body_row(sf, "run_left", walk, 2, 6)
+	_add_body_row(sf, "run_right", walk, 2, 6)
+	_add_body_row(sf, "death", CHARACTER_ART.player_texture("Dead.png"), 0, 4, 8.0, false)
 	# e49 游泳三态：蹚水移动 / 水里静止（只露上半身）/ 上岸那一下
 	_add_body_row(sf, "swim_down", SWIM_TEX, 0, SWIM_FRAMES, 6.0)
 	_add_body_row(sf, "swim_up", SWIM_TEX, 1, SWIM_FRAMES, 6.0)
@@ -222,6 +232,21 @@ func _frame(tex: Texture2D, col: int, row: int, cell: int = TOOL_CELL) -> AtlasT
 # ---------------- 移动 ----------------
 func _physics_process(delta: float) -> void:
 	_tick_camera_snap()
+	if _cs_walk != Vector2.INF:            # e100 实机演出: 导演喊走才走（压过 frozen/busy）
+		var wd := _cs_walk - global_position
+		if wd.length() < 4.0:
+			_cs_walk = Vector2.INF
+			velocity = Vector2.ZERO
+			NORMAL_ANIMATION_PREFIX = "normal"
+			_update_animation()
+		else:
+			velocity = wd.normalized() * move_speed
+			facing_suffix = _vector_to_facing_suffix(velocity)
+			NORMAL_ANIMATION_PREFIX = "run"
+			_update_animation()
+			_tick_footstep(delta)
+			move_and_slide()
+		return
 	if busy or frozen:
 		velocity = Vector2.ZERO
 		move_and_slide()
@@ -397,7 +422,7 @@ func _use_current_item() -> void:
 				Inventory.remove_item(current_item, 1)
 				Audio.play_sfx("plant")
 				_burst_at(target, COL_SEED)
-				Quests.complete("plant_first")   # 开局指引: 第一颗种子
+				Quests.note_planted(target)   # 已湿润的土不重复要求浇水
 		"地板":
 			_place_floor(target)
 		"放置":
@@ -609,11 +634,13 @@ func _place_floor(target: Vector2i) -> void:
 	if Floor.is_floored(target):
 		_flash("这里已经铺过了", "error")
 		return
-	# 手持哪种铺装就铺哪种（鹅卵石小径 / 木地板）。
+	# 手持哪种铺装就铺哪种（木板/小径/石板/红砖/砾石）。
 	# ❗名字要先抓 —— remove_item 把最后一块耗掉时 current_item 会被清成空,
 	#   再读它就崩溃(铺完最后一块地板必崩, 就是这个原因)。
 	var nm := String(current_item.display_name)
-	var kind := Floor.KIND_PATH if nm == "鹅卵石小径" else Floor.KIND_WOOD
+	var kind := Floor.kind_by_name(nm)
+	if kind < 0:
+		kind = Floor.KIND_WOOD      # 兜底: 名字没登记就按木板铺（临时道具/怪名字不会卡住铺地）
 	if Floor.place(target, kind):
 		Inventory.remove_item(current_item, 1)
 		Audio.play_sfx("plant", -10.0)        # 借用 plant 的锤子音
@@ -703,11 +730,11 @@ func _swing_pick(target: Vector2i, mouse_world: Vector2) -> void:
 	if Floor.is_floored(target):
 		var kind := Floor.kind_of(target)
 		Floor.remove(target)
-		var back: ItemData = Floor.KIND_ITEM.get(kind)
+		var back: ItemData = Floor.item_of(kind)
 		if back != null:
 			Inventory.add_item(back, 1)
 		Audio.play_sfx("chop", -8.0, 1.15)
-		_flash("撬回了%s" % ("鹅卵石小径" if kind == Floor.KIND_PATH else "木板"))
+		_flash("撬回了%s" % Floor.display_of(kind))
 		return
 	if g.has_method("pick_rock_cell"):
 		target = g.pick_rock_cell(mouse_world, target)

@@ -40,6 +40,379 @@ const MODELS := ["Alex", "Lyria", "Manu", "Tori"]
 #   Alex=男(橙金短发) / Lyria=女(棕红卷发) / Manu=女(深肤黑发白帽) / Tori=女(橙红长发)。
 # 招募名字池（slaves.gd）和头像分组（tools/make_portraits.gd）都按这张表对齐。
 const MODEL_MALE := [true, false, false, false]
+# e94: 咪露提到第 1 把交椅（用户指定）。美术槽位映射: 咪露(0)->Tori(3),
+# 布恩(1)->Alex(0), 娜雅(3)->Lyria(1); 其余序号即槽位。
+# 没有搬动 MODELS/RECIPES 这两张真相源表 —— 靠这张映射把序号接到模型上。
+const ART_SWAP := {0: 3, 1: 0, 3: 1}
+# 正式花名册的身份卡: 立绘、实体、船员和战场共用这一份对应关系。
+# 旧的 20 套配方保留给历史数据和通用兵种, 不再用取模决定正式伙伴身份。
+const IDENTITIES := [
+	{"key": "slave_00", "model": "Lyria", "sprite": "slave_00", "hair": "59392f", "cloth": "62538c", "eyes": "8b67c5", "hair_style": "Fawn", "eye_style": "Female", "eye_dark": "694b88", "eye_light": "8b67c5", "shirt": "486985", "shirt_shadow": "39516a", "pants": "30313d", "clip": "b49ac6", "outfit": "jacket", "trim": "b49ac6", "hair_palette": {"32131e": "36282b", "8a3625": "49312e", "ae4924": "59392f", "c46120": "754a39", "d9884c": "94634a"}},
+	{"key": "slave_01", "model": "Alex", "hair": "9e4e30", "cloth": "50565c", "hair_style": "Josh", "eye_style": "Male", "eye_dark": "734636", "eye_light": "ae7955", "shirt": "eee2c9", "shirt_shadow": "d7c3a4", "pants": "41404a", "outfit": "jacket", "trim": "bda072"},
+	{"key": "slave_02", "model": "Manu", "hair": "29252e", "cloth": "b86f78", "hair_style": "Iridessa", "eye_style": "Female", "eye_dark": "653d2c", "eye_light": "a9663c", "shirt": "b86f78", "shirt_shadow": "8f5262", "pants": "57434e", "outfit": "blouse", "trim": "eee2c9", "headwear": "Beret", "headwear_color": "eee2c9", "skin_light": "bc8261", "skin_shadow": "8a574a"},
+	{"key": "slave_03", "model": "Lyria", "hair": "bf632f", "cloth": "c69b42", "hair_style": "Lyria", "eye_style": "Female", "eye_dark": "7f4d32", "eye_light": "c18750", "shirt": "c69b42", "shirt_shadow": "a67a36", "pants": "65473e", "outfit": "pinafore", "trim": "4e8b83", "ribbon": "4e8b83"},
+	{"key": "slave_04", "model": "Alex", "hair": "30313d", "cloth": "4b6b53", "hair_style": "Standard", "eye_style": "Male", "eye_dark": "5c4e75", "eye_light": "8b759f", "shirt": "4b6b53", "shirt_shadow": "354b40", "pants": "40363b", "outfit": "open_shirt", "trim": "ab936a"},
+	{"key": "slave_05", "model": "Tori", "hair": "303a53", "cloth": "c7b895", "hair_style": "Silvermist", "eye_style": "Female", "eye_dark": "415579", "eye_light": "788eb2", "shirt": "eee2c9", "shirt_shadow": "c7b895", "pants": "58616a", "outfit": "apron", "trim": "c7b895", "ribbon": "3f8088"},
+	{"key": "slave_06", "model": "Manu", "hair": "c4ccd0", "cloth": "467f96", "hair_style": "Josh", "eye_style": "Male", "eye_dark": "3c6b58", "eye_light": "719d78", "shirt": "467f96", "shirt_shadow": "345c75", "pants": "424d5b", "outfit": "open_shirt", "trim": "d9d2b8", "headwear": "Beret", "headwear_color": "eee2c9"},
+	{"key": "slave_07", "model": "Tori", "hair": "c0af8b", "cloth": "79738b", "hair_style": "Lyria", "eye_style": "Female", "eye_dark": "596681", "eye_light": "8d99b2", "shirt": "79738b", "shirt_shadow": "56536d", "pants": "494052", "outfit": "fur_coat", "trim": "eee2c9"},
+]
+const BODY_SCALE := Vector2.ONE
+const BODY_OFFSET := Vector2(0, -18)
+# 成年女性的轻柔面部配色. 保留身份与身体比例, 只减弱硬阴影、加自然气色。
+const FACE_STYLES := {
+	"slave_00": {"eye_ink": "594359", "shadow": "e6b6a0", "blush": "d9959b", "lip": "ab7278", "nose": "dabbaa"},
+	"slave_02": {"eye_ink": "573c41", "shadow": "a46b59", "blush": "a97166", "lip": "83504b", "nose": "b87e62"},
+	"slave_03": {"eye_ink": "67433e", "shadow": "e4b898", "blush": "e4a18a", "lip": "ae7764", "nose": "e2bd9c"},
+	"slave_05": {"eye_ink": "4b435a", "shadow": "e4b9a7", "blush": "d89e9f", "lip": "a7737e", "nose": "e5c3af"},
+	"slave_07": {"eye_ink": "62516d", "shadow": "e2bcb2", "blush": "d6a1ad", "lip": "a17c8c", "nose": "dfc1b6"},
+	"lord_beiling_cap": {"eye_ink": "665975", "shadow": "e2c1bb", "blush": "cda8b6", "lip": "9d7c8f", "nose": "e2c8be"},
+	"lord_beiling_pine": {"eye_ink": "614d47", "shadow": "e4bca6", "blush": "e1a793", "lip": "ae8075", "nose": "e4c3ab"},
+	"captain_tieyan": {"eye_ink": "51414f", "shadow": "ddbaae", "blush": "c596a5", "lip": "9f7784", "nose": "dfbfb0"},
+}
+# 立绘辨识特征: 在原生动作上补发型轮廓、帽饰与服装, 不改变花名册或身体比例。
+const PORTRAIT_FITS := {
+	"slave_00": {"portrait_fit": "straight_pony", "hair_style": "Silvermist", "costume_fit": "vest", "hair_tie": "b49ac6", "earrings": "b4cce1"},
+	"slave_02": {"portrait_fit": "kerchief_curls", "hair_style": "Lyria", "costume_fit": "pink_blouse", "headwear": "kerchief", "headwear_color": "f4e6ce"},
+	"slave_03": {"portrait_fit": "curly_pony", "costume_fit": "suspenders", "hair_tie": "4e8b83"},
+	"slave_05": {"portrait_fit": "long_straight", "costume_fit": "apron", "hair_tie": "3f8088"},
+	"slave_07": {"portrait_fit": "long_waves", "costume_fit": "winter_coat"},
+	"lord_beiling_cap": {"portrait_fit": "royal_long", "costume_fit": "royal_coat", "earrings": "b7d9e5"},
+	"lord_beiling_pine": {"portrait_fit": "hood_braid", "hair_style": "Silvermist", "costume_fit": "hood_cloak"},
+	"captain_tieyan": {"portrait_fit": "braided_pony", "costume_fit": "riding_jacket", "hair_tie": "b99a70"},
+}
+const APPEARANCE := preload("res://scene/character_appearance.gd")
+const PLAYER_IDENTITY := {"key": "player", "hair_style": "Sebastian", "eye_style": "Male", "eye_dark": "315f59", "eye_light": "549184", "shirt": "eee2c9", "shirt_shadow": "d7c3a4", "pants": "66504b", "hair_palette": {"32131e": "44312f", "8a3625": "6d4636", "ae4924": "8b5d42", "c46120": "a47551", "d9884c": "ba9167"}}
+# 领主和队长按头像键取资料. 这里只管美术身份, 不改存档、关系或性别规则。
+const NAMED_IDENTITIES := {
+	"lord_chenxi_cap": {
+		"key": "lord_chenxi_cap",
+		"hair_style": "Standard",
+		"hair": "805039",
+		"cloth": "8c4d54",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "eee2c9",
+		"shirt_shadow": "8c4d54",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "d6c5a1",
+		"beard": true,
+		"crown": "c2a05b"
+	},
+	"lord_chenxi_port": {
+		"key": "lord_chenxi_port",
+		"hair_style": "Standard",
+		"hair": "30313d",
+		"cloth": "454650",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "eee2c9",
+		"shirt_shadow": "454650",
+		"pants": "45404b",
+		"outfit": "jacket",
+		"trim": "4b8a88"
+	},
+	"lord_chenxi_bridge": {
+		"key": "lord_chenxi_bridge",
+		"hair_style": "Sebastian",
+		"hair": "b5b9b4",
+		"cloth": "9e8e7b",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "9e8e7b",
+		"shirt_shadow": "9e8e7b",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "d6c5a1",
+		"beard": true,
+		"glasses": true
+	},
+	"lord_beiling_cap": {
+		"key": "lord_beiling_cap",
+		"hair_style": "Silvermist",
+		"hair": "b9ced6",
+		"cloth": "879fba",
+		"eye_style": "Female",
+		"eye_dark": "8f78ab",
+		"eye_light": "8f78ab",
+		"shirt": "879fba",
+		"shirt_shadow": "879fba",
+		"pants": "45404b",
+		"outfit": "fur_coat",
+		"trim": "eee2c9",
+		"crown": "bcc9d0"
+	},
+	"lord_beiling_valley": {
+		"key": "lord_beiling_valley",
+		"hair_style": "Josh",
+		"hair": "30313d",
+		"cloth": "4a607c",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "4a607c",
+		"shirt_shadow": "4a607c",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "aa8564",
+		"beard": true
+	},
+	"lord_beiling_pine": {
+		"key": "lord_beiling_pine",
+		"hair_style": "Iridessa",
+		"hair": "805039",
+		"cloth": "526e58",
+		"eye_style": "Female",
+		"eye_dark": "70906b",
+		"eye_light": "70906b",
+		"shirt": "526e58",
+		"shirt_shadow": "526e58",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "d6c5a1",
+		"ribbon": "7ca17a"
+	},
+	"lord_xichuan_cap": {
+		"key": "lord_xichuan_cap",
+		"hair_style": "Standard",
+		"hair": "534035",
+		"cloth": "4c6650",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "eee2c9",
+		"shirt_shadow": "4c6650",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "d6c5a1",
+		"beard": true
+	},
+	"lord_xichuan_gold": {
+		"key": "lord_xichuan_gold",
+		"hair_style": "Sebastian",
+		"hair": "b78c4f",
+		"cloth": "b1914d",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "b1914d",
+		"shirt_shadow": "b1914d",
+		"pants": "45404b",
+		"outfit": "open_shirt",
+		"trim": "d6c5a1",
+		"skin_light": "d7a17b",
+		"skin_shadow": "b27a5b"
+	},
+	"lord_xichuan_reed": {
+		"key": "lord_xichuan_reed",
+		"hair_style": "Standard",
+		"hair": "34323d",
+		"cloth": "72926d",
+		"eye_style": "Male",
+		"eye_dark": "8b759f",
+		"eye_light": "8b759f",
+		"shirt": "eee2c9",
+		"shirt_shadow": "72926d",
+		"pants": "45404b",
+		"outfit": "jacket",
+		"trim": "d6c5a1"
+	},
+	"lord_tieyan_cap": {
+		"key": "lord_tieyan_cap",
+		"hair_style": "Josh",
+		"hair": "b9bebf",
+		"cloth": "756580",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "756580",
+		"shirt_shadow": "756580",
+		"pants": "45404b",
+		"outfit": "fur_coat",
+		"trim": "cac5b6",
+		"beard": true,
+		"crown": "9a9b9b"
+	},
+	"lord_tieyan_stone": {
+		"key": "lord_tieyan_stone",
+		"hair_style": "Standard",
+		"hair": "393142",
+		"cloth": "72535f",
+		"eye_style": "Male",
+		"eye_dark": "80658f",
+		"eye_light": "80658f",
+		"shirt": "72535f",
+		"shirt_shadow": "72535f",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "a2a8b2"
+	},
+	"lord_tieyan_cliff": {
+		"key": "lord_tieyan_cliff",
+		"hair_style": "Sebastian",
+		"hair": "5c3d32",
+		"cloth": "47434d",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "47434d",
+		"shirt_shadow": "47434d",
+		"pants": "45404b",
+		"outfit": "fur_coat",
+		"trim": "a3a0a0",
+		"beard": true
+	},
+	"lord_canglang_cap": {
+		"key": "lord_canglang_cap",
+		"hair_style": "Fawn",
+		"hair": "554035",
+		"cloth": "83705a",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "83705a",
+		"shirt_shadow": "83705a",
+		"pants": "45404b",
+		"outfit": "fur_coat",
+		"trim": "e3d6b5",
+		"beard": true,
+		"crown": "ad8856"
+	},
+	"lord_canglang_pasture": {
+		"key": "lord_canglang_pasture",
+		"hair_style": "Josh",
+		"hair": "b36738",
+		"cloth": "5d7356",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "5d7356",
+		"shirt_shadow": "5d7356",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "c2a36d"
+	},
+	"lord_canglang_camp": {
+		"key": "lord_canglang_camp",
+		"hair_style": "Iridessa",
+		"hair": "5c4434",
+		"cloth": "8a6a4d",
+		"eye_style": "Male",
+		"eye_dark": "b08950",
+		"eye_light": "b08950",
+		"shirt": "8a6a4d",
+		"shirt_shadow": "8a6a4d",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "b49b5f"
+	},
+	"captain_chenxi": {
+		"key": "captain_chenxi",
+		"hair_style": "Sebastian",
+		"hair": "654536",
+		"cloth": "4c607e",
+		"eye_style": "Male",
+		"eye_dark": "6689ad",
+		"eye_light": "6689ad",
+		"shirt": "4c607e",
+		"shirt_shadow": "4c607e",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "c28a70"
+	},
+	"captain_beiling": {
+		"key": "captain_beiling",
+		"hair_style": "Josh",
+		"hair": "bfc7cb",
+		"cloth": "8097ad",
+		"eye_style": "Male",
+		"eye_dark": "879eb8",
+		"eye_light": "879eb8",
+		"shirt": "8097ad",
+		"shirt_shadow": "8097ad",
+		"pants": "45404b",
+		"outfit": "fur_coat",
+		"trim": "eee2c9",
+		"beard": true
+	},
+	"captain_xichuan": {
+		"key": "captain_xichuan",
+		"hair_style": "Standard",
+		"hair": "a08352",
+		"cloth": "6d7b52",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "6d7b52",
+		"shirt_shadow": "6d7b52",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "b29b61",
+		"beard": true,
+		"skin_light": "d7a17b",
+		"skin_shadow": "b27a5b"
+	},
+	"captain_tieyan": {
+		"key": "captain_tieyan",
+		"hair_style": "Fawn",
+		"hair": "393142",
+		"cloth": "79515f",
+		"eye_style": "Female",
+		"eye_dark": "8c759e",
+		"eye_light": "8c759e",
+		"shirt": "96818a",
+		"shirt_shadow": "79515f",
+		"pants": "45404b",
+		"outfit": "jacket",
+		"trim": "9b8269"
+	},
+	"captain_canglang": {
+		"key": "captain_canglang",
+		"hair_style": "Iridessa",
+		"hair": "30313d",
+		"cloth": "4f7b73",
+		"eye_style": "Male",
+		"eye_dark": "a8824e",
+		"eye_light": "a8824e",
+		"shirt": "4f7b73",
+		"shirt_shadow": "4f7b73",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "a78b61"
+	},
+	"generic_pirate": {
+		"key": "generic_pirate",
+		"hair_style": "Josh",
+		"hair": "805039",
+		"cloth": "665d70",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "eee2c9",
+		"shirt_shadow": "665d70",
+		"pants": "45404b",
+		"outfit": "jacket",
+		"trim": "946f5f"
+	},
+	"generic_bandit": {
+		"key": "generic_bandit",
+		"hair_style": "Sebastian",
+		"hair": "5b483b",
+		"cloth": "727b5b",
+		"eye_style": "Male",
+		"eye_dark": "8e795a",
+		"eye_light": "8e795a",
+		"shirt": "727b5b",
+		"shirt_shadow": "727b5b",
+		"pants": "45404b",
+		"outfit": "coat",
+		"trim": "b1a17b"
+	}
+}
+
 const MODEL_PATH := "res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/%s/%s"
 
 # 每种动作一张图：32px 一帧、一行一个朝向（行 0 朝下 / 1 朝上 / 2 侧面，左右靠 flip_h）
@@ -104,44 +477,54 @@ const POST_SFX_GAP := Vector2(0.9, 1.6)
 #         ytop/ybot=帧内 y 范围
 # 超出 20 人(行政研究加员额外)按 i%20 回绕 —— 跟 model_for 的轮换同一套防御。
 const RECIPES := [
-	# ---- Alex 组(男·橙金短发+蓝背带裤): slave_00/04/08/12/16 ----
-	[{"band": [0.56, 0.68], "smin": 0.35, "to": 0.97, "vmul": 0.90}],   # 00 本色橙发, 裤染酒红
-	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.07, "vmul": 0.55},    # 04 栗棕发
-		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.30, "vmul": 0.80}], #    苔绿裤
+	# ---- Alex 组(男·橙金短发+蓝背带裤): 布恩(slot0) / 塔洛(slot4) ----
+	# e94: 配色对齐布恩新头像(棕红短发+绿外套)
+	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.04, "vmul": 0.65},    # 00 布恩: 棕红发
+		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.33, "vmul": 0.75}], #    绿外套
+	# e94: 配色对齐塔洛新头像(黑发+绿毛衣)
+	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.0, "sset": 0.06, "vmul": 0.5},   # 01 塔洛: 黑发
+		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.32, "smul": 0.55, "vmul": 0.85}], # 绿毛衣
 	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.22, "vmul": 0.75},    # 08 橄榄发
 		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.75, "vmul": 0.80}], #    暗紫裤
 	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.55, "vmul": 0.85},    # 12 青蓝发
 		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.07, "vmul": 0.85}], #    赭棕裤
 	[{"band": [0.00, 0.15], "smin": 0.40, "to": 0.80, "vmul": 0.90},    # 16 粉紫发
 		{"band": [0.56, 0.68], "smin": 0.35, "to": 0.60, "smul": 0.12}], #    炭灰裤
-	# ---- Lyria 组(女·棕红卷发+红裙): slave_01/05/09/13/17 ----
-	[{"band": [0.88, 1.00], "smin": 0.30, "to": 0.61, "vmul": 0.85}],   # 01 本色棕红发, 裙染靛蓝
-	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.11, "vmul": 1.05},    # 05 金发
-		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.30, "vmul": 0.80}], #    苔绿裙
+	# ---- Lyria 组(女·棕红卷发+红裙): 娜雅(slot1) / 汐月(slot5) ----
+	# e94: 配色对齐娜雅新头像(橙棕高马尾+黄衬衫)
+	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.07, "vmul": 1.15},    # 05 娜雅: 亮橙棕发
+		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.13, "vmul": 1.00}], #    黄衬衫
+	# e94: 配色对齐汐月新头像(黑长直+米色衣)
+	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.0, "sset": 0.08, "vmul": 0.5},   # 06 汐月: 黑发
+		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.12, "smul": 0.18, "vmul": 1.3}], # 米色衣
 	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.52, "vmul": 0.80},    # 09 青发
 		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.13, "vmul": 1.00}], #    金黄裙
 	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.72, "vmul": 0.80},    # 13 紫发
 		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.85, "vmul": 0.90}], #    玫紫裙
 	[{"band": [0.02, 0.10], "smin": 0.45, "to": 0.00, "vmul": 0.60},    # 17 暗红褐发
 		{"band": [0.88, 1.00], "smin": 0.30, "to": 0.00, "smul": 0.15}], #    炭灰裙
-	# ---- Manu 组(女·黑发白帽粉衣): slave_02/06/10/14/18 ----
+	# ---- Manu 组(女·黑发白帽粉衣): 珞琳(slot2) / 珂丹(slot6) ----
 	# 发带: v0.06~0.28 的暗低饱和像素(黑发), 轮廓线 v<0.06、眼白 v≥0.5 都被挡住
-	[],                                                                 # 02 本色黑发
+	# e94: 配色对齐珞琳新头像(棕红卷发+浅绿衫; 粉衣与皮肤同色相改不动, 只染发)
 	[{"band": [0.0, 1.0], "smax": 0.35, "vmin": 0.06, "vmax": 0.28,
-		"to": 0.93, "sset": 0.55, "vmul": 1.9}],                        # 06 玫红发
+		"to": 0.05, "sset": 0.50, "vmul": 1.7}],                        # 10 珞琳: 棕红发
 	[{"band": [0.0, 1.0], "smax": 0.35, "vmin": 0.06, "vmax": 0.28,
-		"to": 0.55, "sset": 0.50, "vmul": 1.9}],                        # 10 青蓝发
+		"to": 0.93, "sset": 0.55, "vmul": 1.9}],                        # 11 珂丹: 玫红发(保留)
 	[{"band": [0.0, 1.0], "smax": 0.35, "vmin": 0.06, "vmax": 0.28,
-		"to": 0.30, "sset": 0.50, "vmul": 1.9}],                        # 14 草绿发
+		"to": 0.55, "sset": 0.50, "vmul": 1.9}],                        # 12 青蓝发
 	[{"band": [0.0, 1.0], "smax": 0.35, "vmin": 0.06, "vmax": 0.28,
-		"to": 0.09, "sset": 0.60, "vmul": 1.9}],                        # 18 金橙发
-	# ---- Tori 组(女·橙红长发+紫裙): slave_03/07/11/15/19 ----
-	[{"band": [0.78, 0.92], "smin": 0.35, "to": 0.60, "vmul": 0.85}],   # 03 本色橙红发, 裙染靛蓝
-	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.11, "vmul": 1.00},    # 07 金发
+		"to": 0.30, "sset": 0.50, "vmul": 1.9}],                        # 13 草绿发
+	[{"band": [0.0, 1.0], "smax": 0.35, "vmin": 0.06, "vmax": 0.28,
+		"to": 0.09, "sset": 0.60, "vmul": 1.9}],                        # 14 金橙发
+	# ---- Tori 组(女·橙红长发+紫裙): 咪露(slot3) / 雪莱(slot7) ----
+	# e94: 配色对齐咪露头像(棕发侧马尾+紫罗兰夹克 —— 裙带紫是本色正好)
+	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.05, "vmul": 0.60},    # 15 咪露: 深棕发
+		{"band": [0.78, 0.92], "smin": 0.35, "to": 0.75, "vmul": 0.95}], #    紫夹克
+	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.11, "vmul": 1.00},    # 16 雪莱: 金发(保留)
 		{"band": [0.78, 0.92], "smin": 0.35, "to": 0.97, "vmul": 0.85}], #    酒红裙
-	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.45, "vmul": 0.80},    # 11 青绿发
+	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.45, "vmul": 0.80},    # 17 青绿发
 		{"band": [0.78, 0.92], "smin": 0.35, "to": 0.32, "vmul": 0.80}], #    苔绿裙
-	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.66, "vmul": 0.85},    # 15 蓝紫发
+	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.66, "vmul": 0.85},    # 18 蓝紫发
 		{"band": [0.78, 0.92], "smin": 0.35, "to": 0.07, "vmul": 0.85}], #    赭棕裙
 	[{"band": [0.00, 0.17], "smin": 0.40, "to": 0.90, "vmul": 0.90},    # 19 玫红发
 		{"band": [0.78, 0.92], "smin": 0.35, "to": 0.00, "smul": 0.15}], #    炭灰裙
@@ -164,6 +547,9 @@ var speed: float = 30.0:
 		_sync_walk_speed()
 var _sprite: AnimatedSprite2D
 var _state := State.LOITER
+# e100 实机演出: live_view 接管时冻结 AI、外部喊走位（压过昼夜隐藏/闲逛/干活整套循环）
+var cs_frozen := false
+var cs_target := Vector2.INF
 var _target := Vector2.ZERO           # 闲逛落点
 var _work_cell := Vector2i(-999, -999)
 var _rest := 0.0
@@ -174,6 +560,13 @@ var _work_applied := false
 var _facing: StringName = &"down"
 var _rng := RandomNumberGenerator.new()
 var _blocked := {}                    # Vector2i -> 剩余冷却秒数
+
+# —— P1 情绪气泡（emote_bubble.gd）——
+# 闲着的时候随机冒一个心情泡（星露谷式）; 冷却拉长免得满屏都是泡泡
+const EMOTE := preload("res://scene/emote_bubble.gd")
+const MOOD_CD_MIN := 20.0             # 两次冒泡的最短间隔（秒）
+const MOOD_CD_MAX := 45.0
+var _mood_cd := 30.0                  # 距离下一次随机冒泡还有多久（开局错开, 别一进游戏齐冒）
 
 # —— e30s 岗位 ——
 var _post := ""                       # 当前岗位键（"" = 照料作物, 下地干活）
@@ -202,9 +595,11 @@ func _ready() -> void:
 	_sh.position = Vector2(0, -7)
 	add_child(_sh)
 	_sprite = AnimatedSprite2D.new()
-	_sprite.position = Vector2(0, -16)          # 原点在脚下，精灵画在上面
-	_sprite.sprite_frames = build_frames(MODELS[index % MODELS.size()], index)
+	_sprite.position = BODY_OFFSET          # 拉长身体后脚底仍贴住影子。
+	_sprite.sprite_frames = build_frames(model_for(index), index)
 	_sprite.play(&"idle_down")
+	# e94: 身形收瘦 —— 横向 0.86, 头身比例更接近头像立绘
+	_sprite.scale = body_scale_for(index)
 	add_child(_sprite)
 	_sync_walk_speed()                  # 步伐帧率由速度反推（setup 里定了速度还会再算一次）
 	# e28e: 物理碰撞体积 —— 玩家走近会被挡住，不再穿过伙伴身体。
@@ -257,7 +652,8 @@ func setup(i: int, near: Vector2) -> void:
 # 两层天然可乘, 贴图层的个人色不会被装甲色盖掉。
 func _refresh_outfit() -> void:
 	var troop := String(Slaves.slave_at(index).get("troop", "新兵"))
-	modulate = Slaves.armor_tint(troop)
+	# 岛上穿生活服, 晋升不再把皮肤、头发和衣服整体染成金属色。
+	modulate = Color.WHITE
 
 # 集合点附近找个不落水的落脚处（试不出来就退到最近的一片岸上，绝不站水里）
 func _dry_spot(near: Vector2, radius := 44.0) -> Vector2:
@@ -309,22 +705,117 @@ func _sync_walk_speed() -> void:
 
 # 当前用的是哪个模型（自检用来确认「伙伴不是主角那张脸」）
 func model_name() -> String:
-	return MODELS[index % MODELS.size()]
+	return model_for(index)
 
 # ---------------- 「第 i 个伙伴长什么样」的唯一真相源 ----------------
 # 白天在农场跑的伙伴、篝火边站着等你的人、篝火面板里的小像 —— 三处都走这里，
 # 于是「招募前在火边看到的那张脸」跟「招进来之后的脸」必然是同一张。
+# 伙伴 i 的美术槽位（默认就是 i；只有调换过出场顺序的两把交椅走 ART_SWAP）。
+static func art_slot(i: int) -> int:
+	var m := maxi(0, i)
+	return int(ART_SWAP.get(m, m))
+
 static func model_for(i: int) -> String:
-	return MODELS[maxi(0, i) % MODELS.size()]
+	if i >= 0 and i < IDENTITIES.size():
+		return String(IDENTITIES[i]["model"])
+	return MODELS[art_slot(i) % MODELS.size()]
+
+static func identity_for(i: int, portrait_fit: bool = true) -> Dictionary:
+	return _face_profile(IDENTITIES[i].duplicate(true), portrait_fit) if i >= 0 and i < IDENTITIES.size() else {}
+
+static func _face_profile(profile: Dictionary, portrait_fit: bool = true) -> Dictionary:
+	var key: String = profile.get("key", "")
+	if FACE_STYLES.has(key):
+		profile["face_style"] = FACE_STYLES[key].duplicate(true)
+	if portrait_fit and PORTRAIT_FITS.has(key):
+		profile.merge(PORTRAIT_FITS[key], true)
+	return profile
+
+# 所有正式角色在原生像素中统一比例, 不再整体拉长头脸。
+static func body_scale_for(i: int = -1) -> Vector2:
+	return Vector2.ONE
+
+# 角色共用外观入口. 未知身份留空, 不用另一个角色冒充。
+static func profile_for(key: String, portrait_fit: bool = true) -> Dictionary:
+	if key == "player":
+		return PLAYER_IDENTITY.duplicate(true)
+	if key.begins_with("slave_") and key.trim_prefix("slave_").is_valid_int():
+		return identity_for(int(key.trim_prefix("slave_")), portrait_fit)
+	return _face_profile(NAMED_IDENTITIES.get(key, {}).duplicate(true), portrait_fit)
+
+static func named_texture(key: String, file: String = "Idle.png") -> Texture2D:
+	var profile: Dictionary = profile_for(key)
+	if NAMED_IDENTITIES.has(key) and file not in ["Idle.png", "Walk.png", "Sword.png", "Bow and Arrow.png", "Damage.png", "Dead.png"]:
+		return null
+	return APPEARANCE.texture(profile, file, key != "player") if not profile.is_empty() else null
+
+# 通用人类也用原生图层, 历史超出花名册的编号仍可显示, 不改变原有编号。
+static func generic_profile(model: String, variant: int = 0) -> Dictionary:
+	var template: int = {"Alex": 1, "Manu": 2, "Lyria": 3, "Tori": 7}.get(model, 1)
+	var profile: Dictionary = identity_for(template)
+	profile["key"] = "generic_%s_%d" % [model, variant]
+	return profile
+
+static func generic_texture(model: String, file: String, variant: int = 0) -> Texture2D:
+	return APPEARANCE.texture(generic_profile(model, variant), file, true)
+
+static func mount_texture(key: String) -> Texture2D:
+	var profile: Dictionary = profile_for(key)
+	return APPEARANCE.mounted_texture(profile) if not profile.is_empty() else null
+
+static func generic_mount_texture(model: String, variant: int = 0) -> Texture2D:
+	return APPEARANCE.mounted_texture(generic_profile(model, variant))
+
+static func named_frames(key: String) -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	sf.remove_animation(&"default")
+	for action: String in ["idle", "walk"]:
+		var file: String = "Idle.png" if action == "idle" else "Walk.png"
+		var texture: Texture2D = named_texture(key, file)
+		if texture == null:
+			continue
+		for direction: String in DIR_ROW:
+			var animation := StringName(action + "_" + direction)
+			sf.add_animation(animation)
+			sf.set_animation_speed(animation, 7.0 if action == "idle" else 10.0)
+			for frame in (4 if action == "idle" else 6):
+				var atlas := AtlasTexture.new()
+				atlas.atlas = texture
+				atlas.region = Rect2(frame * CELL, int(DIR_ROW[direction]) * CELL, CELL, CELL)
+				sf.add_frame(animation, atlas)
+	return sf
+
+static func identity_recipe(model: String, i: int) -> Array:
+	if i < 0 or i >= IDENTITIES.size():
+		return recipe_for(i)
+	var hair := Color(String(IDENTITIES[i]["hair"]))
+	var cloth := Color(String(IDENTITIES[i]["cloth"]))
+	var hair_band := [0.00, 0.17]
+	var cloth_band := [0.78, 0.92]
+	if model == "Alex":
+		cloth_band = [0.56, 0.68]
+	elif model == "Lyria":
+		hair_band = [0.02, 0.10]
+		cloth_band = [0.88, 1.00]
+	elif model == "Manu":
+		return [
+			{"band": [0.0, 1.0], "vmin": 0.06, "vmax": 0.28, "smax": 0.35, "ytop": 4, "ybot": 19,
+				"to": hair.h, "sset": hair.s, "vmul": maxf(1.0, hair.v * 5.0)},
+			{"band": [0.88, 1.0], "smin": 0.25, "ytop": 18, "to": cloth.h, "sset": cloth.s, "vmul": cloth.v / 0.75},
+		]
+	return [
+		{"band": hair_band, "smin": 0.40, "to": hair.h, "sset": hair.s, "vmul": hair.v / 0.85},
+		{"band": cloth_band, "smin": 0.30, "to": cloth.h, "sset": cloth.s, "vmul": cloth.v / 0.75},
+	]
 
 # 配方在 RECIPES 里的下标。RECIPES 是按模型分组的布局:
 #   [0..4]=Alex(00/04/08/12/16) [5..9]=Lyria(01/05/09/13/17)
 #   [10..14]=Manu(02/06/10/14/18) [15..19]=Tori(03/07/11/15/19)
-# 伙伴 i 的模型组 = i % 4（跟 model_for 同一规则）, 组内轮次 = (i / 4) % 5,
+# 伙伴 i 的模型组 = 美术槽位 % 4（跟 model_for 同一规则）, 组内轮次 = (槽位 / 4) % 5,
 # 超出 20 人自动回绕。
 static func _recipe_index(i: int) -> int:
-	var m := maxi(0, i)
-	return (m % MODELS.size()) * 5 + (m / MODELS.size()) % 5
+	var s := art_slot(i)
+	return (s % MODELS.size()) * 5 + (s / MODELS.size()) % 5
 
 # 第 i 个伙伴的改色配方
 static func recipe_for(i: int) -> Array:
@@ -338,23 +829,54 @@ static var _tex_cache := {}
 # 模型图集的改色版。file 是模型目录里的文件名（Idle.png / Sword.png ...）。
 # RECIPES[i] 为空（本色伙伴）直接回原图, 一个字节都不重排。
 static func sheet_texture(model: String, file: String, i: int) -> Texture2D:
-	var ri := _recipe_index(i)
-	var key := "%s|%s|%d" % [model, file, ri]
-	if _tex_cache.has(key):
-		return _tex_cache[key]
-	var tex: Texture2D = load(MODEL_PATH % [model, file])
-	if tex == null:
+	if file not in APPEARANCE.NPC_FILES:
 		return null
-	var bands: Array = RECIPES[ri]
-	if bands.is_empty():
-		_tex_cache[key] = tex
-		return tex
-	var img: Image = tex.get_image().duplicate()  # get_image 是共享引用, 直接改会把原图弄脏
-	img.convert(Image.FORMAT_RGBA8)      # 压缩贴图读出来不一定可直接写, 先转标准格式
-	_apply_bands(img, bands)
-	var out := ImageTexture.create_from_image(img)
-	_tex_cache[key] = out
-	return out
+	var identity: Dictionary = identity_for(i)
+	return APPEARANCE.texture(identity, file, true) if not identity.is_empty() else generic_texture(model, file, i)
+
+static func _apply_identity_palette(img: Image, model: String, i: int) -> void:
+	var identity: Dictionary = identity_for(i)
+	var hair := Color(String(identity.get("hair", "75452e")))
+	var cloth := Color(String(identity.get("cloth", "75416f")))
+	var palette: Dictionary = {}
+	if identity.has("eyes"):
+		palette["8a9db8"] = Color(String(identity["eyes"]))
+	match model:
+		"Tori":
+			_add_palette_ramp(palette, ["861b15", "ee6a0e", "ff9d0e", "ffc71b", "ffeb47"], hair, [0.48, 0.77, 0.95, 1.10, 1.28])
+			_add_palette_ramp(palette, ["882b8f", "b83eab", "ffb0dd"], cloth, [0.65, 1.0, 1.28])
+		"Alex":
+			_add_palette_ramp(palette, ["861b15", "ff9d0e", "ffc71b", "ffeb47", "fff39c"], hair, [0.48, 0.77, 0.95, 1.12, 1.30])
+			_add_palette_ramp(palette, ["1a3473", "286ed0"], cloth, [0.62, 1.0])
+			palette["a7fce6"] = Color("e9dcc2")
+		"Lyria":
+			_add_palette_ramp(palette, ["32131e", "8a3625", "ae4924", "c46120", "d9884c"], hair, [0.35, 0.65, 0.85, 1.0, 1.18])
+			_add_palette_ramp(palette, ["801620", "c41b24"], cloth, [0.65, 1.0])
+		"Manu":
+			_add_palette_ramp(palette, ["1d1d1d", "2f2f2f", "4e4e4e", "7b7b7b"], hair, [0.48, 0.72, 0.95, 1.15])
+			_add_palette_ramp(palette, ["f27e7b", "ff9e93"], cloth, [0.72, 1.0])
+			if i == 6:
+				# 珂丹与珞琳复用骨架, 但肤色和服装必须与各自立绘一致。
+				palette["bb5138"] = Color("c88361")
+				palette["e68e5b"] = Color("f0bc8e")
+	for y in img.get_height():
+		for x in img.get_width():
+			var pixel: Color = img.get_pixel(x, y)
+			if pixel.a < 0.1:
+				continue
+			var key: String = pixel.to_html(false)
+			if palette.has(key):
+				var replacement: Color = palette[key]
+				replacement.a = pixel.a
+				img.set_pixel(x, y, replacement)
+
+static func _add_palette_ramp(palette: Dictionary, colors: Array, target: Color, values: Array) -> void:
+	for j in colors.size():
+		palette[String(colors[j])] = target if is_equal_approx(float(values[j]), 1.0) else Color.from_hsv(target.h, target.s, clampf(target.v * float(values[j]), 0.0, 1.0))
+
+# 主角的全套身体与作业动作也走同一入口, 防止站立穿白衣而挥锄变蓝衣。
+static func player_texture(file: String) -> Texture2D:
+	return APPEARANCE.texture(PLAYER_IDENTITY, file)
 
 # 把一套色带刷到整张图集上。图集是 32px 帧的横排竖排, ytop/ybot 按「帧内行号」算。
 # 命中第一条色带就停（后面的带不再叠加）—— 配方之间互不侵犯。
@@ -407,6 +929,15 @@ static func _band_paint(c: Color, b: Dictionary) -> Color:
 func _process(delta: float) -> void:
 	# 已经跟着船出海了：人在船上，岛上这套循环整个不参与
 	if _aboard:
+		return
+	# e100 实机演出: 冻结 AI 只听导演的 —— 走位/站桩, 且夜里也保持可见（篝火夜话要人）
+	if cs_frozen:
+		if cs_target != Vector2.INF:
+			if _step_toward(delta, cs_target) != STEP_MOVING:
+				cs_target = Vector2.INF
+				_play_loop(&"idle")
+		else:
+			_play_loop(&"idle")
 		return
 	var night := TimeManager.hour >= 19 or TimeManager.hour < 6
 	if night and _state != State.BOARD:
@@ -475,6 +1006,13 @@ func _tick_gaze(delta: float) -> void:
 	_gaze_t = _rng.randf_range(0.9, 2.2)
 	var faces: Array[StringName] = [&"down", &"up", &"left", &"right"]
 	_facing = faces[_rng.randi() % faces.size()]
+	# P1 随机心情泡：歇着时摸奖冒一个（夜晚犯困 zzz, 白天发呆/哼歌/犯疑惑）
+	_mood_cd -= _gaze_t
+	if _mood_cd <= 0.0:
+		_mood_cd = _rng.randf_range(MOOD_CD_MIN, MOOD_CD_MAX)
+		var night := TimeManager.hour >= 19 or TimeManager.hour < 6
+		var pool := ["zzz"] if night else ["...", "note", "?", "..."]
+		EMOTE.pop_over(self, pool[_rng.randi() % pool.size()], 1.6, 26.0)
 
 # 赶去干活：走到岗位 -> 开工。路上撞见水就放弃这一趟（这格先冻一会儿）
 func _tick_go_work(delta: float) -> void:
@@ -751,6 +1289,12 @@ func _dist2(c: Vector2i) -> float:
 
 # 闲逛落点：优先挑「已派活的格子」（涂得密的区域被挑中的概率高）
 func _pick_target() -> void:
+	var meal: Node = get_tree().get_first_node_in_group("port_life")
+	if meal != null and meal.gathering():
+		var seat: Vector2 = meal.seat_for(index)
+		if meal.seat_available(seat):
+			_target = seat
+			return
 	# ❗落点要过滤掉水格：涂色面板允许涂到水面上，但人不能站水里
 	var cells: Array = []
 	for c in Slaves.assigned_cells():

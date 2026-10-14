@@ -289,7 +289,7 @@ func enter_travel(game: Node) -> void:
 		wm.name = "WorldMap"
 		get_tree().root.add_child(wm)
 		Quests.complete("sail_first")    # e32: 第一次出海
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "sail")   # P4: 帆布鼓风转场, 出海专用
 
 # 大地图 → 岛：iris 收黑后拆掉覆盖节点，把主角放回船边（d9: 不再硬切）
 func return_to_island() -> void:
@@ -322,7 +322,7 @@ func return_to_island() -> void:
 			game.process_mode = Node.PROCESS_MODE_INHERIT
 			if game.has_method("on_voyage_return"):
 				game.on_voyage_return()
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "sail")   # P4: 回岛 = 帆布反向放平
 
 # 大地图 → 大陆据点（scene/mainland.gd）：iris 收黑后海图藏起来，据点亮出。
 # 出海期间时间一直慢速走着，上了岸也一样 —— 据点里没有「睡觉换日」这回事。
@@ -339,7 +339,7 @@ func enter_mainland() -> void:
 		set_scene_visible(wm, false)
 		ashore = true
 		Audio.set_scene_bgm("town")      # e21: 进据点换城镇小调
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "brush")  # P4: 撕纸上岸
 
 # 大地图 -> 城镇（scene/mainland.gd 的城镇模式）：iris 收黑后海图藏起来，城镇亮出。
 # tid 是 Nations.TOWNS 的键；mainland 在 _ready 前拿到 town_id，按城摆房、报城名。
@@ -357,7 +357,7 @@ func enter_town(tid: String) -> void:
 		set_scene_visible(wm, false)
 		ashore = true
 		Audio.set_scene_bgm("town")      # e21: 进城换城镇小调
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "page")   # P4: 进城 = 翻开新一页
 
 # 据点 → 大地图（从栈桥返航）：iris 收黑后拆掉据点，海图重新亮出
 func leave_mainland() -> void:
@@ -376,7 +376,7 @@ func leave_mainland() -> void:
 				wm.call("resume_camera")
 		ashore = false
 		Audio.set_scene_bgm("ocean")     # e21: 回海图换回宏伟的航路曲
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "page")   # P4: 离城回海图 = 合上一页
 
 # 大地图 → 战役地图（遭遇敌人）。d10: 不再「啪」地硬切 ——
 # iris 在旧海图上先收拢成黑幕，黑幕后才真正切场景，再展开亮出战场。
@@ -393,7 +393,7 @@ func enter_battle(party: Dictionary) -> void:
 		Audio.set_scene_bgm("battle")    # 开打：军鼓上来
 		get_tree().root.add_child(bm)
 		set_scene_visible(wm, false)
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "brush")  # P4: 遭遇敌人 = 纸被撕开
 
 # 城镇议事厅 → 攻城战：iris 收黑后城镇场景藏起来，战斗盖在上面。
 # tid 是 Nations.TOWNS 的键；守军规模由 Nations.garrison_of 决定（破过城会变少）。
@@ -408,7 +408,7 @@ func enter_siege(tid: String) -> void:
 		Audio.set_scene_bgm("battle")    # 开打：军鼓上来
 		get_tree().root.add_child(bm)
 		set_scene_visible(ml, false)
-	IRIS.play("out", switch)
+	IRIS.play("out", switch, "brush")  # P4: 攻城 = 撕开城门
 
 # 战役 → 结果分流：victory/retreat 回大地图，defeat 直接回家躺门口
 func end_battle(result: String) -> void:

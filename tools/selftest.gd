@@ -675,10 +675,10 @@ func _ready() -> void:
 	# 换日要等这张也点掉才发生，所以自检里也得替玩家按一下「确定」。
 	var assign: Control = g.assign_panel
 	var waited2 := 0.0
-	while waited2 < 3.0 and (assign == null or not assign.is_open()):
+	while Slaves.count > 0 and waited2 < 3.0 and (assign == null or not assign.is_open()):
 		await get_tree().create_timer(0.1).timeout
 		waited2 += 0.1
-	chk(assign != null and assign.is_open(), "结算之后接着弹出「给伙伴派活」面板")
+	chk(assign != null and not assign.is_open(), "尚无伙伴时跳过派活面板, 不打断睡觉")
 	if assign != null and assign.is_open():
 		assign._dismiss()
 	await get_tree().create_timer(0.2).timeout
@@ -830,6 +830,7 @@ func _ready() -> void:
 				mask_bad += 1
 		chk(mask_bad == 0, "每一格岸线都对上了自己的陆地朝向（错 %d 格）" % mask_bad)
 
+	_test_event_scripts()
 	print("\n========================================")
 
 	print("\n=== 13. 背包系统：快捷栏 6 格 + 背包 24 格 + 移动/合并 ===")
@@ -852,7 +853,7 @@ func _ready() -> void:
 	for s in Inventory.slot_list():
 		if s["item"] != null:
 			gifted += s["count"]
-	chk(gifted >= 15, "哥布林赠与到账 >= 15（锄头 + 洒水壶 + 8 种子 + 5 木头 = 15）")
+	chk(gifted == 4, "哥布林只赠四件农具, 种子/食物/木材由玩家经营获得")
 	var wood: ItemData = load("res://item/wood.tres")
 	var wood_before := Inventory.count_item(wood)
 	Inventory.add_item(wood, 2)
@@ -1292,8 +1293,8 @@ func _ready() -> void:
 				rail_bodies += 1
 		chk(rail_bodies == 0, "Bridges 下没有护栏碰撞体（RailBodies 已拆, 剩 %d 个）" % rail_bodies)
 		# k1: 前层护栏 + 真栏杆缝 —— 每座桥两张 sprite: 整贴 (z=Z_BRIDGE) +
-		#     南护栏带 region 前层 (z=0 参与 y_sort): 走南桥带的角色在护栏后面,
-		#     南护栏是北护栏的镜像, 透空栏杆朝桥面, 透过真栏杆缝看得见人。
+#     南护栏带 region 前层 (z=0 参与 y_sort): 走南桥带的角色被实心栏板
+#     遮住脚半截 (k3 起南带用原作栏板), 桥南的角色盖住护栏。
 		chk(bridges2.y_sort_enabled,
 			"Bridges 容器开了 y_sort, 前层护栏借此进根节点排序池 (b7)")
 		for by in g.BRIDGE_ROWS:
@@ -1308,8 +1309,8 @@ func _ready() -> void:
 				and bfront.offset == Vector2(0, -14)
 				and bfront.position == bmain.position + Vector2(0, 48),
 				"桥 %d 前层护栏 z=0 参与 y_sort, region 取南护栏带贴图画回原位 (k1/b7)" % by)
-		# k1: 栏杆条 = 素材北护栏 (13 高, 带真透空栏杆缝); 拼装贴图 =
-		#     北护栏(16) + 程序化桥面(18) + 南护栏镜像(14), 共 48。
+	# k1: 栏杆条 = 素材北护栏 (13 高, 带真透空栏杆缝); 拼装贴图 =
+	#     北护栏(16) + 程序化桥面(18) + 南栏板带(14, 其中栏板 10 行贴带顶), 共 48。
 		var rail: Image = g._bridge_rail_piece()
 		chk(rail != null and rail.get_height() == g.BRIDGE_RAIL_SRC_H,
 			"栏杆条裁自素材北护栏, 高 %d (k1)" % g.BRIDGE_RAIL_SRC_H)
@@ -1320,16 +1321,27 @@ func _ready() -> void:
 		var btex: Image = g._make_bridge_texture(112, 48).get_image()
 		chk(btex.get_height() == 48 and btex.get_pixel(50, 25).a > 0.5,
 			"拼装贴图 48 高, 程序化桥面实心 (k1)")
-		var see_through := 0
+		# k3: 南护栏带 = 原作南栏板(10 行全实心)贴带顶 —— 根部与桥面底边相连,
+		#     带底 4 行留空透出水色; 北条复用版(柱头悬在桥沿下、底座吊水上)已废。
+		var south_piece: Image = g._bridge_south_piece()
+		chk(south_piece != null and south_piece.get_height() == 10,
+			"南栏板裁自素材原作栏板, 高 10 (k3)")
+		var gap := 0
 		var solid := 0
 		for sx in range(0, 20):
-			for sy in range(34, 48):
+			for sy in range(34, 44):
 				if btex.get_pixel(sx, sy).a < 0.5:
-					see_through += 1
+					gap += 1
 				else:
 					solid += 1
-		chk(see_through > 20 and solid > 80,
-			"南护栏带透空栏杆生效 (透 %d px / 实 %d px) (k1)" % [see_through, solid])
+		chk(gap == 0 and solid == 200,
+			"南栏板实心贴带顶, 根部与桥面底边相连 (透 %d px / 实 %d px) (k3)" % [gap, solid])
+		var tail_gap := 0
+		for sx in range(0, 20):
+			for sy in range(44, 48):
+				if btex.get_pixel(sx, sy).a < 0.5:
+					tail_gap += 1
+		chk(tail_gap == 80, "南栏板底下 4 行透出水色, 不拉伸不镜像 (k3)")
 		player.global_position = bsaved
 
 	# 17.3 室内：房子节点下 Interior 默认不可见（避免地图下方露出地板）
@@ -1671,10 +1683,9 @@ func _ready() -> void:
 				"交易面板盒不超一屏（宽 x 高 = %s，限 1152x648）" % str(bs))
 		shop_c.close_panel()
 
-	print("\n=== 22.5 大陆面板体检：暖木色家族 + 卡片不越界 ===")
-	# 2026-09-19 全面美化：town/market/patrol/diplomacy 原来是偏蓝的底，
-	#   和商店/背包那套暖木+铜金家族打架 —— 已统一成暖木底。
-	#   这里锁住两件事：①卡片底色必须是暖色 (r>g>b)；②卡片整个落在 1152x648 里。
+	print("\n=== 22.5 大陆面板体检: 主题材质 + 卡片不越界 ===")
+	# 大陆面板统一暖纸木框主题, 同时保留实际窗口布局检查。
+	# 同时锁住面板底色与 1152x648 内的实际布局。
 	# ❗headless 视口实测是 1152x1152，锚点全按它算会虚判越界（ui_dump 同款坑）——
 	#   钉一个 1152x648 的 Control 根，面板挂它下面量出来的才是真窗口排版。
 	var ui_root22 := Control.new()
@@ -1707,10 +1718,15 @@ func _ready() -> void:
 				break
 		chk(card22 != null, "%s 面板有居中的卡片盒" % str(spec22[1]))
 		if card22 != null:
-			var sb22: StyleBoxFlat = card22.get_theme_stylebox("panel") as StyleBoxFlat
-			chk(sb22 != null and sb22.bg_color.r > sb22.bg_color.g
-				and sb22.bg_color.g > sb22.bg_color.b,
-				"%s 卡片是暖木底色（r>g>b，不再偏蓝）" % str(spec22[1]))
+			var sb22: StyleBox = card22.get_theme_stylebox("panel")
+			if str(spec22[2]) in ["town", "patrol"]:
+				chk(sb22 is StyleBoxFlat and (sb22 as StyleBoxFlat).bg_color.is_equal_approx(UiStyle.INK),
+					"%s 使用公共暖纸主题底色" % str(spec22[1]))
+			else:
+				chk(sb22 != null and (sb22 is StyleBoxTexture
+					or (sb22 is StyleBoxFlat and (sb22 as StyleBoxFlat).bg_color.r > (sb22 as StyleBoxFlat).bg_color.g
+						and (sb22 as StyleBoxFlat).bg_color.g > (sb22 as StyleBoxFlat).bg_color.b)),
+					"%s 保留木质集市材质" % str(spec22[1]))
 			var r22: Rect2 = card22.get_global_rect()
 			chk(r22.end.x <= 1152.5 and r22.end.y <= 648.5
 				and r22.position.x >= -0.5 and r22.position.y >= -0.5,
@@ -1742,16 +1758,16 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	print("\n=== 23. 伙伴（奴隶）+ 夜晚派活面板 ===")
-	# 23.1 花名册招募: 不看钱不看上限, 第 1 位固定是布恩
+	# 23.1 花名册招募: 不看钱不看上限, 第 1 位固定是咪露（e94: 咪露提首位）
 	chk(Slaves != null, "Slaves 自动加载已就绪")
 	var money_bak23: int = Wallet.money
 	Slaves.clear_all()
 	chk(Slaves.count == 0 and Slaves.budget() == 0, "一开始 0 个伙伴、可派 0 格")
-	chk(String(Slaves.preview_next().get("name", "")) == "布恩",
-		"花名册第 1 位固定是布恩（%s）" % Slaves.preview_next().get("name", ""))
+	chk(String(Slaves.preview_next().get("name", "")) == "咪露",
+		"花名册第 1 位固定是咪露（%s）" % Slaves.preview_next().get("name", ""))
 	Slaves.recruit_roster()
 	chk(Slaves.count == 1, "不花一分钱招到第 1 个伙伴")
-	chk(String(Slaves.slave_at(0).get("name", "")) == "布恩", "招进来的就是布恩本人")
+	chk(String(Slaves.slave_at(0).get("name", "")) == "咪露", "招进来的就是咪露本人")
 	await get_tree().process_frame
 	chk(g.slave_nodes.size() == 1, "场景里真的冒出来 1 个伙伴小人（%d）" % g.slave_nodes.size())
 	chk(g.slave_nodes.size() > 0 and g.slave_nodes[0].get_parent() == g,
@@ -2115,7 +2131,7 @@ func _ready() -> void:
 		var want_tex23: Texture2D = npc23.sheet_texture(npc23.model_for(n_before), "Idle.png", n_before)
 		chk(vis_at != null and vis_at.atlas == want_tex23,
 			"火边站着的那位用的是第 %d 号的脸（%s）" % [n_before, npc23.model_for(n_before)])
-	# 23.4c 上前搭话: 播剧情对话 -> 诉求达成当场入队（23.1 招了布恩, 火边是第 2 位咪露:
+	# 23.4c 上前搭话: 播剧情对话 -> 诉求达成当场入队（23.1 招了咪露, 火边是第 2 位布恩:
 	# 第 2 天窗口开, 主角历练到 2 级当场入伙）
 	var y_bak23: int = TimeManager.year
 	var s_bak23: int = TimeManager.season
@@ -2123,8 +2139,8 @@ func _ready() -> void:
 	var lv_bak23: int = Legion.level
 	TimeManager.year = 1
 	TimeManager.season = 0
-	TimeManager.day = 2      # 咪露的花名册到访日
-	Legion.level = 2         # 咪露的诉求: 主角历练达到 2 级
+	TimeManager.day = 2      # 布恩的花名册到访日（e94: 咪露↔布恩对调）
+	Legion.level = 2         # 布恩的诉求: 主角历练达到 2 级
 	var sd23: Node = g.get_tree().get_first_node_in_group("story_dialogue")
 	chk(sd23 != null, "场景里挂着剧情对话框 (story_dialogue)")
 	# 保险: 若前面的测试留了没收的对话, 先替他按完
@@ -2140,6 +2156,7 @@ func _ready() -> void:
 	Engine.time_scale = 20.0
 	cp23._talk()
 	chk(bool(sd23.call("is_open")), "搭话播起剧情对话 (intro)")
+	chk(not cp23.visible, "招募台词播放时选择面板让路")
 	for i23b in 60:
 		var ev23 := InputEventAction.new()
 		ev23.action = "ui_accept"
@@ -2147,7 +2164,8 @@ func _ready() -> void:
 		sd23._input(ev23)
 		await get_tree().process_frame
 	Engine.time_scale = 1.0
-	chk(Slaves.count == n_before + 1, "聊定了, 咪露入伙（%d -> %d）" % [n_before, Slaves.count])
+	chk(Slaves.count == n_before + 1, "聊定了, 布恩入伙（%d -> %d）" % [n_before, Slaves.count])
+	chk(not cp23.is_open() and not cp23.visible, "招募成功自动关闭选择框")
 	TimeManager.year = y_bak23
 	TimeManager.season = s_bak23
 	TimeManager.day = d_bak23
@@ -2176,9 +2194,11 @@ func _ready() -> void:
 	var det_b4: PanelContainer = g.backpack_panel.get("_detail_panel")
 	chk(det_b4 != null, "详情弹窗能构建 (b4)")
 	if det_b4 != null:
-		var dsb_b4: StyleBoxFlat = det_b4.get_theme_stylebox("panel") as StyleBoxFlat
-		chk(dsb_b4 != null and is_equal_approx(dsb_b4.bg_color.a, 1.0),
-			"详情卡片背景全不透明 (b4)")
+		# material: 背景换成参考图木板条 StyleBoxTexture —— 位图本身不透明, 契约同等成立
+		var dsb_b4: StyleBox = det_b4.get_theme_stylebox("panel")
+		var op_b4: bool = dsb_b4 != null and (dsb_b4 is StyleBoxTexture
+			or (dsb_b4 is StyleBoxFlat and is_equal_approx((dsb_b4 as StyleBoxFlat).bg_color.a, 1.0)))
+		chk(op_b4, "详情卡片背景全不透明 (b4/material)")
 	g.backpack_panel._close_slave_detail()
 	g.backpack_panel.close()
 	var box_a_b4: Array = []
@@ -2186,9 +2206,11 @@ func _ready() -> void:
 	while not stack_b4.is_empty():
 		var n_b4: Node = stack_b4.pop_back()
 		if n_b4 is PanelContainer:
-			var s_b4: StyleBoxFlat = (n_b4 as PanelContainer).get_theme_stylebox("panel") as StyleBoxFlat
-			if s_b4 != null:
-				box_a_b4.append(s_b4.bg_color.a)
+			var s_b4: StyleBox = (n_b4 as PanelContainer).get_theme_stylebox("panel")
+			if s_b4 is StyleBoxTexture:
+				box_a_b4.append(1.0)            # 贴图类背景 = 不透明位图
+			elif s_b4 is StyleBoxFlat:
+				box_a_b4.append((s_b4 as StyleBoxFlat).bg_color.a)
 		for c_b4 in n_b4.get_children():
 			stack_b4.append(c_b4)
 	var opaque_b4 := true
@@ -2259,8 +2281,11 @@ func _ready() -> void:
 			% [slave_frames.get_frame_count(&"hoe_down"), slave_frames.get_frame_count(&"water_down"), slave_frames.get_frame_count(&"walk_down")])
 	chk(not slave_frames.get_animation_loop(&"hoe_down") and slave_frames.get_animation_loop(&"walk_down"),
 		"干活的动作播一遍就停、走路的循环播")
-	chk(npc0._sprite.position == Vector2(0, -16),
-		"伙伴的精灵画在原点上方 16 像素（原点在脚下，才能跟房子/水井一起 y_sort）")
+	var idle_atlas: AtlasTexture = slave_frames.get_frame_texture(&"idle_down", 0)
+	var idle_pose: Image = idle_atlas.atlas.get_image().get_region(Rect2i(idle_atlas.region))
+	var foot_y: float = npc0._sprite.position.y + float(idle_pose.get_used_rect().end.y - 16) * npc0._sprite.scale.y
+	chk(absf(foot_y + 8.0) <= 1.0 and npc0._sprite.position.x == 0.0,
+		"按实际帧轮廓检验脚底与影子落点, 不拉伸五官")
 
 	# 23.6b 前后左右四个方向都要有走路动画：
 	#   素材只有「下 / 上 / 侧」三行，左右是同一张侧身图水平翻过来 ——
@@ -2633,26 +2658,28 @@ func _ready() -> void:
 	var bp26: Control = g.get_node_or_null("HUD/Backpack")
 	chk(bp26 != null, "背包面板还在（现在它是 Esc 模块面板）")
 	if bp26 != null:
+		Quests.unlock_all_modules_for_ui()
 		var names26: Array = []
 		for m in bp26.MODULES:
 			names26.append(str(m["name"]))
-		chk(names26 == ["背包", "角色个人及技能", "团队管理", "战斗", "科技", "行政", "地图", "日历", "物品制作", "建造", "外交", "任务", "设置"],
-			"模块顺序对（e56 加了日历页签）：%s" % str(names26))
-		chk(bp26._tab_btns.size() == 13, "上方有 13 个模块按钮（%d 个）" % bp26._tab_btns.size())
+		chk(names26 == ["背包", "角色", "团队", "发展", "地图", "日历", "制作", "建造", "外交", "任务", "设置"],
+			"模块顺序对（发展页合并战斗/科技/行政）：%s" % str(names26))
+		chk(bp26._tab_btns.size() == 11, "上方有 11 个模块按钮（%d 个）" % bp26._tab_btns.size())
 		# 地图那一栏必须排在「物品制作」前面、建造在设置前面
-		chk(names26.find("地图") >= 0 and names26.find("地图") < names26.find("物品制作"),
-			"「地图」排在「物品制作」前面（第 %d 个）" % (names26.find("地图") + 1))
+		chk(names26.find("地图") >= 0 and names26.find("地图") < names26.find("制作"),
+			"「地图」排在「制作」前面（第 %d 个）" % (names26.find("地图") + 1))
 		chk(names26.find("建造") >= 0 and names26.find("建造") < names26.find("设置"),
 			"「建造」排在「设置」前面（第 %d 个）" % (names26.find("建造") + 1))
-		# 科技 / 行政两页要能切过去并渲染出内容
-		bp26._switch_to("tech")
+		# 发展页里的 科技 / 行政 子页要能切过去并渲染出内容
+		bp26._switch_to("grow")
+		bp26._select_grow_sub("tech")
 		chk(bp26._pages["tech"].visible and bp26._tech_info != null
 			and bp26._tech_info.text.find("科技点") >= 0,
 			"科技页能打开并显示点数")
 		chk(bp26._tech_rows.size() == Research.TECHS.size(),
 			"科技页列出全部 %d 项科技" % bp26._tech_rows.size())
 		chk(bp26._pages["tech"].visible and not bp26._pages["admin"].visible, "切页时只显示当前页")
-		bp26._switch_to("admin")
+		bp26._select_grow_sub("admin")
 		chk(bp26._pages["admin"].visible and bp26._admin_info != null
 			and bp26._admin_info.text.find("生效槽") >= 0
 			and bp26._admin_info.text.find("准备") >= 0,
@@ -2771,7 +2798,7 @@ func _ready() -> void:
 		"背包里多了 1 份烤土豆（%d -> %d）" % [baked_before, Inventory.count_item(load("res://item/baked_potato.tres"))])
 	chk(Inventory.count_item(load("res://item/potato.tres")) == potato_before - 1, "土豆 -1")
 	chk(Inventory.count_item(load("res://item/wood.tres")) == wood_before28 - 1, "木头 -1")
-	chk(Crafting.RECIPES.size() == 7, "配方表里有 7 个（4 食物 + 地板 + 小径 + 工作台；船只在码头造）")
+	chk(Crafting.RECIPES.size() == 10, "配方表里有 10 个（4 食物 + 5 铺装 + 工作台；船只在码头造）")
 	var wood_floor: ItemData = load("res://item/wood_floor.tres")
 	var wood_floor_before: int = Inventory.count_item(wood_floor)
 	var wood_before_b: int = Inventory.count_item(load("res://item/wood.tres"))
@@ -2830,7 +2857,7 @@ func _ready() -> void:
 	Slaves.count = 0
 	Slaves.changed.emit()    # 触发 _sync_slaves 把残留节点销毁
 	await get_tree().process_frame
-	# 花名册连招 3 人（布恩 / 咪露 / 珞琳）, 分文不取
+	# 花名册连招 3 人（咪露 / 布恩 / 珞琳）, 分文不取
 	Slaves.recruit_roster()
 	Slaves.recruit_roster()
 	Slaves.recruit_roster()
@@ -2843,13 +2870,13 @@ func _ready() -> void:
 		chk(not bool(s["gift_today"]), "新人今天还没送过东西")
 	chk(Slaves.slaves[0]["name"] != "" and Slaves.slaves[1]["name"] != "",
 		"招进来的人名字都不为空")
-	# 生日 / 爱好档案（按花名册: 布恩春7 / 咪露夏23 / 珞琳夏5, 爱好表见 slaves.gd LIKES）
-	chk(Slaves.birthday_of(0) == Vector2i(0, 7) and Slaves.birthday_text(0) == "春季 7 日",
-		"布恩生日 = 春季 7 日（%s）" % Slaves.birthday_text(0))
-	chk(String(Slaves.slave_at(1).get("name", "")) == "咪露", "第 2 位是咪露（出场顺序已调换）")
-	chk(Slaves.birthday_of(1) == Vector2i(1, 23), "咪露生日 = 夏季 23 日")
+	# 生日 / 爱好档案（按花名册: 咪露夏23 / 布恩春7 / 珞琳夏5, 爱好表见 slaves.gd LIKES）
+	chk(Slaves.birthday_of(0) == Vector2i(1, 23) and Slaves.birthday_text(0) == "夏季 23 日",
+		"咪露生日 = 夏季 23 日（%s）" % Slaves.birthday_text(0))
+	chk(String(Slaves.slave_at(1).get("name", "")) == "布恩", "第 2 位是布恩（e94 出场顺序再调换）")
+	chk(Slaves.birthday_of(1) == Vector2i(0, 7), "布恩生日 = 春季 7 日")
 	chk(Slaves.birthday_of(2) == Vector2i(1, 5), "珞琳生日 = 夏季 5 日")
-	chk(Slaves.like_of(0) == "烤土豆", "布恩最爱: 烤土豆")
+	chk(Slaves.like_of(0) == "河鲈", "咪露最爱: 河鲈")
 	# 改名
 	var orig_name: String = Slaves.slaves[0]["name"]
 	chk(Slaves.rename(0, "阿明"), "把第 0 个改名为「阿明」")
@@ -2857,21 +2884,21 @@ func _ready() -> void:
 	chk(not Slaves.rename(0, "   "), "空名字拒绝改名")
 	chk(not Slaves.rename(99, "X"), "越界 index 拒绝")
 	chk(Slaves.slaves[0]["name"] == "阿明", "改名失败后名字没变")
-	# 赠送（e56: 喂食+送礼合并）: 只收 作物/食物/材料; 送中爱好 x2（布恩最爱烤土豆）
+	# 赠送（e56: 喂食+送礼合并）: 只收 作物/食物/材料; 送中爱好 x2（布恩(第2位)最爱烤土豆）
 	Inventory.add_item(item_baked, 3)
 	Inventory.add_item(item_pie, 3)
-	var before_aff: int = int(Slaves.slaves[0]["affection"])
+	var before_aff: int = int(Slaves.slaves[1]["affection"])
 	var baked_have: int = Inventory.count_item(item_baked)
-	var gain1: int = Slaves.give(0, item_baked)
+	var gain1: int = Slaves.give(1, item_baked)
 	if gain1 > 0:
 		Inventory.remove_item(item_baked, 1)        # give 不动背包, 调用方自己扣
 	chk(gain1 == Slaves.GIFT_AFFECTION * 2, "送中爱好 = 好感 x2（实际 %d）" % gain1)
-	chk(int(Slaves.slaves[0]["affection"]) == before_aff + gain1, "好感真的加上去了")
-	chk(bool(Slaves.slaves[0]["gift_today"]), "今天送过标记打开")
+	chk(int(Slaves.slaves[1]["affection"]) == before_aff + gain1, "好感真的加上去了")
+	chk(bool(Slaves.slaves[1]["gift_today"]), "今天送过标记打开")
 	chk(Inventory.count_item(item_baked) == baked_have - 1, "背包里少一份烤土豆")
-	chk(Slaves.give(0, item_pie) == 0, "今天再送 = 0（不重复加）")
-	# 非爱好的东西 = 基础好感（第 2 位咪露最爱河鲈, 南瓜派不是）
-	var gain30b: int = Slaves.give(1, item_pie)
+	chk(Slaves.give(1, item_pie) == 0, "今天再送 = 0（不重复加）")
+	# 非爱好的东西 = 基础好感（第 1 位咪露最爱河鲈, 南瓜派不是）
+	var gain30b: int = Slaves.give(0, item_pie)
 	if gain30b > 0:
 		Inventory.remove_item(item_pie, 1)
 	chk(gain30b == Slaves.GIFT_AFFECTION, "送非爱好 = 基础好感 %d（实际 %d）" % [Slaves.GIFT_AFFECTION, gain30b])
@@ -2892,10 +2919,10 @@ func _ready() -> void:
 	var keep_day30: int = TimeManager.day
 	TimeManager.season = 0
 	TimeManager.day = 7
-	chk(Slaves.is_birthday(0), "日历拨到春 7, 今天是布恩的生日")
-	Slaves.slaves[0]["affection"] = 0
-	Slaves.slaves[0]["gift_today"] = false
-	var gain_bd30: int = Slaves.give(0, item_baked)
+	chk(Slaves.is_birthday(1), "日历拨到春 7, 今天是布恩的生日")
+	Slaves.slaves[1]["affection"] = 0
+	Slaves.slaves[1]["gift_today"] = false
+	var gain_bd30: int = Slaves.give(1, item_baked)
 	chk(gain_bd30 == Slaves.GIFT_AFFECTION * 4, "生日 + 爱好 = 好感 x4（实际 %d）" % gain_bd30)
 	TimeManager.season = keep_season30
 	TimeManager.day = keep_day30
@@ -2993,8 +3020,10 @@ func _ready() -> void:
 		var keep_day32: int = TimeManager.day
 		TimeManager.season = 3
 		TimeManager.day = 3
-		Inventory.add_item(item_baked, 1)
-		var baked_count: int = Inventory.count_item(item_baked)
+		# e94 对调后 0 号是咪露, 爱好河鲈（旧测烤土豆是布恩在 0 号时的老账）
+		var item_perch32: ItemData = load("res://item/perch.tres")
+		Inventory.add_item(item_perch32, 1)
+		var perch_count: int = Inventory.count_item(item_perch32)
 		dp.call("_on_give_pressed")
 		var gp32: Control = null
 		for c32 in dp.get_children():
@@ -3004,12 +3033,12 @@ func _ready() -> void:
 		if gp32 != null:
 			chk(gp32.is_visible(), "选物窗开着 (爱好提示: %s)" % Slaves.like_of(0))
 			var aff_before32: int = int(Slaves.slaves[0]["affection"])
-			gp32.picked.emit(item_baked)          # 模拟在弹窗里点了烤土豆
+			gp32.picked.emit(item_perch32)          # 模拟在弹窗里点了河鲈
 			chk(bool(Slaves.slaves[0]["gift_today"]), "选物送出 = 当天第一次赠送标记")
 			chk(int(Slaves.slaves[0]["affection"]) == aff_before32 + Slaves.GIFT_AFFECTION * 2,
 				"送中爱好好感 +%d (实际 %d)" % [Slaves.GIFT_AFFECTION * 2,
 				int(Slaves.slaves[0]["affection"]) - aff_before32])
-			chk(Inventory.count_item(item_baked) == baked_count - 1, "背包里少一份烤土豆")
+			chk(Inventory.count_item(item_perch32) == perch_count - 1, "背包里少一份河鲈")
 			gp32.call("close")
 		TimeManager.season = keep_season32
 		TimeManager.day = keep_day32
@@ -3176,13 +3205,13 @@ func _ready() -> void:
 	var bf33: SpriteFrames = player.body_sprite.sprite_frames
 	chk(bf33.has_animation("normal_down") and bf33.get_frame_count("normal_down") == 4,
 		"站立动画 4 帧")
-	chk(bf33.has_animation("run_left") and bf33.get_frame_count("run_left") == 8,
-		"奔跑动画 8 帧")
+	chk(bf33.has_animation("run_left") and bf33.get_frame_count("run_left") == 6,
+		"日常移动采用已确认的六帧行走")
 	var btex: Texture2D = (bf33.get_frame_texture("normal_down", 0) as AtlasTexture).atlas
-	chk(btex == player.IDLE_TEX, "角色用的是 Josh 原版站立贴图")
+	chk(btex == player.IDLE_TEX, "角色站立取唯一外观入口")
 	var tf33: SpriteFrames = player.tool_sprite.sprite_frames
 	var ttex: Texture2D = (tf33.get_frame_texture("axe_down", 0) as AtlasTexture).atlas
-	chk(ttex == player.AXE_TEX, "工具动作也是原版贴图")
+	chk(ttex == player.AXE_TEX, "工具动作取唯一外观入口")
 	chk(not player.has_method("set_bald") and get_tree().root.get_node_or_null("Settings") == null,
 		"老蒋模式已删: Settings 自动加载整个退场、角色没 set_bald")
 
@@ -3229,6 +3258,16 @@ func _ready() -> void:
 	Inventory.watering_can_water = 6
 	Inventory.hotbar[0] = {"item": load("res://item/potato.tres"), "count": 3}
 	Inventory.inventory_changed.emit()
+	# 51g7 建造点/锻造点池也要存档往返（2026-10-06 新增字段, 漏了就白攒）
+	Structures.build_points = 7
+	Crafting.smith_points = 3
+	# 51g9 多工地列表也要存档往返（2026-10-06 单工地 -> 数组）
+	var sav7a := Vector2i(730, 730)
+	var sav7b := Vector2i(736, 730)
+	chk(Structures.start_site(sav7a, Structures.KIND_MARKET), "存档测试: 开第 1 座工地（市集 7 点）")
+	chk(Structures.start_site(sav7b, Structures.KIND_ACADEMY), "存档测试: 开第 2 座工地（书院 7 点）")
+	Structures.add_site_work(3, 0)      # 第 1 座：3/7
+	Structures.add_site_work(2, 1)      # 第 2 座：2/7
 
 	var snap: Dictionary = SaveManager._collect(g)
 	# —— 把现场全部改乱 ——
@@ -3252,6 +3291,13 @@ func _ready() -> void:
 	Inventory.inventory_changed.emit()
 	chk(Farm.tilled.is_empty() and Trees.trees.is_empty() and Floor.floors.is_empty(),
 		"现场已清空（耕地/树/地板）")
+	# 池子也清零：不清的话"还原成功"可能只是没被动过（假绿）
+	Structures.build_points = 0
+	Crafting.smith_points = 0
+	# 工地也清空（同上, 防假绿）
+	Structures.sites = []
+	Structures.site_changed.emit()
+	chk(not Structures.site_busy(), "工地也清空了（防假绿）")
 
 	# —— 还原（_apply 内部会调 game.rebuild_trees_from_save 重建树节点）——
 	SaveManager._apply(snap)
@@ -3270,6 +3316,8 @@ func _ready() -> void:
 		and Trees.stage_of(sav_cell + Vector2i(2, 0)) == Trees.ST_YOUNG, "树的数据还原")
 	chk(g.tree_nodes.has(sav_cell + Vector2i(2, 0)), "树的显示节点跟着重建")
 	chk(Floor.is_floored(sav_cell + Vector2i(1, 0)), "地板还原")
+	chk(Structures.build_points == 7 and Crafting.smith_points == 3,
+		"建造点/锻造点池还原: %d / %d" % [Structures.build_points, Crafting.smith_points])
 	chk(Slaves.count == 1 and String(Slaves.slaves[0]["name"]) == "存档测试员"
 		and Slaves.task_at(sav_cell) == Slaves.TASK_WATER and Slaves.is_done(sav_cell),
 		"伙伴人数/派活/完成标记还原")
@@ -3284,6 +3332,14 @@ func _ready() -> void:
 	SaveManager._apply(back)
 	chk(Farm.is_tilled(sav_cell) and Wallet.money == 777 and Slaves.count == 1,
 		"JSON 往返后的存档也能正确应用")
+	# 51g9 多工地读档还原（JSON 往返里数字会变 float, 这里的 need/work 也过一遍）
+	chk(Structures.site_count() == 2, "多工地读档还原: 两座工地都回来了（%d）" % Structures.site_count())
+	chk(Structures.site_left(0) == 4 and Structures.site_left(1) == 5,
+		"两座工地各自的进度还原（市集 3/7, 书院 2/7）")
+	chk(String(Structures.sites[0]["kind"]) == Structures.KIND_MARKET
+		and String(Structures.sites[1]["kind"]) == Structures.KIND_ACADEMY, "工地种类与顺序还原")
+	Structures.sites = []              # 清场：别把这两座工地留给后面的测试
+	Structures.site_changed.emit()
 
 	# 还原伙伴现场
 	Slaves.slaves = old_slaves
@@ -3489,6 +3545,34 @@ func _ready() -> void:
 	chk(Voyage.dock_work == Voyage.DOCK_WORK - 1, "施工进度记对了")
 	chk(Voyage.add_dock_work(1), "再补一天: 码头修好了")
 	chk(Voyage.dock_state == Voyage.DOCK_BUILT and Voyage.dock_ready(), "码头建成")
+	# 37.1d 栈桥灯（2026-10-06 视觉提升 B）：码头建成 + 夜里才点；白天熄、废墟整棵不出现
+	var dk37b: Node2D = g.get_node_or_null("Dock")
+	if dk37b != null and dk37b.get("_lamp") != null:
+		var h37: int = TimeManager.hour
+		var m37: int = TimeManager.minute
+		TimeManager.hour = 22
+		TimeManager.minute = 0
+		dk37b.call("_sync_lamp", true)
+		chk(bool(dk37b.get("_lamp_lit"))
+			and (dk37b.get("_lamp_light") as PointLight2D).enabled
+			and (dk37b.get("_lamp") as Sprite2D).visible,
+			"建成 + 深夜 22:00: 栈桥灯点着")
+		TimeManager.hour = 12
+		dk37b.call("_sync_lamp", true)
+		chk(not bool(dk37b.get("_lamp_lit"))
+			and not (dk37b.get("_lamp_light") as PointLight2D).enabled,
+			"白天 12:00: 栈桥灯熄了")
+		Voyage.dock_state = Voyage.DOCK_RUIN
+		TimeManager.hour = 22
+		dk37b.call("_sync_lamp", true)
+		chk(not bool(dk37b.get("_lamp_lit")) and not (dk37b.get("_lamp") as Sprite2D).visible,
+			"废墟状态: 夜里也不点灯（那会儿栈桥还没木面）")
+		Voyage.dock_state = Voyage.DOCK_BUILT
+		TimeManager.hour = h37
+		TimeManager.minute = m37
+		dk37b.call("_sync_lamp", true)
+	else:
+		chk(false, "码头节点上挂着一盏栈桥灯")
 	# 37.1b 修码头的人力：跟研究互斥（出海已全自动, 不再算一个岗位）
 	if Slaves.count > 0:
 		chk(Slaves.toggle_dock(0), "派伙伴 0 去修码头")
@@ -4100,7 +4184,7 @@ func _ready() -> void:
 	chk(Wallet.money == m_before39 + each39 * 3,
 		"卖光: 钱加上来了（%d -> %d）" % [m_before39, Wallet.money])
 	# 买：走买价（Research.buy_price_of），钱扣掉、货到手
-	var stock39: Array = mk.get_script().get_script_constant_map().get("STOCK", [])
+	var stock39: Array = mk._stock_list()
 	chk(stock39.size() >= 1, "集市有货可买（%d 种）" % stock39.size())
 	if stock39.size() >= 1:
 		var e39: Dictionary = stock39[0]
@@ -4210,7 +4294,8 @@ func _ready() -> void:
 	# 背包面板：8 个模块逐页扫
 	var bp40: Control = g.get_node_or_null("HUD/Backpack")
 	if bp40 != null:
-		for mod40 in ["bag", "hero", "team", "tech", "admin", "map", "craft", "settings"]:
+		Quests.unlock_all_modules_for_ui()
+		for mod40 in ["bag", "hero", "team", "grow", "map", "craft", "set"]:
 			bp40._select_module(mod40)
 			await get_tree().process_frame
 			sweep_glyphs(bp40, "背包-" + mod40)
@@ -4569,6 +4654,7 @@ func _ready() -> void:
 	var avf42: SpriteFrames = wm42._avatar_frames()
 	chk(avf42.has_animation(&"walk_down") and avf42.has_animation(&"walk_up")
 		and avf42.has_animation(&"walk_side"), "海图头像有 walk_* 走动/划桨动画")
+	chk(avf42.get_frame_count(&"walk_down") == 6 and (avf42.get_frame_texture(&"walk_down", 0) as AtlasTexture).atlas == preload("res://scene/slave_npc.gd").player_texture("Walk.png"), "海图与岛上主角共用已确认外观和六帧步态")
 	wm42.queue_free()
 	await get_tree().process_frame
 
@@ -5052,9 +5138,9 @@ func _ready() -> void:
 			tiers51[i51 + 1] = true
 	chk(tiers51.size() == 3, "三套盔甲资源齐全 (等级 1..3, 类型「装备」)")
 	# 51c 市集货架: 三档甲都摆出来卖
-	var mk51: Dictionary = (load("res://market_ui.gd") as Script).get_script_constant_map()
+	var mk51: Control = load("res://market_ui.gd").new()
 	var armor_stock51 := 0
-	for s51 in mk51["STOCK"]:
+	for s51 in mk51._stock_list():
 		var it51: ItemData = load(String(s51["path"]))
 		if it51 != null and it51.type == "装备":
 			armor_stock51 += 1
@@ -5163,6 +5249,28 @@ func _ready() -> void:
 			Inventory.add_item(itm51, d51)
 		elif d51 < 0:
 			Inventory.remove_item(itm51, -d51)
+	# 51g5 锻造点池（2026-10-06 体系大改）：跟建造点同一套 —— 派去打铁的人每晚产点,
+	# 玩家在背包铁匠铺页点「投入锻造点」当场出件。add_smith_work 保留为底层原子操作。
+	chk(not Crafting.smith_busy(), "测锻造点前队列是空的")
+	var w51e := Inventory.count_item(wood51)      # 记下木料, 测完还回去（后面 51g 还要用）
+	chk(Crafting.craft_smith(0), "再排一件皮甲（测锻造点）")
+	var sp0_51 := Crafting.smith_points
+	Crafting.earn_smith_points(1)
+	chk(Crafting.smith_points == sp0_51 + 1,
+		"打铁产点进池: %d" % Crafting.smith_points)
+	chk(Crafting.smith_busy() and int(Crafting.smith_top().get("work", 0)) == 0,
+		"只攒点不推进队列（出件权在玩家手里）")
+	Crafting.smith_points = maxi(Crafting.smith_points, 2)
+	var sp_before51 := Crafting.smith_points
+	var made51e: Array = Crafting.invest_smith_points()
+	chk(made51e.size() == 1 and String(made51e[0]) == "皮甲", "投入锻造点 -> 当场出件")
+	chk(Crafting.smith_points == sp_before51 - 2, "只扣这件要的 2 点, 余点留着")
+	chk(not Crafting.smith_busy(), "出件后队列清空")
+	Inventory.remove_item(aw51, 1)      # 收走刚出炉那件, 免得干扰后面的计数
+	Crafting.smith_points = 0
+	var w51b := w51e - Inventory.count_item(wood51)
+	if w51b > 0:
+		Inventory.add_item(wood51, w51b)      # 把这一件吃掉的木料还回去
 	# 51g 铁匠铺升级: 花钱提到 Lv2, 高一档配方就解锁（铁甲要铁x4 + 石x2, 先补料测完还原）
 	Structures.set_level(cell51, 2)
 	chk(Crafting.near_blacksmith_lv() == 2, "升级后读到 Lv2")
@@ -5199,14 +5307,81 @@ func _ready() -> void:
 	chk(Structures.start_site(cell51, Structures.KIND_BLACKSMITH), "铁匠铺动工 -> 登记工地")
 	chk(Structures.site_busy() and Structures.site_name() == "铁匠铺", "工地名读得回来")
 	chk(int(Structures.site.get("need", 0)) == 6 and int(Structures.site.get("work", 0)) == 0,
-		"工地进度 0/6 人天")
+		"工地进度 0/6 点")
 	chk(not Structures.add_site_work(0), "没派人不推进")
-	chk(not Structures.add_site_work(5), "5 人工不够, 差 1 人天")
+	chk(not Structures.add_site_work(5), "5 点不够, 差 1 点")
 	chk(Structures.site_busy() and int(Structures.site.get("work", 0)) == 5, "工地还在: 5/6")
 	chk(Structures.add_site_work(1), "第 6 人工到位 -> 当晚落成")
 	chk(not Structures.site_busy() and Structures.kind_of(cell51) == Structures.KIND_BLACKSMITH,
 		"工地落成, 站着一座真铁匠铺")
 	chk(Structures.remove(cell51) == Structures.KIND_BLACKSMITH, "拆掉工地落成的铁匠铺")
+	# 51g6 建造点池（2026-10-06 体系大改）：伙伴施工不再当晚自动完工, 而是把点数攒进池子,
+	# 由玩家在背包建造页点「投入建造点」当场兑现（可跨天攒, 可先投一部分）。
+	chk(not Structures.site_busy(), "测建造点前没有工地")
+	chk(Structures.start_site(cell51, Structures.KIND_BLACKSMITH), "再开一次工（测建造点）")
+	Structures.build_points = 0
+	chk(Structures.earn_build_points(4) == 4, "伙伴施工 4 人 -> 建造点池 4")
+	chk(Structures.site_busy() and int(Structures.site.get("work", 0)) == 0,
+		"只攒点不推进工地进度（兑现权在玩家手里）")
+	chk(not Structures.invest_build_points(), "池里 4 点不够 6 点 -> 还没落成")
+	chk(Structures.build_points == 0 and int(Structures.site.get("work", 0)) == 4,
+		"部分投入: 4 点灌进工地, 池子清零")
+	Structures.earn_build_points(3)
+	chk(Structures.invest_build_points(), "再投 2 点凑够 6 -> 当场完工")
+	chk(not Structures.site_busy() and Structures.kind_of(cell51) == Structures.KIND_BLACKSMITH,
+		"工地当场落成, 站着一座真铁匠铺")
+	chk(Structures.build_points == 1, "只扣工地要的那部分, 多出的 1 点留着")
+	chk(Structures.remove(cell51) == Structures.KIND_BLACKSMITH, "拆掉（收尾）")
+	# 取消工地要把已投进去的建造点退回池子（不然玩家点完"投入"再取消就白亏）
+	Structures.build_points = 0
+	chk(Structures.start_site(cell51, Structures.KIND_BLACKSMITH), "再开一次工（测取消退款）")
+	Structures.earn_build_points(4)
+	chk(not Structures.invest_build_points(), "投 4 点进工地（还没满）")
+	chk(int(Structures.site.get("work", 0)) == 4, "工地进度 4/6")
+	var back51: Dictionary = Structures.cancel_site()
+	chk(Structures.build_points == 4, "取消工地: 已投的 4 点退回池子（%d）" % Structures.build_points)
+	chk(not back51.is_empty() and int(back51.get("wood", 0)) > 0, "取消工地照样退材料")
+	chk(not Structures.site_busy(), "取消后没有工地")
+	Structures.build_points = 0
+	# 51g7 多工地并行 + 总池（2026-10-06）：伙伴产的点进**一个总池**, 可同时开多座工地,
+	# 玩家自己挑一座把点投进去（投满即落成）。开在远处的空格上, 不碰真地图。
+	var far7a := Vector2i(700, 700)
+	var far7b := Vector2i(710, 700)
+	var far7c := Vector2i(720, 700)
+	chk(Structures.start_site(far7a, Structures.KIND_BLACKSMITH), "开第 1 座工地（铁匠铺 6 点）")
+	chk(Structures.start_site(far7b, Structures.KIND_BAKERY), "同时开第 2 座工地（面包房 6 点）")
+	chk(Structures.start_site(far7c, Structures.KIND_WEAVER), "同时开第 3 座工地（织造坊 6 点）")
+	chk(Structures.site_count() == 3 and Structures.site_busy(), "三座工地并行开工")
+	chk(not Structures.start_site(far7a, Structures.KIND_BAKERY), "同一格重复开工被拒")
+	Structures.earn_build_points(6)
+	chk(Structures.invest_build_points(2), "总池 6 点投给第 3 座（织造坊）-> 当场完工")
+	chk(Structures.site_count() == 2 and Structures.build_points == 0, "第 3 座落成, 池子清零")
+	chk(Structures.kind_of(far7c) == Structures.KIND_WEAVER, "织造坊真的立起来了")
+	chk(Structures.site_left(0) == 6 and Structures.site_left(1) == 6,
+		"另外两座没被推进 —— 挑着投, 不按顺序自动灌")
+	Structures.earn_build_points(2)
+	chk(not Structures.invest_build_points(0), "给第 1 座投 2 点（还没满）")
+	chk(Structures.site_left(0) == 4, "第 1 座进度 2/6 -> 还差 4")
+	var back7 := Structures.cancel_site(0)
+	chk(Structures.build_points == 2 and Structures.site_count() == 1,
+		"取消第 1 座: 已投的 2 点退回总池, 只剩第 2 座")
+	chk(not back7.is_empty() and int(back7.get("wood", 0)) > 0, "取消照样退材料")
+	chk(not Structures.cancel_site(0).is_empty() and not Structures.site_busy(),
+		"再取消第 2 座 -> 没有工地了")
+	Structures.build_points = 0
+	chk(Structures.remove(far7c) == Structures.KIND_WEAVER, "拆掉工地落成的织造坊（清场）")
+	# 51g8 工地上限 SITE_MAX：开满之后第 SITE_MAX+1 座被拒
+	var opened7 := 0
+	for i7 in Structures.SITE_MAX:
+		if Structures.start_site(Vector2i(760 + i7 * 4, 700), Structures.KIND_BAKERY):
+			opened7 += 1
+	chk(opened7 == Structures.SITE_MAX and Structures.site_count() == Structures.SITE_MAX,
+		"能同时开满 %d 座" % Structures.SITE_MAX)
+	chk(not Structures.start_site(Vector2i(760 + Structures.SITE_MAX * 4, 700), Structures.KIND_BAKERY),
+		"开满后第 %d 座被拒" % (Structures.SITE_MAX + 1))
+	while Structures.site_busy():
+		Structures.cancel_site(0)
+	chk(not Structures.site_busy() and Structures.build_points == 0, "清场: 工地上限测试收尾")
 	# 51h 熔炉左键: 手持铁矿点炉 = 放进去烧(1木1铁); 炼着只报进度; 出炉左键取铁;
 	# 镐子 / 别的物品不吃点击（保持拆设施、摆放的原行为）
 	place_player(cell51 + Vector2i(1, 0))
@@ -5392,6 +5567,41 @@ func _ready() -> void:
 	chk(Floor.kind_of(fcell52) == Floor.KIND_PATH, "读回: 这格是小径不是木地板")
 	chk(Floor.remove(fcell52), "镐子挖掉小径")
 	chk(not Floor.is_floored(fcell52), "挖掉后格子干净")
+	# 52c-2 2026-10-06 城镇铺装扩展: 石板路 / 红砖路 / 砾石路
+	chk(Floor.KIND_ITEM.get(Floor.KIND_SLAB) == preload("res://item/slab_path.tres") \
+		and Floor.KIND_ITEM.get(Floor.KIND_BRICK) == preload("res://item/brick_path.tres") \
+		and Floor.KIND_ITEM.get(Floor.KIND_GRAVEL) == preload("res://item/gravel_path.tres"),
+		"三种新铺装各返还对应物品（KIND_ITEM 表）")
+	chk(Floor.kind_by_name("石板路") == Floor.KIND_SLAB \
+		and Floor.kind_by_name("红砖路") == Floor.KIND_BRICK \
+		and Floor.kind_by_name("砾石路") == Floor.KIND_GRAVEL \
+		and Floor.kind_by_name("没这种东西") == -1,
+		"铺装名字 -> 类型唯一真相源表认得出三种新路（player 不再写死名字）")
+	var new_floors52: Array = [
+		[Vector2i(6, 6), Floor.KIND_SLAB, "石板路"],
+		[Vector2i(7, 6), Floor.KIND_BRICK, "红砖路"],
+		[Vector2i(8, 6), Floor.KIND_GRAVEL, "砾石路"],
+	]
+	for row52 in new_floors52:
+		var cf52: Vector2i = row52[0]
+		var kf52: int = row52[1]
+		var nmf52: String = row52[2]
+		if Floor.is_floored(cf52):
+			Floor.remove(cf52)
+		chk(Floor.place(cf52, kf52), "铺上一格%s" % nmf52)
+		chk(Floor.kind_of(cf52) == kf52, "%s 读回自己的 kind" % nmf52)
+		chk(Floor.display_of(kf52) == nmf52, "%s 的显示名对得上" % nmf52)
+		Floor.remove(cf52)
+		chk(not Floor.is_floored(cf52), "%s 挖掉后格子干净" % nmf52)
+	# 三种新铺装各有配方（配方表总数在 28 节校验 == 10）
+	var slab_rec52: Array = Crafting.RECIPES.filter(
+		func(r): return r["result"] == preload("res://item/slab_path.tres"))
+	var brick_rec52: Array = Crafting.RECIPES.filter(
+		func(r): return r["result"] == preload("res://item/brick_path.tres"))
+	var gravel_rec52: Array = Crafting.RECIPES.filter(
+		func(r): return r["result"] == preload("res://item/gravel_path.tres"))
+	chk(slab_rec52.size() == 1 and brick_rec52.size() == 1 and gravel_rec52.size() == 1,
+		"石板路/红砖路/砾石路三种配方都在表里")
 	# 52d h-d 耕地再点锄头翻回草地: untill 清耕地+浇水; 长着作物不许翻
 	var uspot := Vector2i(5, 20)   # 第 3/4 节锄过的那格（收获后无作物）
 	if Farm.is_tilled(uspot):
@@ -5408,7 +5618,7 @@ func _ready() -> void:
 	Farm.watered.erase(uspot)
 	# 52e h-h 任务栏 + 开局指引 —— e13j: 任务栏已是背包「任务」页签（左侧竖栏退役）
 	var bak52q := Quests.active()
-	chk(g.quest_log_panel == null, "e13j: 屏幕左侧不再挂独立任务栏")
+	chk(g.quest_log_panel != null and g.quest_log_panel.name == "GuideTracker", "世界画面只挂一条可点击的追踪指引")
 	var bp52q: Control = g.get_node_or_null("HUD/Backpack")
 	chk(bp52q != null and bp52q._pages.has("quests"), "背包里挂上了「任务」页签")
 	var ql52: Control = bp52q._pages["quests"]
@@ -5421,12 +5631,12 @@ func _ready() -> void:
 	chk(Quests.has_active("go_house") and Quests.active().size() == 1,
 		"新档开局指引: 派生「瞧瞧东边那栋房子」")
 	var gt52: Dictionary = Quests.active()[0]
-	chk(String(gt52["desc"]) == "东边有一栋房子, 进去看看是谁的屋子", "任务描述读得回来")
+	chk(String(gt52["desc"]).contains("按 F") and String(gt52["desc"]).contains("小屋"), "任务描述含地点和操作按键")
 	Quests.start_guide()
 	chk(Quests.active().size() == 1, "同局 start_guide 只发一次")
 	Quests.complete("go_house")
 	chk(not Quests.has_active("go_house") and Quests.has_active("buy_goblin"),
-		"进屋听哥布林说完, 链条自动挂上买货任务")
+		"进屋领到工具后, 链条挂上购买当季种子任务")
 	Quests.reset_all()
 	for t52 in bak52q:
 		Quests.add(String(t52["id"]), String(t52["title"]), String(t52["desc"]))
@@ -6099,12 +6309,12 @@ func _ready() -> void:
 			cursor58 = String(Quests._CHAIN[cursor58][0])
 		else:
 			cursor58 = ""
-	chk(chain_ok58 and seen58.size() == 8, "链条从 go_house 无环串到链尾(共8环)")
+	chk(chain_ok58 and seen58.size() == 8, "链条从领取工具/购种无环串到建造(共8环)")
 	chk(not Quests._CHAIN.has("explore_island"), "explore_island 是链尾开放任务")
 	# 逐步走完链条: 每销一环自动挂下一环, 同屏只有 1 个任务
 	Quests.complete("go_house")
 	chk(Quests.has_active("buy_goblin") and Quests.active().size() == 1,
-		"进屋后挂上 买货")
+		"进屋后挂上 买第一包种子")
 	Quests.complete("buy_goblin")
 	chk(Quests.has_active("till_first") and Quests.active().size() == 1,
 		"买完货挂上 开田")
@@ -6115,14 +6325,14 @@ func _ready() -> void:
 	chk(Quests.has_active("water_first") and Quests.active().size() == 1,
 		"播完种挂上 浇水")
 	Quests.complete("water_first")
-	chk(Quests.has_active("harvest_first") and Quests.active().size() == 1,
+	chk(Quests.has_active("harvest_first") and Quests.active().size() <= 2,
 		"浇完水挂上 收获")
 	Quests.complete("harvest_first")
-	chk(Quests.has_active("sell_first") and Quests.active().size() == 1,
+	chk(Quests.has_active("sell_first") and Quests.active().size() <= 2,
 		"收完货挂上 卖货")
 	Quests.complete("sell_first")
-	chk(Quests.has_active("explore_island") and Quests.active().size() == 1,
-		"卖完货挂上链尾开放任务(钓鱼/鸡舍预告)")
+	chk(Quests.has_active("build_first") and Quests.module_unlocked("build") and Quests.milestones_enabled(),
+		"售卖后直接开放建造和经营里程碑, 钓鱼独立可选")
 	# 跳步: 老手先锄了地 -> 完成过的环节事后不再回挂
 	Quests.reset_all()
 	Quests.start_guide()
@@ -6131,7 +6341,7 @@ func _ready() -> void:
 		"跳步锄地直接挂上播种, 不补发开田")
 	Quests.complete("go_house")
 	chk(Quests.has_active("buy_goblin") and not Quests.has_active("till_first"),
-		"事后进屋, 已完成的环节不回挂")
+		"事后进屋仍可购种, 已完成的开田不回挂")
 	Quests.complete("buy_goblin")
 	chk(Quests.active().size() == 1 and Quests.has_active("plant_first"),
 		"买完货跳过开田直奔播种(同屏仍只1个)")
@@ -6272,9 +6482,9 @@ func _ready() -> void:
 	chk(g.call("building_footprint", Vector2i(9, 9), Structures.KIND_COOP).size() == 12,
 		"鸡舍地基占 6x2 = 12 格")
 	# e30p: 小鸡退出商人货架 —— 买卖都在鸡舍管理界面里办
-	var su60: Dictionary = (load("res://shop_ui.gd") as Script).get_script_constant_map()
+	var su60: Control = load("res://shop_ui.gd").new()
 	var chick_shop60 := false
-	for s60 in su60["STOCK"]:
+	for s60 in su60._stock_list():
 		if String(s60["seed"]).ends_with("chicken.tres"):
 			chick_shop60 = true
 	chk(not chick_shop60, "小鸡退出商人货架 (买卖走鸡舍管理界面)")
@@ -6648,7 +6858,7 @@ func _ready() -> void:
 	var putitle62 := false
 	var pur62 = pu62.get("_root")
 	if pur62 != null:
-		for c62 in (pur62 as Node).get_children():
+		for c62 in (pur62 as Node).find_children("*", "Label", true, false):
 			if c62 is Label and String((c62 as Label).text).contains(Nations.captain_title("chenxi")):
 				putitle62 = true
 	chk(putitle62, "军中交谈面板显示该国称号 (港口护卫长, e36n)")
@@ -6748,8 +6958,14 @@ func _ready() -> void:
 		"name": "礼收员", "affection": 0, "gift_today": false,
 		"max_hp": 30, "hp": 30, "troop": "刀客", "squad": 1,
 		"labor": "帮工",
+	}, {
+		# e94 对调后布恩在 roster 下标 1; is_birthday/like_of 按【队伍下标】映射 ROSTER,
+		# 所以测布恩的生日/爱好得让队伍里真有下标 1（64c 撞过越界）
+		"name": "寿星员", "affection": 0, "gift_today": false,
+		"max_hp": 30, "hp": 30, "troop": "刀客", "squad": 1,
+		"labor": "帮工",
 	}]
-	Slaves.count = 1
+	Slaves.count = 2
 	var carrot64: ItemData = load("res://item/carrot.tres")
 	var seed64: ItemData = load("res://item/seed.tres")
 	chk(Slaves.give(0, seed64) == 0, "送道具类(种子) = 0 (只收作物/食物/材料)")
@@ -6760,17 +6976,17 @@ func _ready() -> void:
 	chk(bool(Slaves.slaves[0]["gift_today"]), "今天送过标记打开")
 	chk(Slaves.give(0, carrot64) == 0, "今天再送 = 0 (不重复加)")
 	chk(int(Slaves.slaves[0]["affection"]) == Slaves.GIFT_AFFECTION, "好感真的 +2")
-	# 64c 生日翻倍: 拨到春 7 (下标 0 = 布恩的生日), 好感增量 x2
+	# 64c 生日翻倍: 拨到春 7 (下标 1 = 布恩的生日, e94 对调后), 好感增量 x2
 	TimeManager.season = 0
 	TimeManager.day = 7
-	chk(Slaves.is_birthday(0), "日历拨到春 7 = 布恩的生日")
-	Slaves.slaves[0]["gift_today"] = false
-	Slaves.slaves[0]["affection"] = 0
-	chk(Slaves.give(0, carrot64) == Slaves.GIFT_AFFECTION * 2, "生日当天赠送 = 好感 x2")
+	chk(Slaves.is_birthday(1), "日历拨到春 7 = 布恩的生日")
+	Slaves.slaves[1]["gift_today"] = false
+	Slaves.slaves[1]["affection"] = 0
+	chk(Slaves.give(1, carrot64) == Slaves.GIFT_AFFECTION * 2, "生日当天赠送 = 好感 x2")
 	var baked64: ItemData = load("res://item/baked_potato.tres")
-	Slaves.slaves[0]["gift_today"] = false
-	Slaves.slaves[0]["affection"] = 0
-	chk(Slaves.give(0, baked64) == Slaves.GIFT_AFFECTION * 4, "生日 + 爱好(烤土豆) = 好感 x4")
+	Slaves.slaves[1]["gift_today"] = false
+	Slaves.slaves[1]["affection"] = 0
+	chk(Slaves.give(1, baked64) == Slaves.GIFT_AFFECTION * 4, "生日 + 爱好(烤土豆) = 好感 x4")
 	TimeManager.season = keep_season64
 	TimeManager.day = keep_day64
 	# 64d 新一天重置: 又能送了
@@ -6791,16 +7007,16 @@ func _ready() -> void:
 	chk(wheat65 != null and wheat65.type == "材料" and wheat65.sell_price == 5,
 		"小麦是材料, 标价 5 金")
 	# 65a 哥布林商店货架摆着小麦（8 金）
-	var su65: Dictionary = (load("res://shop_ui.gd") as Script).get_script_constant_map()
+	var su65: Control = load("res://shop_ui.gd").new()
 	var wheat_shop65 := 0
-	for s65 in su65["STOCK"]:
+	for s65 in su65._stock_list():
 		if String(s65["seed"]).ends_with("wheat.tres") and int(s65["price"]) == 8:
 			wheat_shop65 += 1
 	chk(wheat_shop65 == 1, "哥布林商店货架摆着小麦 (8 金)")
 	# 65b 贸易市集也摆着小麦
-	var mk65: Dictionary = (load("res://market_ui.gd") as Script).get_script_constant_map()
+	var mk65: Control = load("res://market_ui.gd").new()
 	var wheat_market65 := 0
-	for s65 in mk65["STOCK"]:
+	for s65 in mk65._stock_list():
 		if String(s65["path"]).ends_with("wheat.tres") and int(s65["price"]) == 8:
 			wheat_market65 += 1
 	chk(wheat_market65 == 1, "贸易市集也摆着小麦 (8 金)")
@@ -6854,7 +7070,7 @@ func _ready() -> void:
 	Inventory.inventory_changed.emit()
 	# 65e e28b: 木地板降价 20 -> 12（贸易市集 + 议事厅商贸两处同步）
 	var floor_shop65 := 0
-	for s65 in mk65["STOCK"]:
+	for s65 in mk65._stock_list():
 		if String(s65["path"]).ends_with("wood_floor.tres") and int(s65["price"]) == 12:
 			floor_shop65 += 1
 	chk(floor_shop65 == 1, "贸易市集木地板 12 金 (原 20 降价)")
@@ -7011,8 +7227,8 @@ func _ready() -> void:
 		"建交五方: 五国好感都到 20 领奖 +2000")
 	# 七项长线全达成 -> 常驻位轮到终局三连第一项
 	var act766: Array = Quests.active()
-	chk(act766.size() == 1 and String((act766[0] as Dictionary).get("title", "")) == "里程碑: 裂土封王",
-		"七项达成: 常驻位轮到终局第一项 裂土封王")
+	chk(act766.size() == 1 and String((act766[0] as Dictionary).get("title", "")) == "里程碑: 潮汐港是我们的家",
+		"经营目标独立显示, 不强迫玩家走向封王")
 	chk(hits66.size() == 7, "公告一共发了 7 条 (实际 %d)" % hits66.size())
 	# 66g2 终局三连: 声望/封王/归一, 达成走 celebrated 大横幅, 不锁档
 	var pre_bak66: int = Nations.prestige
@@ -7030,7 +7246,7 @@ func _ready() -> void:
 	Wallet.add_money(1)   # 触发一次检查, 三项同时结算
 	chk(Quests.milestone_done("ms_lord") and Quests.milestone_done("ms_prestige")
 		and Quests.milestone_done("ms_unify"), "终局三连全部达成")
-	chk(Quests.active().is_empty(), "十项全达成: 任务栏常驻位撤下")
+	chk(Quests.active().size() == 1 and String(Quests.active()[0]["title"]) == "里程碑: 潮汐港是我们的家", "战争成就不取代家园终点")
 	chk(cel66.size() == 3, "终局三连走 celebrated 大横幅 (实际 %d)" % cel66.size())
 	Quests.celebrated.disconnect(celcb66)
 	Nations.prestige = pre_bak66
@@ -7152,10 +7368,17 @@ func _ready() -> void:
 	chk(Slaves.CAP == 4, "放下小屋 -> 上限回到 4 (实际 %d)" % Slaves.CAP)
 	chk(Structures.hut_count() == 1 and Structures.variant_of(hut_c67) == var67,
 		"搬完外形编号不变 (%d -> %d)" % [var67, Structures.variant_of(hut_c67)])
-	# 67f 存档字段 (源码护栏): 白名单含新建筑, 写出 honey / variant
+	# 67f 存档字段 (源码护栏): 白名单走表驱动 (2026-10-06 改造), 写出 honey / variant
 	var sm67 := FileAccess.get_file_as_string("res://save_manager.gd")
-	chk(sm67.contains("KIND_HUT") and sm67.contains("KIND_HIVE") and sm67.contains("KIND_LAMP"),
-		"读档白名单含 同伴小屋/蜂箱/路灯 (e44)")
+	chk(sm67.contains("is_known_kind"),
+		"读档白名单走表驱动 Structures.is_known_kind（加新建筑不会再漏白名单）")
+	chk(Structures.is_known_kind(Structures.KIND_HUT) \
+			and Structures.is_known_kind(Structures.KIND_HIVE) \
+			and Structures.is_known_kind(Structures.KIND_LAMP) \
+			and Structures.is_known_kind(Structures.KIND_BARRACKS) \
+			and Structures.is_known_kind(Structures.KIND_LIGHTHOUSE) \
+			and not Structures.is_known_kind("not_a_building"),
+		"白名单认得出 小屋/蜂箱/路灯/军营/灯塔, 且不认空壳 kind")
 	chk(sm67.contains("\"honey\"") and sm67.contains("\"variant\""),
 		"存档写出 honey / variant 两个字段 (e44)")
 	# 67g 收尾: 先正经拆掉自己盖的小屋(别留孤儿节点), 再整份还原
@@ -7443,7 +7666,9 @@ func _ready() -> void:
 		chk(FileAccess.get_file_as_string(f69).find("Farm.season_ok_for") >= 0,
 			"%s 的货架按当季过滤种子" % f69.get_file())
 	for sc69 in [load("res://shop_ui.gd"), load("res://market_ui.gd"), load("res://town_ui.gd")]:
-		var stock69: Array = sc69.get_script_constant_map()["STOCK"]
+		var inst69: Node = sc69.new()
+		var stock69: Array = inst69._stock_list() if inst69.has_method("_stock_list") \
+			else sc69.get_script_constant_map().get("STOCK", [])
 		var season_cover69 := true
 		for si69 in 4:
 			var any69 := false
@@ -7607,10 +7832,12 @@ func _ready() -> void:
 	chk(String(g72._crew_sheet(0)).contains("Josh"), "主角座船上画的是主角真身 (Josh)")
 	var exp72: Array = Slaves.expedition.duplicate()
 	Slaves.expedition.clear()
-	chk(String(g72._crew_sheet(1)).contains("Alex"), "名单空时 1 号座也画得出同伴 (Alex)")
+	chk(String(g72._crew_sheet(1)).contains("Lyria"), "名单空时 1 号座仍使用咪露的新身份模型")
 	Slaves.expedition.append(1)
-	# e53b: 序号 1 与 3 调换后, 第 2 位(咪露)用的是 Tori 模型
-	chk(String(g72._crew_sheet(1)).contains("Tori"), "同伴按名单序号取模型 (Tori)")
+	# e94: 咪露提到首位(序号 0), 火伴 1 号 = 布恩 -> Alex 模型; 咪露(0) -> Tori
+	chk(String(g72._crew_sheet(1)).contains("Alex"), "同伴按名单序号取模型 (布恩=Alex)")
+	Slaves.expedition[0] = 0
+	chk(String(g72._crew_sheet(1)).contains("Lyria"), "咪露新形象使用 Lyria 的侧扎发骨架")
 	var c72: Sprite2D = g72._crew_sprite(0)
 	var creg: Rect2 = (c72.texture as AtlasTexture).region
 	chk(creg.position.y == 64.0 and c72.scale.x < 1.0,
@@ -7619,19 +7846,9 @@ func _ready() -> void:
 	# e29c: modulate 只剩装甲档位色 —— 个人配色(发色/服装)已烘进贴图层
 	chk(s72.modulate.is_equal_approx(Slaves.ARMOR_TINT_ROOKIE),
 		"同伴 modulate 只剩装甲色 (新兵档), 个人配色烘在贴图里")
-	# 第三方素材不入库(见 README), 缺失时跳过改色断言
-	var Tori72: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Tori/Idle.png")
-	if Tori72 == null:
-		print("  - skip: 缺少第三方素材包, 跳过改色断言 (见 README)")
-	else:
-		var Tori_img: Image = Tori72.get_image()
-		var tinted72: Image = ((s72.texture as AtlasTexture).atlas as Texture2D).get_image()
-		Tori_img.convert(Image.FORMAT_RGBA8)
-		tinted72.convert(Image.FORMAT_RGBA8)
-		var n72 := _img_diff_count(tinted72, Tori_img)
-		var op72 := _img_opaque_count(Tori_img)
-		chk(n72 > 0 and n72 * 2 < op72,
-			"船员贴图是改色版: %d/%d 像素变了色 (局部染色, 不到一半)" % [n72, op72])
+	var own72: Texture2D = (s72.texture as AtlasTexture).atlas
+	chk(own72 == preload("res://scene/slave_npc.gd").sheet_texture(preload("res://scene/slave_npc.gd").model_for(0), "Idle.png", 0), "咪露船员和地图使用同一份完整像素人物帧")
+	chk(own72.get_size() == Vector2(128, 96), "船员仍按 32px 动画帧取样, 不直接加载高清源图")
 	Slaves.expedition = exp72
 	g72.queue_free()
 
@@ -7939,8 +8156,8 @@ func _ready() -> void:
 	chk(int(snpc75b.MODEL_MALE.size()) == int(snpc75b.MODELS.size()),
 		"MODEL_MALE 性别表跟 MODELS 等长 (%d/%d)"
 			% [snpc75b.MODEL_MALE.size(), snpc75b.MODELS.size()])
-	chk(String(Slaves.ROSTER[0]["name"]) == "布恩" and String(Slaves.ROSTER[7]["name"]) == "雪莱",
-		"花名册定名: 首位布恩, 末位雪莱（%s / %s）"
+	chk(String(Slaves.ROSTER[0]["name"]) == "咪露" and String(Slaves.ROSTER[7]["name"]) == "雪莱",
+		"花名册定名: 首位咪露, 末位雪莱（%s / %s）"
 			% [Slaves.ROSTER[0]["name"], Slaves.ROSTER[7]["name"]])
 	var nm75b := true
 	for r75b in Slaves.ROSTER:
@@ -8178,7 +8395,11 @@ func _ready() -> void:
 		"liege": Nations.liege, "fief": Nations.fief, "pname": Nations.player_nation_name,
 		"war": Nations.at_war.keys(), "occ": Nations.occupied.keys(),
 		"first": Nations._first_conq_fired}
-	# 80a 声望与主从契约
+	# 80a 声望与主从契约 (里程碑 perk 等会留声望, 本节先归零再测)
+	Nations.prestige = 0
+	Nations.contract = ""
+	Nations.liege = ""
+	Nations.fief = ""
 	chk(Nations.prestige == 0 and Nations.contract == "", "开局: 声望 0 无契约")
 	Nations.add_prestige(25)
 	chk(Nations.prestige == 25, "打仗/海外贸易攒声望 (25)")
@@ -8514,35 +8735,51 @@ func _ready() -> void:
 	print("\n=== 84. e29c: 伙伴局部改色 (发色/服装色带) ===")
 	var sna84: Variant = load("res://scene/slave_npc.gd")
 	chk(sna84.RECIPES.size() == 20, "配方表 20 条 (4 模型 x 5 变体, 序号回绕)")
-	chk(sna84.recipe_for(2).is_empty() and sna84.recipe_for(6).size() == 1,
-		"配方按伙伴序号取: 2 号黑发本色, 6 号玫红挑染")
+	# e94 对调后按 roster 序号取: 0 咪露(Tori 双带) / 1 布恩(Alex 双带) /
+	# 2 珞琳(Manu 只染发) / 6 汐月(Lyria 双带) —— 新表不再有「本色空配方」
+	chk(sna84.recipe_for(0).size() == 2 and sna84.recipe_for(1).size() == 2
+		and sna84.recipe_for(2).size() == 1 and sna84.recipe_for(5).size() == 2
+		and sna84.recipe_for(6).size() == 1,
+		"配方按伙伴序号取 (e94 对调后: 咪露双带 / 布恩双带 / 珞琳只染发 / 汐月双带 / 珂丹玫红单带)")
 	# 第三方素材不入库(见 README), 缺失时跳过改色断言
 	var manu_idle: Texture2D = SoftRes.tex("res://resources/Farm RPG - Tiny Asset Pack - (All in One)/Character/Character/Pre-made/Manu/Idle.png")
 	if manu_idle == null:
 		print("  - skip: 缺少第三方素材包, 跳过改色断言 (见 README)")
 	else:
-		chk(sna84.sheet_texture("Manu", "Idle.png", 2) == manu_idle, "本色伙伴直接回原图")
-		var m84: Image = (sna84.sheet_texture("Manu", "Idle.png", 6) as Texture2D).get_image()
+		var m84: Image = (sna84.sheet_texture("Manu", "Idle.png", 2) as Texture2D).get_image()
 		var o84: Image = manu_idle.get_image()
 		m84.convert(Image.FORMAT_RGBA8)
 		o84.convert(Image.FORMAT_RGBA8)
 		var n84 := _img_diff_count(m84, o84)
-		var op84 := _img_opaque_count(o84)
-		chk(n84 > 0 and n84 * 3 < op84,   # 玫红带吃暗部轮廓, 实测约两成像素; 1/3 仍拦得住整体改色
-			"6 号贴图改过色且只动局部 (%d / %d 不透明像素)" % [n84, op84])
-		# 玫红要数「改色后比原图多了多少」—— Manu 自己的粉衣本来就带这个色相,
-		# 只看「存在玫红像素」会被原图误判成通过。
-		var rose_m84 := 0
-		var rose_o84 := 0
+		var op84: int = _img_opaque_count(o84)
+		var skin84: int = 0
+		var clothes84: int = 0
+		var hard_alpha84: bool = true
 		for y84 in m84.get_height():
 			for x84 in m84.get_width():
-				var c84 := m84.get_pixel(x84, y84)
-				if c84.a >= 0.1 and c84.s > 0.45 and absf(c84.h - 0.93) < 0.03:
+				var pixel84: Color = m84.get_pixel(x84, y84)
+				if pixel84.a > 0.5 and pixel84.to_html(false) in ["bc8261", "8a574a"]: skin84 += 1
+				if pixel84.a > 0.5 and pixel84.to_html(false) in ["b86f78", "8f5262"]: clothes84 += 1
+				if pixel84.a != 0.0 and pixel84.a != 1.0: hard_alpha84 = false
+		chk(n84 > 0 and skin84 > 8 and clothes84 > 8 and hard_alpha84,
+			"珞琳使用独立深肤色和粉色衣服, 不整体染色或柔化透明边缘")
+		var m84b: Image = (sna84.sheet_texture("Manu", "Idle.png", 6) as Texture2D).get_image()
+		m84b.convert(Image.FORMAT_RGBA8)
+		var n84b := _img_diff_count(m84b, o84)
+		chk(n84b > 0, "6 号珂丹贴图改过色 (%d / %d 不透明像素变化)" % [n84b, op84])
+		# 玫红要数「改色后比原图多了多少」—— Manu 自己的粉衣本来就带这个色相,
+		# 只看「存在玫红像素」会被原图误判成通过。e94 后玫红发 = 6 号珂丹(to 0.93)
+		var rose_m84 := 0
+		var rose_o84 := 0
+		for y84 in m84b.get_height():
+			for x84 in m84b.get_width():
+				var c84 := m84b.get_pixel(x84, y84)
+				if c84.a >= 0.1 and c84.s < 0.2 and c84.v > 0.4:
 					rose_m84 += 1
 				var c084 := o84.get_pixel(x84, y84)
-				if c084.a >= 0.1 and c084.s > 0.45 and absf(c084.h - 0.93) < 0.03:
+				if c084.a >= 0.1 and c084.s < 0.2 and c084.v > 0.4:
 					rose_o84 += 1
-		chk(rose_m84 > rose_o84, "黑发挑染出了玫红 (玫红像素 %d -> %d)" % [rose_o84, rose_m84])
+		chk(rose_m84 > rose_o84, "珂丹银白发与立绘一致 (银白像素 %d -> %d)" % [rose_o84, rose_m84])
 		chk(sna84.sheet_texture("Manu", "Idle.png", 6) == sna84.sheet_texture("Manu", "Idle.png", 6),
 			"改色贴图走缓存 (同 key 同一份)")
 		var a0_84: Image = (sna84.sheet_texture("Alex", "Idle.png", 0) as Texture2D).get_image()
@@ -8882,7 +9119,9 @@ func _ready() -> void:
 	chk(has_night88, "后处理 shader 有 night 参数（泛光/晕影/天光跟着昼夜走）")
 	chk(is_equal_approx(g._night_at(12.0), 0.0), "12 点夜度 = 0")
 	chk(is_equal_approx(g._night_at(23.0), 1.0), "23 点夜度 = 1")
-	chk(is_equal_approx(g._night_at(19.0), 0.5), "19 点（黄昏中点）夜度 = 0.5")
+	# （e108: 夜度曲线阈值对齐 day_night 的 CanvasModulate 时刻表 —— 黄昏 18~22 渐暗, 中点 20 点）
+	chk(is_equal_approx(g._night_at(20.0), 0.5), "20 点（黄昏中点）夜度 = 0.5")
+	chk(is_equal_approx(g._night_at(19.0), 0.25), "19 点（黄昏前段）夜度 = 0.25")
 	# 88g _sync_post 真的把夜度喂进材质
 	TimeManager.hour = 12
 	TimeManager.minute = 0
@@ -8893,9 +9132,228 @@ func _ready() -> void:
 	g._post_night = 0.0
 	g._sync_post(10.0)
 	chk(is_equal_approx(g._post_night, 1.0), "夜里 _sync_post 把夜度抬到 1（%f）" % g._post_night)
+	# ---- 2026-10-06 暖橘渔村：夜里"点亮的东西"从 4 处铺到十几处，纪律和色温在这儿钉住 ----
+	# 88h 点灯的"时辰"收成一个总闸（唯一真相源 = light_util.glow_hour_now，读 TONE_ADVANCE）
+	var lu88 := preload("res://scene/light_util.gd")
+	TimeManager.minute = 0
+	TimeManager.hour = 21
+	chk(lu88.glow_hour_now(), "21:00 是点灯时辰（glow_hour_now 为真）")
+	TimeManager.hour = 3
+	chk(lu88.glow_hour_now(), "凌晨 3:00 灯还亮着（天亮前不熄）")
+	TimeManager.hour = 12
+	chk(not lu88.glow_hour_now(), "正午 12:00 不点灯")
+	# 88h-2 全岛夜灯共用这一个总闸 —— 谁也别再自己写死提前量（源码护栏）
+	var watch88 := ["res://scene/lamp_node.gd", "res://scene/lighthouse_node.gd",
+		"res://scene/dock.gd", "res://scene/farm_building_node.gd", "res://scene/house.gd"]
+	var miss88: Array = []
+	for p88src in watch88:
+		if not FileAccess.get_file_as_string(p88src).contains("glow_hour_now"):
+			miss88.append(String(p88src).get_file())
+	chk(miss88.is_empty(), "五种夜灯都走同一个总闸（漏的: %s）" % str(miss88))
+	# 88h-3 旧的三份"自己算时辰"的常量必须已经清掉（防止以后又被抄回来）
+	var stale88: Array = []
+	if FileAccess.get_file_as_string("res://scene/lamp_node.gd").contains("ON_HOUR"):
+		stale88.append("lamp_node")
+	if FileAccess.get_file_as_string("res://scene/lighthouse_node.gd").contains("ON_HOUR"):
+		stale88.append("lighthouse_node")
+	if FileAccess.get_file_as_string("res://scene/dock.gd").contains("LAMP_ON"):
+		stale88.append("dock")
+	chk(stale88.is_empty(), "旧的点灯时刻常量已收干净（残留: %s）" % str(stale88))
+	# 88i "窗户没有一扇是均匀亮的"：约 1/5 黑着 + 亮度/色温逐扇抖开
+	var rng88 := RandomNumberGenerator.new()
+	rng88.seed = 12345
+	var lit88 := 0
+	var alphas88 := {}
+	var tints88 := {}
+	for i88n in 200:
+		var c88b: Color = lu88.window_tint(Color(1.0, 0.74, 0.42), rng88)
+		if c88b.a > 0.01:
+			lit88 += 1
+			alphas88[snappedf(c88b.a, 0.05)] = true
+			tints88[snappedf(c88b.g, 0.01)] = true
+	chk(lit88 >= 145 and lit88 <= 175,
+		"窗火约 1/5 黑着（屋里没人）: 200 扇里亮 %d 扇" % lit88)
+	chk(alphas88.size() >= 3, "每扇窗亮度都不一样（不是一排同款亮窗, %d 档）" % alphas88.size())
+	chk(tints88.size() >= 3, "每扇窗色温有细微差别（%d 档）" % tints88.size())
+	# 88j 暖橘主色调：营生与住家的窗都是暖的（红>蓝），书院是唯一刻意留冷的
+	var warm_bad88: Array = []
+	for k88k in [Structures.KIND_BARRACKS, Structures.KIND_MARKET,
+			Structures.KIND_BAKERY, Structures.KIND_WEAVER]:
+		var c88c: Color = Structures.TOWN_GLOW[k88k]
+		if c88c.r <= c88c.b:
+			warm_bad88.append(String(k88k))
+	chk(warm_bad88.is_empty(), "军营/市集/面包房/织造坊的窗火都是暖橘（偏冷的: %s）" % str(warm_bad88))
+	var aca88: Color = Structures.TOWN_GLOW[Structures.KIND_ACADEMY]
+	chk(aca88.b > aca88.r, "书院是唯一留冷的窗（一排暖窗夹一扇冷白才撞得住色）")
+	chk(Structures.WINDOW_GLOW_DEFAULT.r > Structures.WINDOW_GLOW_DEFAULT.b,
+		"农场建筑的默认窗火也是暖橘")
+	# 88j-2 自家外墙两扇窗（以前夜里连自己家都认不出来）
+	var wg88: Array = house88.get("_win_glows")
+	chk(wg88.size() == 2, "自家外墙上挂了 2 扇窗火（主窗 + 山墙圆窗, 实为 %d）" % wg88.size())
+	var inhouse88 := true
+	for w88s in wg88:
+		var wpos88: Vector2 = (w88s as Sprite2D).position
+		# 房身 = Exterior(0,-112) 那块 10.png 的不透明区（x 8..72 / y -110..-16）
+		if wpos88.x < 8.0 or wpos88.x > 72.0 or wpos88.y < -110.0 or wpos88.y > -16.0:
+			inhouse88 = false
+	chk(inhouse88, "两扇窗都落在屋身贴图上（不会飘到屋顶外或草地上）")
+	TimeManager.hour = 22
+	house88.call("_sync_window_glow")
+	var wlit88 := true
+	for w88s in wg88:
+		if not (w88s as Sprite2D).visible:
+			wlit88 = false
+	chk(wlit88, "深夜 22:00: 自家窗火亮着（走夜路回家认得出是哪栋）")
+	TimeManager.hour = 12
+	house88.call("_sync_window_glow")
+	var wdark88 := true
+	for w88s in wg88:
+		if (w88s as Sprite2D).visible:
+			wdark88 = false
+	chk(wdark88, "白天 12:00: 自家窗火全灭")
+	# 88k 铺面招牌灯：市集/面包房/织造坊有招牌, 农场建筑没有
+	var mk88: Node2D = load("res://scene/farm_building_node.gd").new()
+	mk88.kind = Structures.KIND_MARKET
+	mk88.cell = Vector2i(900, 900)
+	add_child(mk88)
+	await get_tree().process_frame
+	var mw88: Array = mk88.get("_windows")
+	chk(mw88.size() >= 2, "市集外墙上挂了窗火（%d 扇）" % mw88.size())
+	chk(mk88.get("_sign") != null and (mk88.get("_sign") as Sprite2D).texture != null,
+		"市集门脸挂了实体招牌（不是只有一团光）")
+	chk(mk88.get("_sign_lamp") != null, "招牌边挑了一盏灯")
+	TimeManager.hour = 22
+	mk88.call("_sync_windows")
+	chk((mk88.get("_sign_lamp") as Sprite2D).visible, "深夜: 招牌灯亮着")
+	TimeManager.hour = 12
+	mk88.call("_sync_windows")
+	chk(not (mk88.get("_sign_lamp") as Sprite2D).visible, "白天: 招牌灯熄了")
+	var barn88: Node2D = load("res://scene/farm_building_node.gd").new()
+	barn88.kind = Structures.KIND_BARN
+	barn88.cell = Vector2i(900, 920)
+	add_child(barn88)
+	await get_tree().process_frame
+	chk(barn88.get("_sign") == null, "畜棚不挂铺面招牌（只有做买卖的才有门脸）")
+	chk((barn88.get("_windows") as Array).size() >= 2, "畜棚也有窗火（住家/栏舍夜里都该有灯）")
+	mk88.queue_free()
+	barn88.queue_free()
+	await get_tree().process_frame
+	# 88l 灯火柔光的"基准透明度"别被 _process 的抖动顶满（2026-10-06 修过的过曝 bug）
+	#   抖动必须是**围绕**基准 alpha 呼吸。早先写成 `_glow.modulate.a = f`（f≈1.0）等于把
+	#   0.22 顶成满不透明 —— 加法混合下就是一坨死黄的圆盘, 夜景探针一照就现形。
+	chk(FileAccess.get_file_as_string("res://scene/lamp_node.gd").contains("GLOW_ALPHA * f"),
+		"路灯柔光抖动围绕基准呼吸（不是 = f 顶满）")
+	chk(FileAccess.get_file_as_string("res://scene/dock.gd").contains("LAMP_GLOW_ALPHA * f"),
+		"栈桥灯柔光抖动围绕基准呼吸（不是 = f 顶满）")
+	TimeManager.hour = 22
+	TimeManager.minute = 0
+	var lp88: Node2D = load("res://scene/lamp_node.gd").new()
+	lp88.cell = Vector2i(901, 901)
+	add_child(lp88)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var lg88: Sprite2D = lp88.get("_glow")
+	var la88: float = lg88.modulate.a if lg88 != null else 0.0
+	chk(lg88 != null and lg88.visible, "深夜路灯柔光点亮")
+	chk(la88 > 0.05 and la88 < 0.5,
+		"路灯柔光透明度停在基准附近（%.2f），没被抖动顶成满不透明（过曝）" % la88)
+	lp88.queue_free()
+	await get_tree().process_frame
 	# 还原现场
 	TimeManager.hour = hour_bak88
 	TimeManager.minute = minute_bak88
+
+	# ============ 88e89. TLN 镜头语言 + 转场 + 分级（2026-10-06 e89 批次）============
+	print("\n=== 88e89. TLN: 镜头语言/转场/分级/粒子 ===")
+	# a) 光影柔化: 影缘 smooth 6.0 + 影色透 0.38（用户报「遮挡太生硬」）
+	var lu89 := preload("res://scene/light_util.gd")
+	var probe89: PointLight2D = lu89.make_light(Color(1, 1, 1), 1.0, 1.0)
+	chk(probe89.shadow_filter == PointLight2D.SHADOW_FILTER_PCF13
+		and probe89.shadow_filter_smooth >= 5.0 and probe89.shadow_color.a <= 0.45,
+		"灯光影缘软化 (smooth=%.1f, 影色 a=%.2f, 不再纸片剪切)"
+			% [probe89.shadow_filter_smooth, probe89.shadow_color.a])
+	probe89.free()
+	# b) 转场: 圆形 iris（断言在 §106 处, 这里补运行时: 收黑后 force_black=1 已由 h4 验证）
+	chk(FileAccess.file_exists("res://scene/ui_anim.gd"), "UI 开合动画公用件在场 (e89)")
+	chk(FileAccess.get_file_as_string("res://backpack_ui.gd").contains("ui_anim.gd")
+		and FileAccess.get_file_as_string("res://shop_ui.gd").contains("ui_anim.gd")
+		and FileAccess.get_file_as_string("res://cheat_ui.gd").contains("ui_anim.gd"),
+		"背包/商店/作弊面板打开时走 pop_in 弹出 (e89)")
+	# c) 镜头语言: 前视偏移 + 运镜件 + letterbox
+	var src89 := FileAccess.get_file_as_string("res://scene/game.gd")
+	chk(src89.contains("func _tick_camera_look") and src89.contains("func _cinematic_pan")
+		and src89.contains("func _build_cinematic") and src89.contains("_build_gulls()"),
+		"game 挂着前视偏移/电影运镜/letterbox/海鸥四件 (e89)")
+	chk(FileAccess.get_file_as_string("res://recruits.gd").contains("signal recruited"),
+		"招募交付发 recruited 信号（运镜挂点）(e89)")
+	chk(FileAccess.file_exists("res://scene/gull.gd"), "海鸥脚本在场 (e89)")
+	# d) 水面拉丝: 路灯带 _build_streak
+	chk(FileAccess.get_file_as_string("res://scene/lamp_node.gd").contains("_build_streak")
+		and FileAccess.get_file_as_string("res://scene/lamp_node.gd").contains("STREAK_ALPHA"),
+		"路灯有水面拉丝件（岸边灯往水里拖暖反光）(e89)")
+	# e) 分级: 雨天把高光/柔光往青灰推（shader 内 wet 插值）
+	var shader89 := FileAccess.get_file_as_string("res://scene/fx_post.gdshader")
+	chk(shader89.contains("wet * 0.7") and shader89.contains("wet * 0.6")
+		and shader89.contains("night * wet * 0.12"),
+		"后处理分级: 雨天青灰 + 夜/雨晕影收紧 (e89)")
+	chk(FileAccess.get_file_as_string("res://scene/house.gd").contains("_build_smoke"),
+		"炊烟照旧在冒（烟囱 q3 件未回归）(e89)")
+
+	# ============ 88e90. 风格化批次: 木板UI/手绘转场/招牌摆 ============
+	# （e107: 角色夜间轮廓光(rim 金边)已按作者要求整体拆除 —— 留护栏防复活）
+	print("\n=== 88e90. 风格化: 木板UI/手绘转场/招牌摆 ===")
+	# a) rim 拆除护栏: light_util 不再出 rim 件, 主角/伙伴不再挂描边层
+	var lu90s: Script = preload("res://scene/light_util.gd")
+	var src_lu90 := FileAccess.get_file_as_string("res://scene/light_util.gd")
+	chk(not src_lu90.contains("rim_material") and not src_lu90.contains("_RIM_FRAG")
+		and not src_lu90.contains("rim_dark_enough") and not src_lu90.contains("tone_comp"),
+		"rim 件已从 light_util 拆除 (e107)")
+	var src_pl107 := FileAccess.get_file_as_string("res://scene/player.gd")
+	var src_sn107 := FileAccess.get_file_as_string("res://scene/slave_npc.gd")
+	chk(not src_pl107.contains("_build_rim") and not src_pl107.contains("_sync_rim")
+		and not src_sn107.contains("_build_rim") and not src_sn107.contains("_sync_rim"),
+		"主角与伙伴的夜间金边层已拆除 (e107)")
+	# b) 木板面板: 公用件在场 + 三大主面板都换掉 + 贴图真能生成
+	chk(FileAccess.file_exists("res://wood_panel.gd"), "木板面板公用件在场 (e90)")
+	chk(FileAccess.get_file_as_string("res://scene/battle_cards.gd").contains("wood_panel.gd"),
+		"战斗桌面复用程序木板 (e90/e92)")
+	# e109 回退 material: 背包/商店/作弊主底板退回半透明底板（用户点名回到最开始的样子）
+	chk(not FileAccess.get_file_as_string("res://backpack_ui.gd").contains("wood_panel")
+		and not FileAccess.get_file_as_string("res://shop_ui.gd").contains("wood_panel")
+		and not FileAccess.get_file_as_string("res://cheat_ui.gd").contains("wood_panel"),
+		"背包/商店/作弊主底板不再用木板材质 (e109)")
+	var wp90: Script = preload("res://wood_panel.gd")
+	var wtex90: Texture2D = wp90.tex()
+	chk(wtex90 != null and wtex90.get_width() >= 96 and wtex90.get_height() >= 96,
+		"木板贴图为程序生成 96x96 (e90)")
+	var wst90: StyleBoxTexture = wp90.style()
+	chk(wst90.texture == wtex90
+		and wst90.texture_margin_left > 0.0 and wst90.texture_margin_bottom > 0.0,
+		"木板 StyleBoxTexture 九宫格边距有效（随板高自适应）(e90/material)")
+	# e98: 木色照抄参考图（暖橙木）+ 画框衬纸换羊皮纸材质
+	var wpx98 := FileAccess.get_file_as_string("res://wood_panel.gd")
+	chk(wpx98.contains("a1572a") and wpx98.contains("d29151"),
+		"木板色板照抄参考图框木（暖橙 #a1572a/#d29151）(e98)")
+	chk(FileAccess.file_exists("res://parchment.gd")
+		and FileAccess.get_file_as_string("res://wood_frame.gd").contains("parchment.gd"),
+		"羊皮纸公用件在场, 画框衬纸平铺羊皮纸材质 (e98)")
+	var ptex98: Texture2D = (load("res://parchment.gd") as Script).tex()
+	chk(ptex98 != null and ptex98.get_width() >= 96,
+		"羊皮纸贴图为程序生成 96x96 (e98)")
+	# e109 回退 material: 参考图九宫格/裁块整体退场（画框回到纯程序绘制, 不再读 resources/ui）
+	chk(not FileAccess.get_file_as_string("res://wood_frame.gd").contains("ui_frame")
+		and not FileAccess.file_exists("res://resources/ui/ui_frame.png"),
+		"画框回退纯程序绘制, 参考图裁块已退场 (e109)")
+	# c) 手绘转场: 圆边带手抖 wob + 暖墨色
+	var iw90 := FileAccess.get_file_as_string("res://scene/iris_wipe.gd")
+	chk(iw90.contains("wob") and iw90.contains("0.045"),
+		"转场圆边带手抖 wob（不再数学圆）(e90)")
+	chk(String(iw90).contains("0.055, 0.045, 0.038"),
+		"转场幕色换暖墨（收进木匣, 不掺夜蓝）(e90)")
+	# d) 招牌风摆: 绕吊杆打摆, 风雨天更凶
+	var fb90 := FileAccess.get_file_as_string("res://scene/farm_building_node.gd")
+	chk(fb90.contains("_sign.rotation") and fb90.contains("_wind_t"),
+		"招牌随风打摆（相位错开, 风雨加幅）(e90)")
 
 	# ============ 89. e32 中后期任务指引（毕业条件 + 第二段指引链） ============
 	print("\n=== 89. e32: 中后期任务指引 ===")
@@ -8907,16 +9365,15 @@ func _ready() -> void:
 			msd_bak89.append(String(mm89["id"]))
 	var fish_bak89: bool = Quests._fish_first
 	# 89a 链完整性: explore_island 一路串到 siege_first, 链尾无下一环
-	var mid_ids89 := ["explore_island", "build_first", "mine_first", "tech_first",
-		"sail_first", "navy_first", "contract_first", "siege_first"]
+	var mid_ids89 := ["build_first", "mine_first", "tech_first", "sail_first"]
 	var chain_ok89 := true
 	for i89a in mid_ids89.size() - 1:
 		if not Quests._MID_CHAIN.has(String(mid_ids89[i89a])):
 			chain_ok89 = false
 		elif String((Quests._MID_CHAIN[String(mid_ids89[i89a])] as Array)[0]) != String(mid_ids89[i89a + 1]):
 			chain_ok89 = false
-	chk(chain_ok89, "中后期链 explore_island -> ... -> siege_first 首尾相连")
-	chk(not Quests._MID_CHAIN.has("siege_first"), "siege_first 是中后期链尾")
+	chk(chain_ok89, "经营链 build_first -> mine_first -> tech_first -> sail_first 首尾相连")
+	chk(not Quests._MID_CHAIN.has("sail_first"), "首次航行后不自动要求打仗")
 	chk(not Quests._CHAIN.has("explore_island"), "explore_island 仍然不在第一周链里")
 	# 89b 每环标题/描述都不空
 	var txt_ok89 := true
@@ -8932,15 +9389,15 @@ func _ready() -> void:
 	Quests.start_guide()
 	for id89a in early89:
 		Quests.complete(String(id89a))
-	chk(Quests.has_active("explore_island") and not Quests.milestones_enabled(),
-		"链走到「去水边钓条鱼」, 这时还没毕业")
+	chk(Quests.has_active("build_first") and Quests.milestones_enabled(),
+		"首次售卖即可毕业, 不等待钓鱼")
 	Quests.note_first_fish()
 	chk(not Quests.has_active("explore_island"), "钓上第一条鱼 -> explore_island 完成")
 	chk(Quests.milestones_enabled(), "毕业 -> 里程碑系统开闸")
 	chk(Quests.has_active("build_first"), "毕业 -> 接上中后期链第一环「盖起第一座建筑」")
 	# 89d 中后期链一环一环推到底
 	var step_ok89 := true
-	for i89b in range(1, mid_ids89.size()):
+	for i89b in range(0, mid_ids89.size()):
 		var cur89 := String(mid_ids89[i89b])
 		if not Quests.has_active(cur89):
 			step_ok89 = false
@@ -8949,8 +9406,8 @@ func _ready() -> void:
 		if i89b < mid_ids89.size() - 1 and not Quests.has_active(String(mid_ids89[i89b + 1])):
 			step_ok89 = false
 			break
-	chk(step_ok89, "中后期链一环一环推到底（8 环）")
-	chk(not Quests.has_active("siege_first"), "链尾完成后本环销案")
+	chk(step_ok89, "经营链一环一环推到底（4 环）")
+	chk(not Quests.has_active("sail_first") and not Quests.has_active("navy_first"), "航行完成不强推战争任务")
 	# 89e 先钓鱼、后走到链尾: 链走到 explore_island 时补毕业
 	Quests.reset_all()
 	Quests.start_guide()
@@ -9738,13 +10195,17 @@ func _ready() -> void:
 		if not nn96.contains(w96):
 			wire96.append("nations.gd 少了 %s" % w96)
 	var hs96 := FileAccess.get_file_as_string("res://scene/house.gd")
-	for w96 in ["_try_rod_story()", "Cutscenes.play(\"goblin_rod\")", "flag_set(\"goblin_rod\")",
+	for w96 in ["_try_rod_story()", "play_directed(script, _finish_rod_story)", "flag_set(\"goblin_rod\")",
 			"TimeManager.day < 2"]:
 		if not hs96.contains(w96):
 			wire96.append("house.gd 少了 %s" % w96)
 	var sp96 := FileAccess.get_file_as_string("res://shop_ui.gd")
+	var ts96 := FileAccess.get_file_as_string("res://trade_stock.gd")
 	for w96 in ["\"locked_by\": \"goblin_rod\"", "STORY.flag_get(lock)", "(未上架)"]:
-		if not sp96.contains(w96):
+		if w96 == "\"locked_by\": \"goblin_rod\"":
+			if not ts96.contains(w96) and not sp96.contains(w96):
+				wire96.append("trade_stock/shop 少了 %s" % w96)
+		elif not sp96.contains(w96):
 			wire96.append("shop_ui.gd 少了 %s" % w96)
 	chk(wire96.is_empty(), "鱼竿剧情 / 国度过场的接线都在源码里 (问题 %s)" % str(wire96))
 
@@ -10556,8 +11017,9 @@ func _ready() -> void:
 
 	# 103i 源码护栏：game.gd 真把这批建筑接上了
 	var gg103 := FileAccess.get_file_as_string("res://scene/game.gd")
-	chk(gg103.count("is_farm_kind") >= 3,
-		"game.gd 认得出这批建筑：建成节点 / 预览 / 地基 / F 兜底（%d 处）" % gg103.count("is_farm_kind"))
+	var bld_refs103 := gg103.count("is_bld_kind") + gg103.count("is_farm_kind")
+	chk(bld_refs103 >= 3,
+		"game.gd 认得出这批建筑：建成节点 / 预览 / 地基 / F 兜底（%d 处）" % bld_refs103)
 	chk(gg103.contains("farm_footprint"), "game.gd 的地基表跟着 structures.gd 的 FARM_FOOT 走")
 	chk(gg103.contains("make_animal_produce"), "game.gd 每天早上结算畜产（不然棚里永远空着）")
 	chk(gg103.contains("interact_farm"), "game.gd 的 F 派发留了一层兜底（不赌 _unhandled_input 顺序）")
@@ -10568,6 +11030,110 @@ func _ready() -> void:
 	Structures.remove(mill103)
 	Structures.remove(silo103)
 	Structures.remove(gh103)
+
+	# ============ 103j. 城镇功能建筑 (2026-10-06: 每座都切割了一条既有机制) ============
+	print("---- 103j. 城镇功能建筑 / 建筑即解锁器 ----")
+	var admins_bak103j: Dictionary = Research.admins.duplicate()
+	var techs_bak103j: Dictionary = Research.techs.duplicate()
+	var stations_bak103j: Dictionary = Structures.stations.duplicate(true)
+	# 清干净: 行政/科技清空, 岛上没有军营/书院/市集/灯塔/面包房/织造坊
+	for id103j in Research.admins.keys():
+		Research.admins.erase(String(id103j))
+	for id103j2 in Research.techs.keys():
+		Research.techs.erase(String(id103j2))
+	var tc103j := {
+		Structures.KIND_BARRACKS: Vector2i(90, 38),
+		Structures.KIND_ACADEMY: Vector2i(108, 38),
+		Structures.KIND_MARKET: Vector2i(126, 38),
+		Structures.KIND_LIGHTHOUSE: Vector2i(144, 38),
+		Structures.KIND_BAKERY: Vector2i(162, 38),
+		Structures.KIND_WEAVER: Vector2i(180, 38),
+	}
+	for kk103j in tc103j.keys():
+		if Structures.has_station(tc103j[kk103j]):
+			Structures.remove(tc103j[kk103j])
+
+	# 地基表: 城镇建筑各有自己的 footprint（不动 game 的老分支, 走 TOWN_FOOT 表）
+	var fp_bk103j: Array = g.building_footprint(tc103j[Structures.KIND_BARRACKS], Structures.KIND_BARRACKS)
+	var fp_lh103j: Array = g.building_footprint(tc103j[Structures.KIND_LIGHTHOUSE], Structures.KIND_LIGHTHOUSE)
+	chk(fp_bk103j.size() == 10, "军营占 5x2 = 10 格地基（实际 %d）" % fp_bk103j.size())
+	chk(fp_lh103j.size() == 4, "灯塔占 2x2 = 4 格地基（实际 %d）" % fp_lh103j.size())
+	chk(Structures.is_town_kind(Structures.KIND_MARKET) \
+		and Structures.is_bld_kind(Structures.KIND_MARKET) \
+		and not Structures.is_farm_kind(Structures.KIND_MARKET),
+		"市集归「城镇建筑」而不是「农场建筑」（分类不打架）")
+
+	# —— 军营: 把「部队牌」从纯研究里切割出来 ——
+	chk(not CARDSD.deck_unlocked("u_axeman"), "没研究 + 没军营: 部队牌编不进（双门槛）")
+	Research.techs["axe"] = true      # u_axeman 的 req="axe" 是科技树条目, 不是行政
+	chk(not CARDSD.deck_unlocked("u_axeman"), "研究了「斧」但没军营: 还是编不进（军营才是门槛）")
+	chk(Structures.place(tc103j[Structures.KIND_BARRACKS], Structures.KIND_BARRACKS, true),
+		"盖起一座军营")
+	chk(Structures.has_built_kind(Structures.KIND_BARRACKS), "has_built_kind 认得出军营")
+	chk(CARDSD.deck_unlocked("u_axeman"), "军营 + 研究: 部队牌解锁了")
+
+	# —— 书院: 法术牌门槛（跟军营同一套双源判定） ——
+	chk(not CARDSD.deck_entry_unlocked("m_fert"), "没书院: 法术牌编不进")
+	Research.techs["fert"] = true
+	chk(not CARDSD.deck_entry_unlocked("m_fert"), "研究了但没书院: 法术牌还是编不进")
+	chk(Structures.place(tc103j[Structures.KIND_ACADEMY], Structures.KIND_ACADEMY, true),
+		"盖起一座书院")
+	chk(CARDSD.deck_entry_unlocked("m_fert"), "书院 + 科技: 法术牌解锁了")
+
+	# —— 市集: 售卖箱「海外贸易」渠道的门槛 ——
+	chk(not Structures.can_sea_trade(), "没市集: 海外贸易渠道关着")
+	chk(Structures.place(tc103j[Structures.KIND_MARKET], Structures.KIND_MARKET, true),
+		"盖起一座市集")
+	chk(Structures.can_sea_trade(), "有市集: 海外贸易渠道打开")
+
+	# —— 灯塔: 地标, 每天早上的声望来源（game._on_day_ended 里读 has_built_kind） ——
+	chk(not Structures.has_built_kind(Structures.KIND_LIGHTHOUSE), "还没灯塔")
+	chk(Structures.place(tc103j[Structures.KIND_LIGHTHOUSE], Structures.KIND_LIGHTHOUSE, true),
+		"盖起一座灯塔")
+	chk(Structures.has_built_kind(Structures.KIND_LIGHTHOUSE), "灯塔建成")
+	var gg103j := FileAccess.get_file_as_string("res://scene/game.gd")
+	chk(gg103j.contains("KIND_LIGHTHOUSE") and gg103j.contains("add_prestige"),
+		"game.gd 认得出灯塔, 且每天加声望（没这行地标就白盖）")
+
+	# —— 面包房: 面粉 x2 -> 面包（磨坊的下游） ——
+	var flour103j: ItemData = load("res://item/flour.tres")
+	var bread103j: ItemData = load("res://item/bread.tres")
+	Inventory.remove_item(flour103j, Inventory.count_item(flour103j))
+	Inventory.remove_item(bread103j, Inventory.count_item(bread103j))
+	Inventory.add_item(flour103j, 5)
+	chk(Structures.place(tc103j[Structures.KIND_BAKERY], Structures.KIND_BAKERY, true),
+		"盖起一座面包房")
+	chk(Structures.bakery_bake(tc103j[Structures.KIND_BAKERY]) == 2,
+		"5 袋面粉 -> 2 个面包（整批, 剩 1 袋）")
+	chk(Inventory.count_item(flour103j) == 1, "面粉剩 1 袋")
+	chk(Inventory.count_item(bread103j) == 2, "背包里 2 个面包")
+	Inventory.remove_item(bread103j, Inventory.count_item(bread103j))
+	Inventory.remove_item(flour103j, Inventory.count_item(flour103j))
+
+	# —— 织造坊: 羊毛 x3 -> 布 ——
+	var wool103j: ItemData = load("res://item/wool.tres")
+	var cloth103j: ItemData = load("res://item/cloth.tres")
+	Inventory.remove_item(wool103j, Inventory.count_item(wool103j))
+	Inventory.remove_item(cloth103j, Inventory.count_item(cloth103j))
+	Inventory.add_item(wool103j, 7)
+	chk(Structures.place(tc103j[Structures.KIND_WEAVER], Structures.KIND_WEAVER, true),
+		"盖起一座织造坊")
+	chk(Structures.weaver_weave(tc103j[Structures.KIND_WEAVER]) == 2,
+		"7 份羊毛 -> 2 匹布（整批, 剩 1 份）")
+	chk(Inventory.count_item(cloth103j) == 2, "背包里 2 匹布")
+	Inventory.remove_item(cloth103j, Inventory.count_item(cloth103j))
+	Inventory.remove_item(wool103j, Inventory.count_item(wool103j))
+
+	# 收尾: 拆掉自己盖的六座, 还原行政/科技/建筑
+	for kk103j2 in tc103j.keys():
+		if Structures.has_station(tc103j[kk103j2]):
+			Structures.remove(tc103j[kk103j2])
+	await get_tree().process_frame
+	Research.admins = admins_bak103j
+	Research.techs = techs_bak103j
+	Structures.stations = stations_bak103j
+	chk(Structures.stations.size() == stations_bak103j.size(),
+		"103j 收尾: 建筑表还原到测试前（%d 座）" % Structures.stations.size())
 
 	print("\n=== 104. 卡牌战斗 (KARDS 式) ===")
 	# 规则红线：主角只是统帅不出场、无英雄技能；只比大营血量；回合结束自动开打。
@@ -10742,6 +11308,10 @@ func _ready() -> void:
 	# g2 修: 支援线攻击有统一拦截 (点选流下从敌格/敌情条都发不起非射手攻击)
 	var bc_g2 := FileAccess.get_file_as_string("res://scene/battle_cards.gd")
 	chk(bc_g2.contains("支援线只有射手能发起攻击"), "支援线攻击有统一拦截 (g2)")
+	# e97: 拖拽攻击瞄准线 + 松手即结算 + 结束回合大按钮带空格提示
+	chk(bc_g2.contains("func _aim_release") and bc_g2.contains("func _aim_target_at")
+		and bc_g2.contains("func _aim_try_begin") and bc_g2.contains("结束回合 (空格)"),
+		"拖拽攻击瞄准线 + 松手结算 + 结束回合大按钮 (e97)")
 	# 敌前线清空后: 目标有大营, 敌支援线部队也在射程内
 	cb104._front[1] = null
 	var camp_t104: Array = cb104._attack_targets(me104)
@@ -10801,9 +11371,10 @@ func _ready() -> void:
 	cb104._front[3] = my_fencer2_104
 	my_fencer2_104["acted"] = false
 	cb104._cost = 5
-	chk(cb104._do_attack("my", "front", 3, {"side": "foe", "row": "front", "idx": 0})
-		and int(foe_guard104["hp"]) == 1 and int(my_fencer2_104["hp"]) == 5,
-		"守护格挡: 攻击落空且目标不还手 (j2)")
+	chk(not cb104._do_attack("my", "front", 3, {"side": "foe", "row": "front", "idx": 0})
+		and int(foe_guard104["hp"]) == 1 and int(my_fencer2_104["hp"]) == 5
+		and cb104._cost == 5 and not bool(my_fencer2_104["acted"]),
+		"受守护目标不可误选, 不消耗费用与行动")
 	var foe_slayer104: Dictionary = cb104._new_unit(CARDSD.unit_card("斩杀者", 1, 4, 3, ""), "foe")
 	cb104._front[4] = foe_slayer104
 	var my_pawn104: Dictionary = cb104._new_unit(CARDSD.unit_card("小兵", 1, 1, 2, ""))
@@ -10968,7 +11539,7 @@ func _ready() -> void:
 		and ResourceLoader.exists(CARDSD.ART_DIR + "s_fire_icon.png"),
 		"立绘命名规矩: u_<阵营>_<兵种> / s_<法术id>, 带 _card / _icon 后缀")
 	var img104 := (CARDSD.art_of(CARDSD.summon_card(), "my") as Texture2D).get_image()
-	chk(img104.get_width() == 76 and img104.get_height() == 84, "手牌立绘图就是 76x84 (1:1 上屏不缩放)")
+	chk(img104.get_width() == 96 and img104.get_height() == 80, "像素卡面插画统一为 96x80, 文字独立排版")
 	var src104 := FileAccess.get_file_as_string("res://resources/cards_src/SOURCES.txt")
 	chk(src104.contains("CC0") or src104.to_lower().contains("public domain"),
 		"素材来源登记着 CC0 / Public Domain")
@@ -10993,38 +11564,38 @@ func _ready() -> void:
 		and not bc104.contains("_wall_poly"),
 		"战斗背景是 KARDS 式桌面（木桌 + 桌垫, 旧远景剪影已删）")
 	# 字与框重叠修复: 敌情条文字让开旗面 / 大营旗收进面板内 / 手牌扇形收窄
-	chk(bc104.contains("Vector2(34, 4)") and bc104.contains("Vector2(150, 40), 34.0")
+	chk(bc104.contains("Vector2(34, 4)") and bc104.contains("Vector2(146, 40), 34.0")
 		and bc104.contains("total > 700.0"),
 		"战斗 UI 字不压框（敌情条避旗 / 大营旗入面板 / 手牌扇形收窄）")
 
 	# ===== 105. 婚恋系统 =====
 	print("\n=== 105. 婚恋系统 ===")
 	# 105.1 数据层
-	chk(Marriage.is_bride("rq_01") and not Marriage.is_bride("rq_00"), "只有女性可结婚（咪露可, 布恩不可）")
+	chk(Marriage.is_bride("rq_00") and not Marriage.is_bride("rq_01"), "只有女性可结婚（咪露可, 布恩不可）")
 	chk(Marriage.BRIDES.size() == 6 and Marriage.HEART_STEPS == [2, 4, 6, 8, 10],
 		"婚恋数据层: 6 位可结婚 + 5 段心意门槛 2/4/6/8/10")
-	chk(not Marriage.can_heart_talk("rq_01", 0) and Marriage.can_heart_talk("rq_01", 2),
+	chk(not Marriage.can_heart_talk("rq_00", 0) and Marriage.can_heart_talk("rq_00", 2),
 		"心里话门槛: 0 好感不行, 2 好感开讲")
 	for i54 in 5:
-		Marriage.do_heart_talk("rq_01")
-	chk(Marriage.stage("rq_01") == 5 and Marriage.stage_full("rq_01"), "五段心里话看完 stage_full")
-	chk(Marriage.can_propose("rq_01", 10, false) == false
-		and Marriage.can_propose("rq_01", 9, true) == false
-		and Marriage.can_propose("rq_01", 10, true),
+		Marriage.do_heart_talk("rq_00")
+	chk(Marriage.stage("rq_00") == 5 and Marriage.stage_full("rq_00"), "五段心里话看完 stage_full")
+	chk(Marriage.can_propose("rq_00", 10, false) == false
+		and Marriage.can_propose("rq_00", 9, true) == false
+		and Marriage.can_propose("rq_00", 10, true),
 		"求婚条件: 满好感 10 + 有戒指, 缺一不可")
-	Marriage.marry("rq_01", 33)
-	chk(Marriage.is_married_to("rq_01") and Marriage.wife_name() == "咪露", "能娶咪露")
+	Marriage.marry("rq_00", 33)
+	chk(Marriage.is_married_to("rq_00") and Marriage.wife_name() == "咪露", "能娶咪露")
 	chk(absf(Marriage.perk_mult("atk") - 2.0) < 0.001
 		and Marriage.ally_atk_bonus() == 2
 		and absf(Marriage.perk_mult("voyage") - 1.0) < 0.001,
 		"婚联 perk: 咪露 atk 2.0 / 伙伴攻击 +2, 未婚键 1.0")
-	chk(not Marriage.can_heart_talk("rq_01", 99) and not Marriage.can_propose("rq_01", 99, true),
+	chk(not Marriage.can_heart_talk("rq_00", 99) and not Marriage.can_propose("rq_00", 99, true),
 		"婚后不再触发心里话/求婚")
 	var sv54: Dictionary = Marriage.to_dict()
 	Marriage.reset()
-	chk(Marriage.wife_name() == "" and Marriage.stage("rq_01") == 0, "reset 清空婚恋状态")
+	chk(Marriage.wife_name() == "" and Marriage.stage("rq_00") == 0, "reset 清空婚恋状态")
 	Marriage.from_dict(sv54)
-	chk(Marriage.is_married_to("rq_01") and Marriage.stage("rq_01") == 5, "婚恋存档往返")
+	chk(Marriage.is_married_to("rq_00") and Marriage.stage("rq_00") == 5, "婚恋存档往返")
 	for i54 in 5:
 		Marriage.do_heart_talk("rq_03")
 	Marriage.marry("rq_03", 40)
@@ -11042,7 +11613,7 @@ func _ready() -> void:
 	var sm54: Script = load("res://scripts_marriage.gd")
 	var sc54_ok := true
 	var bad54: Array = []
-	for bid54 in ["rq_01", "rq_02", "rq_03", "rq_05", "rq_06", "rq_07"]:
+	for bid54 in ["rq_00", "rq_02", "rq_03", "rq_05", "rq_06", "rq_07"]:
 		var bidx54 := int(bid54.substr(3))
 		for st54 in 5:
 			if sm54.heart_script(bidx54, st54).is_empty():
@@ -11059,17 +11630,17 @@ func _ready() -> void:
 				bad54.append_array(missing_glyphs(str(row54["name"]) + str(row54["text"])))
 	chk(sc54_ok, "6 位心意线 5 段 + 求婚 + 婚礼剧本全齐")
 	chk(bad54.is_empty(), "婚恋剧本无缺字形")
-	chk(sm54.heart_script(0, 0).is_empty() and sm54.propose_script(0).is_empty()
-		and sm54.wedding_script(0).is_empty(),
+	chk(sm54.heart_script(1, 0).is_empty() and sm54.propose_script(1).is_empty()
+		and sm54.wedding_script(1).is_empty(),
 		"男性角色没有婚恋剧本（布恩三种全空）")
-	var h054: Array = sm54.heart_script(1, 0)
+	var h054: Array = sm54.heart_script(0, 0)
 	var whos54: Array = []
 	for row54 in h054:
 		if str(row54.get("fx", "")) == "show":
 			whos54.append(str(row54["who"]))
 	chk(h054.size() > 0 and str(h054[0].get("scene", "")) == "camp"
-		and whos54 == ["s01", "you"],
-		"心里话剧本: 篝火夜开场 + 立绘键 s01/you")
+		and whos54 == ["s00", "you"],
+		"心里话剧本: 篝火夜开场 + 立绘键 s00/you")
 	# 105.4 入伙长剧本
 	var rec54: Script = load("res://recruits.gd")
 	chk(rec54.JOINS.size() == 8, "8 位伙伴都有专属入伙长剧本")
@@ -11088,8 +11659,35 @@ func _ready() -> void:
 		and FileAccess.get_file_as_string("res://recruits.gd").contains("func join_script"),
 		"篝火入伙接了导演模式演出")
 	var sd54: Control = g.story_dialogue_panel
-	chk(sd54 != null and sd54.has_method("play_directed") and load("res://cg_view.gd") != null,
-		"导演模式演出可播（story_dialogue + cg_view）")
+	chk(sd54 != null and sd54.has_method("play_directed") and load("res://live_view.gd") != null
+		and load("res://cg_view.gd") != null,
+		"导演模式演出可播（story_dialogue + live_view 实机舞台, cg_view 留档可回滚）")
+	# ============ e100. 实机演出舞台（星露谷式就地演出） ============
+	var lv100 := FileAccess.get_file_as_string("res://live_view.gd")
+	chk(lv100.contains("func fx(") and lv100.contains("func close_stage()"),
+		"实机舞台与 cg_view 同接口 (fx/close_stage)")
+	chk(lv100.contains("is_in_group(\"game\")"),
+		"实机舞台只接管 current_scene=游戏本尊 (自检里的 game 实例不接管)")
+	chk(FileAccess.get_file_as_string("res://scene/slave_npc.gd").contains("cs_frozen")
+		and FileAccess.get_file_as_string("res://scene/slave_npc.gd").contains("cs_target"),
+		"伙伴可被实机演出冻结/走位 (cs_frozen/cs_target)")
+	chk(FileAccess.get_file_as_string("res://scene/player.gd").contains("_cs_walk"),
+		"主角可被实机演出走位 (_cs_walk)")
+	chk(FileAccess.get_file_as_string("res://story_dialogue.gd").contains("live_view.gd"),
+		"导演模式换台到实机舞台 (story_dialogue -> live_view)")
+	# ============ e101. 转场动画 + 舞台隔离 ============
+	chk(lv100.contains("_enter_stage") and lv100.contains("func _isolate()")
+		and lv100.contains("func _restore_all()"),
+		"实机演出带转场黑幕: 清场(_isolate)/复位(_restore_all) 齐备")
+	chk(lv100.contains("Merchant") and lv100.contains("Critters"),
+		"清场会藏掉摊贩与小动物 (Merchant/Critters)")
+	chk(lv100.contains("who == \"goblin\""),
+		"哥布林摊主可当演员 (Merchant 实体)")
+	chk(FileAccess.get_file_as_string("res://scene/game.gd").contains("序章"),
+		"开局序章走实机演出 (game._play_opening)")
+	chk(FileAccess.get_file_as_string("res://cutscenes.gd").contains("_play_live")
+		and FileAccess.get_file_as_string("res://cutscenes.gd").contains("finished.emit()"),
+		"国家过场岛上改播实机并补发收片信号 (_play_live/finished)")
 	# 105.5 dialogue_ui 婚恋按钮
 	var dp54: Control = g.dialogue_panel
 	var hb54: Button = dp54.get("_heart_btn")
@@ -11112,7 +11710,7 @@ func _ready() -> void:
 		"主角提灯光圈已删干净 (g3, 防回归)")
 	# d4: 婚戒徽章（未婚隐藏 / 结婚亮出 / 悬停看加成）
 	chk(g._wedding_badge != null and not g._wedding_badge.visible, "未婚: 婚戒徽章隐藏 (d4)")
-	Marriage.marry("rq_01", 33)
+	Marriage.marry("rq_00", 33)               # e94 对调后咪露 = rq_00
 	var pv106: TextureRect = g._wedding_badge.get_node("Row/WifePortrait")
 	var rn106: TextureRect = g._wedding_badge.get_node("Row/RingIcon")
 	chk(g._wedding_badge.visible and pv106.texture != null and rn106.texture != null
@@ -11158,13 +11756,65 @@ func _ready() -> void:
 		chk(FileAccess.get_file_as_string(f106).contains("iris_wipe.gd"), "转场衔接: %s 走 iris 收黑 (d9)" % f106)
 	chk(FileAccess.get_file_as_string("res://voyage.gd").contains("IRIS.play(\"out\""),
 		"进战斗/切海图/回岛全走 iris 衔接 (d10)")
-	# g4 重做: 纯黑 ColorRect 只动 alpha, 转场重入进 _queue 排队, mid 全在纯黑窗口同步放
-	#     (旧 shader 圆幕羽化边遮不死 + 重入立即放 mid 会画面突变, 都不许回来)。
+	# g4/e89 重做: 圆形 iris（宝可梦/星露谷式）+ 黑幕补刀。旧 g4 弃 shader 是因羽化边遮不死;
+	#     e89 改「shader 圆洞 + force_black 补刀」: 收拢完把黑幕拉满才放 mid, 遮死问题已解。
 	var iw_g4 := FileAccess.get_file_as_string("res://scene/iris_wipe.gd")
-	chk(not iw_g4.contains(".gdshader") and not iw_g4.contains("ShaderMaterial"),
-		"转场不用圆幕 shader, 纯黑幕淡入淡出 (g4)")
+	chk(iw_g4.contains("ShaderMaterial") and iw_g4.contains("force_black")
+		and iw_g4.contains("progress"),
+		"转场以 shader progress 驱动 + 黑幕补刀（e89: 补刀保证遮死）")
 	chk(iw_g4.contains("_queue"), "转场重入排队, 黑窗内同步放 mid, 画面零突变 (g4)")
 	chk(iw_g4.contains("tween_callback(_unveil)"), "渐亮接在收黑链尾, 不与收黑并行抢 alpha (h4)")
+	# P4: 转场全家桶 —— 七式 + 组合语法 + 微转场池 + 修「展开其实全黑」老 bug
+	for s107 in ["brush", "watercolor", "sail", "page", "frost",
+			"uniform int style", "shader_parameter/force_black\", 0.0"]:
+		chk(iw_g4.contains(s107), "转场全家桶含 %s (P4)" % s107)
+	chk(iw_g4.contains("->"), "转场支持 a->b 组合语法, 收开可不同式 (P4)")
+	chk(iw_g4.contains("force_black\", 0.0"), "开幕时补刀退场, 展开段真的可见 (P4 修 e89 老 bug)")
+	var vg107 := FileAccess.get_file_as_string("res://voyage.gd")
+	chk(vg107.contains("\"sail\"") and vg107.contains("\"brush\"") and vg107.contains("\"page\""),
+		"出海/上岸/进城各用 sail/brush/page 转场 (P4)")
+	var gg107 := FileAccess.get_file_as_string("res://scene/game.gd")
+	chk(gg107.contains("_pocket_card") and gg107.contains("_sync_sleep_tone")
+		and gg107.contains("_FRAG_PLAIN"),
+		"睡觉黑幕换当季晕染 + 口袋日期卡 (P4)")
+	chk(FileAccess.get_file_as_string("res://backpack_ui.gd").contains("\"page\""),
+		"回主菜单走翻页转场 (P4)")
+	chk(FileAccess.get_file_as_string("res://chest_ui.gd").contains("IRIS.micro(\"gold\")"),
+		"开箱走金光带微转场 (P4)")
+	chk(FileAccess.file_exists("res://resources/audio/sfx/cloth.wav")
+		and FileAccess.get_file_as_string("res://audio_manager.gd").contains("\"cloth\""),
+		"口袋日期卡的布料音 cloth 已生成并注册 (P4)")
+	# P5: 特效包 —— 飘字色板统一 + 打击三连（hit-stop / 白闪 / 辐射速度线）+ 纸纹
+	var fp_p5 := FileAccess.get_file_as_string("res://scene/fx_palette.gd")
+	chk(fp_p5.contains("const GAIN") and fp_p5.contains("const FAVOR")
+		and fp_p5.contains("const EXP") and fp_p5.contains("const HURT"),
+		"飘字色板统一: 金/粉/蓝/红/绿 唯一真相源 (P5)")
+	chk(fp_p5.contains("hit_stop") and fp_p5.contains("speed_lines")
+		and fp_p5.contains("static func flash"),
+		"打击三连工具齐: hit-stop / 白闪 / 辐射速度线 (P5)")
+	var bc_p5 := FileAccess.get_file_as_string("res://scene/battle_cards.gd")
+	chk(bc_p5.contains("FxPalette.hit_stop()") and bc_p5.contains("FxPalette.speed_lines")
+		and bc_p5.contains("FxPalette.GAIN") and bc_p5.contains("FxPalette.HURT"),
+		"击杀走打击三连, 战场飘字换统一色板 (P5)")
+	chk(fp_p5.contains("Engine.time_scale = 1.0"),
+		"hit-stop 的恢复计时器 ignore_time_scale, 慢放不吞恢复 (P5)")
+	chk(FileAccess.get_file_as_string("res://scene/world_map.gd").contains("FX_PALETTE.GAIN"),
+		"海图买卖飘字换统一色板 (P5)")
+	chk(FileAccess.get_file_as_string("res://item_pickup.gd").contains("fx_palette.gd"),
+		"捡东西飘字换统一色板 (P5)")
+	chk(FileAccess.get_file_as_string("res://scene/fx_post.gdshader").contains("纸纤维"),
+		"胶片颗粒升级成纸纤维手绘纹 (P5)")
+	# P6: 音画点睛 —— 确定/取消/换季/登场 stinger 全走 make_audio.py 管线
+	for n_p6 in ["confirm", "cancel", "season", "stinger"]:
+		chk(FileAccess.file_exists("res://resources/audio/sfx/%s.wav" % n_p6)
+			and FileAccess.get_file_as_string("res://audio_manager.gd").contains("\"%s\"" % n_p6),
+			"音效 %s 已生成并注册 (P6)" % n_p6)
+	chk(FileAccess.get_file_as_string("res://scene/game.gd").contains("play_sfx(\"season\""),
+		"换季播 season stinger (P6)")
+	chk(FileAccess.get_file_as_string("res://scene/battle_cards.gd").contains("play_sfx(\"stinger\""),
+		"战斗开场播登场 stinger (P6)")
+	chk(FileAccess.get_file_as_string("res://scene/main_menu.gd").contains("play_sfx(\"confirm\""),
+		"主菜单开始/读档播确定音 (P6)")
 	# d11: ESC 背包的战斗页签管理出征卡组
 	var bp106 := FileAccess.get_file_as_string("res://backpack_ui.gd")
 	chk(bp106.contains("\"key\": \"battle\"") and bp106.contains("出征卡组编成"), "ESC 背包有战斗页签 (d11)")
@@ -11183,20 +11833,38 @@ func _ready() -> void:
 	var iw_seen := {"a": -1.0, "done": false}
 	preload("res://scene/iris_wipe.gd").play("out", func() -> void:
 		var wn: Node = get_tree().get_first_node_in_group("iris_wipe")
-		if wn != null:
-			iw_seen["a"] = (wn.get("_rect") as ColorRect).modulate.a
+		if wn != null and wn.get("_mat") != null:
+			iw_seen["a"] = float((wn.get("_mat") as ShaderMaterial).get_shader_parameter("force_black"))
 		iw_seen["done"] = true)
 	var iw_w3 := 0.0
 	while not bool(iw_seen["done"]) and iw_w3 < 8.0:
 		await get_tree().process_frame
 		iw_w3 += get_process_delta_time()
 	chk(bool(iw_seen["done"]) and float(iw_seen["a"]) >= 0.999,
-		"mid 在纯黑窗口执行 (a=%.3f, h4 零突变)" % float(iw_seen["a"]))
+		"mid 在纯黑窗口执行 (force_black=%.3f, h4 零突变)" % float(iw_seen["a"]))
 	var iw_w4 := 0.0
 	while get_tree().get_first_node_in_group("iris_wipe") != null and iw_w4 < 8.0:
 		await get_tree().process_frame
 		iw_w4 += get_process_delta_time()
 	chk(get_tree().get_first_node_in_group("iris_wipe") == null, "转场黑幕演完自毁 (h4)")
+	# P4: 具名式转场同样守住黑窗契约（以 brush 为例: mid 瞬间必须已经全遮）
+	var iw_seen_p4 := {"a": -1.0, "done": false}
+	preload("res://scene/iris_wipe.gd").play("out", func() -> void:
+		var wn_p4: Node = get_tree().get_first_node_in_group("iris_wipe")
+		if wn_p4 != null and wn_p4.get("_mat") != null:
+			iw_seen_p4["a"] = float((wn_p4.get("_mat") as ShaderMaterial).get_shader_parameter("force_black"))
+		iw_seen_p4["done"] = true, "brush")
+	var iw_w5 := 0.0
+	while not bool(iw_seen_p4["done"]) and iw_w5 < 8.0:
+		await get_tree().process_frame
+		iw_w5 += get_process_delta_time()
+	chk(bool(iw_seen_p4["done"]) and float(iw_seen_p4["a"]) >= 0.999,
+		"brush 式转场 mid 也在纯黑窗口执行 (force_black=%.3f, P4)" % float(iw_seen_p4["a"]))
+	var iw_w6 := 0.0
+	while get_tree().get_first_node_in_group("iris_wipe") != null and iw_w6 < 8.0:
+		await get_tree().process_frame
+		iw_w6 += get_process_delta_time()
+	chk(get_tree().get_first_node_in_group("iris_wipe") == null, "brush 式转场演完自毁 (P4)")
 
 	# ================= i 系列: 整体精细化 =================
 	# i3-A: 卡池/词条/剧本/兵种/英雄文案禁全角标点（IPix 缺字形会渲成方块）
@@ -11255,82 +11923,83 @@ func _ready() -> void:
 	player.global_position -= Vector2(400, 0)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	# i5: 转场 P5R 化 —— 红黑斜切条带 + 起手/收尾快闪帧; 黑窗契约保持
-	var iw_i5 := FileAccess.get_file_as_string("res://scene/iris_wipe.gd")
-	chk(iw_i5.contains("Polygon2D") and iw_i5.contains("_bands_in")
-		and iw_i5.contains("_flash_on") and iw_i5.contains("COL_BAND_B"),
-		"转场 P5R 化: 墨褐黄铜斜切条带 + 快闪帧 (i5)")
-	chk(iw_i5.contains("tween_callback(_fire_all)") and iw_i5.contains("_queue"),
+	# e89: 转场改圆形 iris（用户点单「不要线条, 可爱一点」）—— 黑窗契约原样保留
+	var iw_e89 := FileAccess.get_file_as_string("res://scene/iris_wipe.gd")
+	chk(iw_e89.contains("_close") and iw_e89.contains("COL_IRIS")
+		and not iw_e89.contains("Polygon2D"),
+		"转场圆形 iris: 圆洞收放 + 夜蓝幕色, 条带已撤 (e89; P4 起收幕函数更名 _close)")
+	chk(iw_e89.contains("tween_callback(_fire_all)") and iw_e89.contains("_queue"),
 		"转场黑窗契约保持: mid 只在全黑窗口放 (i5)")
 
 	# ===== 107. 恋爱线: 心动值 + 恋爱互动 =====
 	print("\n=== 107. 恋爱线: 心动值 + 恋爱互动 ===")
 	Marriage.reset()
 	# 107.1 数据层: 心动从 0 起, 非可婚对象与未开线都被挡
-	chk(Marriage.love_of("rq_01") == 0, "心动值从 0 开始")
-	chk(not Marriage.romance_open("rq_01"), "心里话没开段, 恋爱线未开放")
-	chk(Marriage.do_romance("rq_00", "walk")["ok"] == false, "布恩非可婚对象, 恋爱互动被拒")
+	chk(Marriage.love_of("rq_00") == 0, "心动值从 0 开始")
+	chk(not Marriage.romance_open("rq_00"), "心里话没开段, 恋爱线未开放")
+	chk(Marriage.do_romance("rq_01", "walk")["ok"] == false, "布恩非可婚对象, 恋爱互动被拒")
 	# 107.2 开线: 第 1 段心里话 -> 牵手散步解锁, 每天一次
-	Marriage.do_heart_talk("rq_01")
-	chk(Marriage.romance_open("rq_01"), "第 1 段心里话讲完, 恋爱线开启")
-	chk(not Marriage.romance_action_ok(Marriage.ROMANCE_ACTIONS[1], "rq_01"),
+	Marriage.do_heart_talk("rq_00")
+	chk(Marriage.romance_open("rq_00"), "第 1 段心里话讲完, 恋爱线开启")
+	chk(not Marriage.romance_action_ok(Marriage.ROMANCE_ACTIONS[1], "rq_00"),
 		"并肩看云要第 2 段心里话, 还锁着")
-	var r107a: Dictionary = Marriage.do_romance("rq_01", "walk")
+	var r107a: Dictionary = Marriage.do_romance("rq_00", "walk")
 	chk(bool(r107a["ok"]) and int(r107a["gain"]) == 1 and String(r107a["line"]) != "",
 		"牵手散步: 心动 +1, 带台词反馈")
-	chk(Marriage.romance_done_today("rq_01"), "今天互动标记打开")
-	chk(String(Marriage.do_romance("rq_01", "cloud")["reason"]) == "done_today",
+	chk(Marriage.romance_done_today("rq_00"), "今天互动标记打开")
+	chk(String(Marriage.do_romance("rq_00", "cloud")["reason"]) == "done_today",
 		"每天一次: 第二次互动被拦")
 	# 107.3 新一天重置 + 门槛把关
 	Marriage._on_new_day(1)
-	chk(not Marriage.romance_done_today("rq_01"), "新一天互动次数重置")
-	chk(String(Marriage.do_romance("rq_01", "night")["reason"]) == "not_married",
+	chk(not Marriage.romance_done_today("rq_00"), "新一天互动次数重置")
+	chk(String(Marriage.do_romance("rq_00", "night")["reason"]) == "not_married",
 		"灯下夜话是婚后专属, 未婚被拒")
-	chk(String(Marriage.do_romance("rq_01", "cloud")["reason"]) == "locked",
+	chk(String(Marriage.do_romance("rq_00", "cloud")["reason"]) == "locked",
 		"并肩看云没到第 2 段, 判 locked")
-	Marriage.do_heart_talk("rq_01")
-	chk(bool(Marriage.do_romance("rq_01", "cloud")["ok"]), "第 2 段心里话讲完, 并肩看云解锁")
+	Marriage.do_heart_talk("rq_00")
+	chk(bool(Marriage.do_romance("rq_00", "cloud")["ok"]), "第 2 段心里话讲完, 并肩看云解锁")
 	# 107.4 封顶: 心动满 10 后实加归 0 并标 full
 	for i107 in 3:
-		Marriage.do_heart_talk("rq_01")   # 2 -> 5 段
-	chk(Marriage.stage("rq_01") == 5, "心里话推满 5 段")
-	Marriage.love["rq_01"] = Marriage.LOVE_MAX - 1
+		Marriage.do_heart_talk("rq_00")   # 2 -> 5 段
+	chk(Marriage.stage("rq_00") == 5, "心里话推满 5 段")
+	Marriage.love["rq_00"] = Marriage.LOVE_MAX - 1
 	Marriage._on_new_day(2)
-	var r107b: Dictionary = Marriage.do_romance("rq_01", "kiss")   # 标称 +2, 实加 1
+	var r107b: Dictionary = Marriage.do_romance("rq_00", "kiss")   # 标称 +2, 实加 1
 	chk(bool(r107b["ok"]) and int(r107b["gain"]) == 1 and bool(r107b["full"]),
 		"心动 9 + 额头轻吻: 封顶实加 1, full 标记")
-	chk(Marriage.love_of("rq_01") == Marriage.LOVE_MAX,
+	chk(Marriage.love_of("rq_00") == Marriage.LOVE_MAX,
 		"心动封顶 %d" % Marriage.LOVE_MAX)
 	# 107.5 婚后专属: 娶咪露 -> 灯下夜话开放
-	Marriage.marry("rq_01", 33)
-	Marriage.love["rq_01"] = 0
+	Marriage.marry("rq_00", 33)
+	Marriage.love["rq_00"] = 0
 	Marriage._on_new_day(3)
-	var r107c: Dictionary = Marriage.do_romance("rq_01", "night")
+	var r107c: Dictionary = Marriage.do_romance("rq_00", "night")
 	chk(bool(r107c["ok"]) and int(r107c["gain"]) == 2, "婚后「灯下夜话」开放: 心动 +2")
 	# 107.6 恋爱存档往返（love / romance_today 都进 to_dict）
 	var sv107: Dictionary = Marriage.to_dict()
 	Marriage.reset()
-	chk(Marriage.love_of("rq_01") == 0, "reset 连心动值一起清空")
+	chk(Marriage.love_of("rq_00") == 0, "reset 连心动值一起清空")
 	Marriage.from_dict(sv107)
-	chk(Marriage.love_of("rq_01") == 2 and Marriage.is_married_to("rq_01"),
+	chk(Marriage.love_of("rq_00") == 2 and Marriage.is_married_to("rq_00"),
 		"恋爱存档往返: 心动值 + 婚姻状态保住")
 	# 107.7 恋爱界面: 非 bride 兜底 / bride 列出 6 个互动
 	var slaves_bak107: Array = Slaves.slaves
 	var count_bak107: int = Slaves.count
 	Slaves.slaves = [
-		{"name": "布恩", "affection": 10, "gift_today": false, "max_hp": 30, "hp": 30,
-			"troop": "刀客", "squad": 1, "labor": "帮工"},
+		# e94 对调后 roster 0 = 咪露(可婚) / 1 = 布恩(不可婚); open_for 按【队伍下标】映射 roster
 		{"name": "咪露", "affection": 10, "gift_today": false, "max_hp": 30, "hp": 30,
+			"troop": "刀客", "squad": 1, "labor": "帮工"},
+		{"name": "布恩", "affection": 10, "gift_today": false, "max_hp": 30, "hp": 30,
 			"troop": "刀客", "squad": 1, "labor": "帮工"},
 	]
 	Slaves.count = 2
 	var rui107: Control = load("res://romance_ui.gd").new()
 	add_child(rui107)
-	rui107.open_for(0)
+	rui107.open_for(1)
 	chk(rui107.visible
 		and String((rui107.get("_love_label") as Label).text).contains("并肩伙伴"),
 		"恋爱界面: 非可婚对象显好感线兜底")
-	rui107.open_for(1)
+	rui107.open_for(0)
 	chk(rui107.visible
 		and String((rui107.get("_love_label") as Label).text).contains("心动"),
 		"恋爱界面: bride 显心动条")
@@ -11425,11 +12094,112 @@ func _ready() -> void:
 		"成树会自己飘叶子 (tree_node._drift_leaf) (q4)")
 	tnode.free()
 
+	# ---------------- p1 情绪气泡 ----------------
+	# 贴图是「白底黑框气泡 + 尾巴 + 表情」融在一张 ImageTexture 里（星露谷式）。
+	# 断言三件事: 每种 kind 都出图 / 尾巴尖不透明（挂点锚在原点的保证） / 表情中心有颜色。
+	var emote_scr: GDScript = load("res://scene/emote_bubble.gd")
+	for ek in ["!", "?", "...", "heart", "anger", "sweat", "note", "zzz"]:
+		var etex: Texture2D = emote_scr.call("tex_of", ek)
+		var eimg: Image = etex.get_image() if etex != null else null
+		chk(eimg != null and eimg.get_width() == 13 and eimg.get_height() == 14,
+			"气泡贴图 13x14 融合底 (%s) (p1)" % ek)
+		if eimg != null:
+			chk(eimg.get_pixel(6, 13).a > 0.5,
+				"气泡尾巴尖 (6,13) 不透明, 锚在节点原点 (%s) (p1)" % ek)
+			chk(eimg.get_pixel(6, 5).a > 0.5,
+				"表情画进气泡中心 (%s) (p1)" % ek)
+	# 缓存: 同 kind 二次取是同一张贴图（全项目共用, 不重复画）
+	var t1: Texture2D = emote_scr.call("tex_of", "heart")
+	var t2: Texture2D = emote_scr.call("tex_of", "heart")
+	chk(t1 == t2, "气泡贴图按 kind 静态缓存, 重复取同实例 (p1)")
+	# pop_over: 挂到一个真 Node2D 上会真的冒出子节点（不在树里则安静拒绝）
+	var host_p1 := Node2D.new()
+	add_child(host_p1)
+	emote_scr.call("pop_over", host_p1, "heart", 0.5, 26.0)
+	chk(host_p1.get_child_count() == 1, "pop_over 在 host 头顶真的挂上气泡节点 (p1)")
+	host_p1.free()
+
+	# ---------------- p2 世界演出导演 ----------------
+	# 校验器是纯函数, headless 能全量断言; 真演出的观感归 _probe_wdirect 截图管。
+	var wd_scr: GDScript = load("res://scene/world_director.gd")
+	var wd_node: Node = wd_scr.new()
+	chk(wd_node.has_method("play_script") and wd_node.has_method("cmd")
+		and wd_node.has_method("busy") and wd_node.has_method("validate"),
+		"导演具备 play_script/cmd/busy/validate 四件套 (p2)")
+	wd_node.free()
+	var demo_txt := FileAccess.get_file_as_string("res://data/world_scenes/demo_arrival.json")
+	var demo: Variant = JSON.parse_string(demo_txt) if not demo_txt.is_empty() else null
+	chk(demo is Array and not (demo as Array).is_empty(),
+		"演示剧本 demo_arrival.json 读得到且是数组 (p2)")
+	if demo is Array:
+		chk(wd_scr.call("validate", demo).is_empty(),
+			"演示剧本校验 0 错 (%d 步) (p2)" % (demo as Array).size())
+	# 坏剧本要被抓出来: 未知指令 / walk 未进场的 who / emote 越界 kind / face 非法朝向
+	var bad := wd_scr.call("validate", [
+		{"do": "kiss", "who": "x"},
+		{"do": "walk", "who": "路人", "to": [0, 0]},
+		{"do": "enter", "who": "路人", "at": [0, 0]},
+		{"do": "emote", "who": "路人", "kind": "nope"},
+		{"do": "face", "who": "路人", "dir": "斜上"},
+		{"do": "exit", "who": "路人"},
+	]) as Array
+	chk(bad.size() >= 4, "坏剧本校验抓出 %d 处 (未知指令/walk未进场/emote越界/face非法) (p2)" % bad.size())
+	chk(wd_scr.call("validate", []).is_empty(), "空剧本合法(播了个寂寞但不报错) (p2)")
+	var wd_src := FileAccess.get_file_as_string("res://scene/world_director.gd")
+	chk(wd_src.contains("_side") and wd_src.contains("flip_h"),
+		"导演走位动画左右共用 _side + flip_h（不拼 walk_left 那个不存在的动画）(p2)")
+	# 挂载: game.gd 必须真的把导演装进场景（声明 + _ready 调用, 缺一就是被手滑删了线）
+	var game_src := FileAccess.get_file_as_string("res://scene/game.gd")
+	chk(game_src.contains("var world_director")
+		and game_src.contains("func _build_world_director")
+		and game_src.count("_build_world_director()") >= 2,
+		"game.gd 声明并挂载了 world_director (p2)")
+
+	# ---- p3: 头像差分工厂（mood_portrait.gd）----
+	var mp := load("res://scene/mood_portrait.gd")
+	chk(mp != null and mp.has_method("tex_of"), "差分工厂可加载且有 tex_of (p3)")
+	var t_n: Texture2D = mp.call("tex_of", "player")
+	chk(t_n != null and t_n.get_width() == 128 and t_n.get_height() == 128,
+		"player 立绘保留 128x128 细节")
+	var t_h: Texture2D = mp.call("tex_of", "player", "happy")
+	var t_s: Texture2D = mp.call("tex_of", "player", "surprised")
+	chk(t_h != null and t_s != null and t_h != t_n and t_s != t_n and t_h != t_s,
+		"happy/surprised 差分都非空且各不相同 (p3)")
+	var img_h: Image = t_h.get_image()
+	var img_n: Image = t_n.get_image()
+	if img_h != null and img_n != null:
+		var diff := 0
+		for yy in range(0, 128):
+			for xx in range(0, 128):
+				if img_h.get_pixel(xx, yy).is_equal_approx(img_n.get_pixel(xx, yy)) == false:
+					diff += 1
+		chk(diff > 20, "happy 差分真的动了像素 (改了 %d px) (p3)" % diff)
+	var t3: Texture2D = mp.call("tex_of", "slave_03", "angry")
+	chk(t3 != null and t3 != mp.call("tex_of", "slave_03"),
+		"slave_03 生气差分生效 (p3)")
+	chk(mp.call("tex_of", "definitely_not_a_key") == null,
+		"未知立绘 key 返回 null（调用方兜底）(p3)")
+	var t_rep: Texture2D = mp.call("tex_of", "slave_03", "angry")
+	chk(t_rep == t3, "差分缓存生效（两次调用同一纹理）(p3)")
+	# dialog_box 必须有 open_key + 逐段换表情（源码级, 防手滑删线）
+	var dsrc := FileAccess.get_file_as_string("res://dialog_box.gd")
+	chk(dsrc.contains("func open_key") and dsrc.contains("_moods[mini(i"),
+		"dialog_box 支持 open_key + 逐段换差分 (p3)")
+	# dialogue_ui 聊天走差分管线
+	var usrc := FileAccess.get_file_as_string("res://dialogue_ui.gd")
+	chk(usrc.contains("open_key("), "dialogue_ui 聊天入口走差分管线 (p3)")
+
 	# 清场
 	Slaves.slaves = slaves_bak107
 	Slaves.count = count_bak107
 	Marriage.reset()
 
+	_test_experience_flow()
+	_test_first_harvest_guidance()
+	_test_whole_character_sprites()
+	_test_quality_foundation()
+	await _test_cozy_theme()
+	await _test_dialogue_flow()
 	_verify_real_saves_untouched()      # B2：真档一个字节都不许动
 
 	print("\n========================================")
@@ -11440,6 +12210,31 @@ func _ready() -> void:
 	print("========================================")
 	_write_result()
 	get_tree().quit()
+
+# e1 自检结论落盘（UTF-8）。
+func _test_event_scripts() -> void:
+	print("\n=== 全事件剧本: 站位/道具/分支/字形 ===")
+	var events: Script = load("res://scene/event_scripts.gd")
+	var romance: Script = load("res://scripts_marriage.gd")
+	chk(load("res://tools/preview_events.gd") != null, "独立演出预览选择器可加载")
+	var scripts: Array = [events.opening(), events.rod(), events.naming()]
+	var count_before: int = Slaves.count
+	for idx in [0, 2, 3, 5, 6, 7]:
+		for stage in 5:
+			scripts.append(romance.heart_script(idx, stage))
+		scripts.append(romance.propose_script(idx))
+		scripts.append(romance.wedding_script(idx))
+	for idx in 8:
+		Slaves.count = idx
+		scripts.append(Recruits.join_script())
+	Slaves.count = count_before
+	for id: String in Cutscenes.ACTS:
+		scripts.append(events.milestone(id, {"nation": "北岭", "town": "松林城"}))
+	for i in scripts.size():
+		var script: Array = scripts[i]
+		var errors: Array = events.validate(script)
+		chk(not script.is_empty() and errors.is_empty(), "事件 %d: 演员/道具/分支完整 %s" % [i, str(errors)])
+		chk(missing_glyphs(events.texts(script)).is_empty(), "事件 %d: 所有正文/标题/选项均有字形" % i)
 
 # e1 自检结论落盘（UTF-8）。
 # 背景：控制台输出被 shell 重定向后，中文经常被按 GBK 解读成乱码（「看日志靠猜」）。
@@ -11556,3 +12351,517 @@ class FakeBattle:
 				bd = d
 				best = f
 		return best
+# 玩家体验回归: 按实际事件走流程, 验旧档和跳步, 不删减原有底线。
+func _test_quality_foundation() -> void:
+	print("\n=== 109. 正式角色身份 / 战斗预览 ===")
+	var npc_script := preload("res://scene/slave_npc.gd")
+	var portrait_script := preload("res://scene/mood_portrait.gd")
+	var hashes: Dictionary = {}
+	for key: String in CARDSD.SPELLS:
+		var art: Texture2D = CARDSD.art_of(CARDSD.spell_card_of(key), "my")
+		chk(art != null and art.get_size() == Vector2(96, 80), "每张研究战术都有正式像素插画: " + key)
+	for archetype: String in CARDSD.FOE_UNITS:
+		for spec: Array in CARDSD.FOE_UNITS[archetype]:
+			var card: Dictionary = CARDSD.unit_card(String(spec[0]), int(spec[1]), int(spec[2]), int(spec[3]), String(spec[4]))
+			var art: Texture2D = CARDSD.art_of(card, "foe")
+			chk(art != null and art.get_size() == Vector2(96, 80), "每种敌军都有正式像素插画: " + String(spec[0]))
+	chk(CARDSD.art_of(CARDSD.hero_card(), "my") == portrait_script.portrait_texture("player"), "主角战斗卡保留正式头像")
+	var partner: Dictionary = CARDSD.unit_card("咪露", 1, 1, 2, "")
+	partner["src"] = 0
+	chk(CARDSD.art_of(partner, "my") == portrait_script.portrait_texture("slave_00"), "伙伴战斗卡不因职业更换身份")
+	var face: Control = preload("res://scene/card_face.gd").build(CARDSD.spell_card_of("m_admin_cabinet"), "my", Vector2(88, 146))
+	var name_label: Label = face.get_node("CardName")
+	var rules_label: Label = face.get_node("CardRules")
+	chk(name_label.get_rect().end.y <= rules_label.position.y, "卡名与效果分区, 不互相覆盖")
+	chk(face.get_meta("keep_ui_palette", false), "卡面保留独立的费用和攻血语义配色")
+	face.free()
+	for spell_key: String in CARDSD.SPELLS:
+		var spell_face: Control = preload("res://scene/card_face.gd").build(CARDSD.spell_card_of(spell_key), "my", Vector2(88, 146))
+		var spell_rules: Label = spell_face.get_node("CardRules")
+		chk(spell_rules.get_rect().end.x <= 88 and spell_rules.get_rect().end.y <= 122, "战术效果不越过卡边或数值区: " + spell_key)
+		spell_face.free()
+	var sample := Image.create(3, 1, false, Image.FORMAT_RGBA8)
+	sample.set_pixel(0, 0, Color("ff9e93"))
+	sample.set_pixel(1, 0, Color("e68e5b"))
+	sample.set_pixel(2, 0, Color(0, 0, 0, 0))
+	npc_script._apply_identity_palette(sample, "Manu", 6)
+	chk(sample.get_pixel(0, 0).is_equal_approx(Color("467f96")), "珂丹原粉衣正确换成蓝衣, 不再漏染")
+	chk(sample.get_pixel(1, 0).is_equal_approx(Color("f0bc8e")) and sample.get_pixel(2, 0).a == 0.0, "珂丹肤色单独处理, 透明区域不被涂满")
+	var hero_idle: Texture2D = npc_script.player_texture("Idle.png")
+	if hero_idle != null:
+		chk(hero_idle == npc_script.player_texture("Idle.png"), "主角配色纹理复用缓存")
+		var hero_image: Image = hero_idle.get_image()
+		var shirt_pixels: int = 0
+		var binary_alpha: bool = true
+		for y in hero_image.get_height():
+			for x in hero_image.get_width():
+				var pixel: Color = hero_image.get_pixel(x, y)
+				if pixel.a != 0.0 and pixel.a != 1.0:
+					binary_alpha = false
+				if pixel.a > 0.5 and pixel.to_html(false) in ["eee2c9", "d7c3a4"]:
+					shirt_pixels += 1
+		chk(shirt_pixels > 0 and binary_alpha and hero_idle.get_size() == Vector2(128, 96), "主角使用米色衣服完整像素帧, 透明边缘无柔化")
+	for i in 8:
+		var identity: Dictionary = npc_script.identity_for(i)
+		var key: String = "slave_%02d" % i
+		chk(identity.get("key", "") == key, "角色身份与头像键一致: " + key)
+		var tex: Texture2D = portrait_script.tex_of(key)
+		chk(tex != null and tex.get_size() == Vector2(128, 128), "正式头像尺寸正确: " + key)
+		if tex != null:
+			var hash_value: String = tex.get_image().get_data().hex_encode().sha256_text()
+			chk(not hashes.has(hash_value), "正式伙伴不重复使用同一立绘: " + key)
+			hashes[hash_value] = true
+	var cb: Variant = CARDSB.new()
+	hashes.clear()
+	var required: Array[String] = portrait_script.required_keys()
+	chk(required.size() == 2 + Slaves.ROSTER.size() + Nations.LORD_NAMES.size() + Nations.CAPTAIN_NAMES.size(), "头像名单自动覆盖伙伴、全部领主、全部队长与商人")
+	for key: String in required:
+		var path: String = "res://resources/texture/portraits_v2/" + key + ".png"
+		chk(ResourceLoader.exists(path), "具名角色拥有正式像素头像: " + key)
+		var texture: Texture2D = portrait_script.portrait_texture(key)
+		if texture != null:
+			chk(texture.get_size() == Vector2(128, 128), "具名角色头像统一尺寸: " + key)
+			var fingerprint: String = texture.get_image().get_data().hex_encode().sha256_text()
+			chk(not hashes.has(fingerprint), "具名角色头像没有共用同一文件内容: " + key)
+			hashes[fingerprint] = true
+	chk(npc_script.identity_for(0).get("hair", "") != npc_script.identity_for(3).get("hair", "") and npc_script.identity_for(0).get("cloth", "") != npc_script.identity_for(3).get("cloth", ""), "咪露与娜雅有不同的发色和衣色")
+	cb._front = [cb._new_unit(CARDSD.unit_card("预览我军", 1, 3, 5, "")), cb._new_unit(CARDSD.unit_card("预览敌军", 1, 2, 4, ""), "foe"), null, null, null, null, null]
+	cb._cost = 5
+	cb._atk_sel = {"row": "front", "idx": 0}
+	var target: Dictionary = {"side": "foe", "row": "front", "idx": 1}
+	var preview: String = cb.attack_preview(target)
+	chk(preview.contains("造成 3") and preview.contains("反击 2"), "攻击预览准确展示伤害和反击")
+	chk(cb._cost == 5 and cb._front[1]["hp"] == 4 and not cb._front[0]["acted"], "攻击预览不修改战斗状态")
+	cb._front[1]["hp"] = 3
+	chk(cb.attack_preview(target).contains("反击 0"), "击倒目标不承受反击")
+	cb._front[2] = cb._new_unit(CARDSD.unit_card("预览护卫", 1, 1, 4, "guard"), "foe")
+	chk(not cb._selection_can_target("foe", "front", 1), "受守护单位不会显示为合法攻击目标")
+	cb._front[1]["card"]["kw"] = "guard"
+	chk(cb._selection_can_target("foe", "front", 1) and cb._selection_can_target("foe", "front", 2), "相邻守护者仍可被攻击, 不形成互保死局")
+	cb.free()
+
+func _test_cozy_theme() -> void:
+	print("\n=== 110. 温馨主题与动态文字对比 ===")
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(300, 150)
+	var old := StyleBoxFlat.new()
+	old.bg_color = Color("202b30")
+	old.set_content_margin_all(12)
+	panel.add_theme_stylebox_override("panel", old)
+	var label := Label.new()
+	label.text = "主题文字"
+	label.add_theme_color_override("font_color", Color.WHITE)
+	panel.add_child(label)
+	add_child(panel)
+	for i in 4:
+		await get_tree().process_frame
+	var style: StyleBoxFlat = panel.get_theme_stylebox("panel")
+	chk(style.bg_color.is_equal_approx(UiStyle.INK), "旧深色面板统一暖纸底")
+	chk(style.get_content_margin(SIDE_LEFT) == 12, "换主题保留原容器边距")
+	chk(label.get_theme_color("font_color").v < 0.55, "暖底上的旧白字改为深色")
+	label.add_theme_color_override("font_color", Color.WHITE)
+	for i in 3:
+		await get_tree().process_frame
+	chk(label.get_theme_color("font_color").v < 0.55, "动态刷新不会重新出现白字配浅底")
+	panel.queue_free()
+	await get_tree().process_frame
+
+func _test_whole_character_sprites() -> void:
+	print("\n=== 111. 原生素材角色与按需动作 ===")
+	var rig := preload("res://scene/character_rig.gd")
+	var npc := preload("res://scene/slave_npc.gd")
+	var approved := preload("res://tools/_probe_player_base_recipe.gd")
+	var cast: Array[String] = ["player"]
+	for index in Slaves.ROSTER.size():
+		cast.append("slave_%02d" % index)
+	for key: String in cast:
+		for file: String in rig.SHEETS:
+			var texture: Texture2D = npc.named_texture(key, file)
+			if key != "player" and file not in rig.NPC_FILES:
+				chk(texture == null, "NPC 不制作钓鱼、游泳或睡眠等主角专属动作: " + file)
+				continue
+			var spec: Array = rig.SHEETS[file]
+			var cell: int = 64 if file.begins_with("Fishing/") else 32
+			var rows: int = 1 if file == "Sleep.png" else 3
+			chk(texture != null and texture.get_size() == Vector2(int(spec[0]) * cell, rows * cell), "原生动作保持调用方接口尺寸: " + key + "/" + file)
+			if texture == null:
+				continue
+			var image: Image = texture.get_image()
+			var complete: bool = true
+			var binary_alpha: bool = true
+			var water_fx: bool = file in ["Swim/submerged.png", "Swim/Coming out of the water.png"]
+			for row in rows:
+				for frame in int(spec[0]):
+					var pose: Image = image.get_region(Rect2i(frame * cell, row * cell, cell, cell))
+					if _img_opaque_count(pose) < (6 if water_fx else 35):
+						complete = false
+			for y in image.get_height():
+				for x in image.get_width():
+					var alpha: float = image.get_pixel(x, y).a
+					if alpha != 0.0 and alpha != 1.0 and not (file == "Fishing/Hooked.png" and is_equal_approx(alpha, 128.0 / 255.0)):
+						binary_alpha = false
+			chk(complete, "原作姿态与水面特效无空帧: " + key + "/" + file)
+			chk(binary_alpha, "原生像素边缘无插值, 仅咬钩保留作者半透明水花: " + key + "/" + file)
+		# 日常睁眼帧检验彩色虹膜; 作者设计的眨眼、收竿与闭眼姿态不硬画眼睛。
+		var idle: Image = npc.named_texture(key, "Idle.png").get_image()
+		var iris: String = String(npc.profile_for(key).get("eye_light", "549184"))
+		for row in 3:
+			var iris_pixels: int = 0
+			for y in 32:
+				for x in 32:
+					if idle.get_pixel(x, row * 32 + y).to_html(false) == iris:
+						iris_pixels += 1
+			chk(iris_pixels >= (0 if row == 1 else 1) and (row != 1 or iris_pixels == 0), "原生脸保留眼睛颜色, 背面不画眼睛: %s/%d" % [key, row])
+	# 对照审样配方逐像素验证, 防止正式接入时改变已确认的主角外观。
+	for walking in [false, true]:
+		var file: String = "Walk.png" if walking else "Idle.png"
+		var image: Image = npc.player_texture(file).get_image()
+		for direction in [0, 2]:
+			var distinct: Dictionary = {}
+			for frame in (6 if walking else 4):
+				var pose: Image = image.get_region(Rect2i(frame * 32, direction * 32, 32, 32))
+				var reference: Image = approved.build(direction, frame, walking)
+				# 素材透明区可能保留不可见 RGB, 清零后比较全部可见像素与透明轮廓。
+				for y in 32:
+					for x in 32:
+						if reference.get_pixel(x, y).a == 0.0:
+							reference.set_pixel(x, y, Color(0, 0, 0, 0))
+				chk(pose.get_data() == reference.get_data(), "正式角色逐像素保持已确认小样: %s/%d/%d" % [file, direction, frame])
+				distinct[hash(pose.get_data())] = true
+			if walking:
+				chk(distinct.size() >= 4, "六帧行走包含真实落脚与摆臂, 不用单帧平移代替: %d" % direction)
+	chk(npc.body_scale_for() == Vector2.ONE and npc.body_scale_for(0) == Vector2.ONE, "新主角和咪露使用原生比例, 不拉长五官")
+	chk(npc.body_scale_for(1) == Vector2.ONE and npc.body_scale_for(7) == Vector2.ONE, "所有伙伴统一原生比例, 不拉长五官")
+	chk(rig.texture("player", "Idle.png") == npc.player_texture("Idle.png"), "主角各场景复用唯一外观缓存")
+	chk(rig.texture("slave_00", "Idle.png") == npc.sheet_texture("Lyria", "Idle.png", 0), "咪露各场景复用唯一外观缓存")
+	chk(npc.sheet_texture("Lyria", "Fishing/Wait Idle.png", 1) == null, "旧 NPC 也不请求主角专属图集")
+	var appearance := preload("res://scene/character_appearance.gd")
+	var absent: Dictionary = npc.PLAYER_IDENTITY.duplicate(true)
+	absent["key"] = "selftest_missing_layer"
+	absent["hair_style"] = "_missing_for_selftest_"
+	chk(appearance.texture(absent, "Idle.png") == null, "缺少第三方图层时软加载留空, 不崩溃或换成他人外观")
+	chk(not appearance._textures.has("slave_00|Fishing/Wait Idle.png"), "NPC 不缓存额外钓鱼图集")
+	# 女性脸部微调必须保持五官可读, 不改变衣服、身形或透明轮廓。
+	for key: String in npc.FACE_STYLES:
+		var profile: Dictionary = npc.profile_for(key)
+		var original: Dictionary = profile.duplicate(true)
+		original.erase("face_style")
+		var changed: bool = false
+		var shape_ok: bool = true
+		var iris_ok: bool = true
+		var body_ok: bool = true
+		for direction in 3:
+			var before: Image = appearance.frame_image(original, "Idle.png", direction, 0)
+			var after: Image = appearance.frame_image(profile, "Idle.png", direction, 0)
+			chk(before != null and after != null, "女性面部微调有原生帧: " + key)
+			if before == null or after == null: continue
+			for y in 32:
+				for x in 32:
+					var old: Color = before.get_pixel(x, y)
+					var current: Color = after.get_pixel(x, y)
+					if old.a != current.a: shape_ok = false
+					if old.a > 0.5 and old.to_html(false) in [String(profile["eye_dark"]), String(profile["eye_light"])] and current != old: iris_ok = false
+					if y >= 16 and old != current: body_ok = false
+					if direction == 0 and old.a > 0.5 and old != current: changed = true
+			if direction == 1:
+				chk(before.get_data() == after.get_data(), "背面不补腮红或假脸: " + key)
+		chk(changed and shape_ok and body_ok, "只柔化脸部配色, 保留原生轮廓、身形与服装: " + key)
+		chk(iris_ok, "柔和眼周不覆盖彩色虹膜: " + key)
+	chk(not npc.profile_for("player").has("face_style") and not npc.profile_for("slave_01").has("face_style"), "女性微调不改变已确认主角与男性外观")
+
+	var idle_hashes: Dictionary = {}
+	for key: String in cast + npc.NAMED_IDENTITIES.keys():
+		var idle_texture: Texture2D = npc.named_texture(key)
+		chk(idle_texture != null, "所有人类角色有配套实体: " + key)
+		if idle_texture == null: continue
+		var fingerprint: String = idle_texture.get_image().get_data().hex_encode().sha256_text()
+		chk(not idle_hashes.has(fingerprint), "各角色实体外观独立, 不重复同一个人: " + key)
+		idle_hashes[fingerprint] = key
+		var mount: Texture2D = npc.mount_texture(key)
+		chk(mount != null and mount.get_size() == Vector2(192, 144), "骑乘也有原生三向六帧并保持角色身份: " + key)
+		if mount != null:
+			var mounted_pose: Image = mount.get_image().get_region(Rect2i(0, 0, 32, 48))
+			chk(absf(-29 + mounted_pose.get_used_rect().end.y - 24 + 7) <= 1, "骑乘马蹄仍贴原有地面基线: " + key)
+		if npc.NAMED_IDENTITIES.has(key):
+			chk(npc.named_texture(key, "Watering.png") == null and npc.named_texture(key, "Fishing/Casting.png") == null, "领主/队长不加载无关农具和钓鱼动作: " + key)
+		else:
+			chk(npc.named_texture(key, "Walk.png") == npc.named_texture(key, "Walk.png"), "伙伴跨场景外观缓存一致: " + key)
+	for tid: String in Nations.LORD_NAMES:
+		chk(npc.NAMED_IDENTITIES.has("lord_" + tid), "领主名单对应实体身份: " + tid)
+	for nid: String in Nations.CAPTAIN_NAMES:
+		chk(npc.NAMED_IDENTITIES.has("captain_" + nid), "队长名单对应实体身份: " + nid)
+	chk(npc.named_texture("not_a_character") == null, "未知身份不冒充其他人")
+	chk(appearance.merchant_texture() != null, "哥布林摊位也统一温暖像素配色")
+	var mainland: Node = load("res://scene/mainland.gd").new()
+	var mainland_frames: SpriteFrames = mainland._build_frames()
+	chk((mainland_frames.get_frame_texture(&"idle_down", 0) as AtlasTexture).atlas == npc.player_texture("Idle.png"), "大陆主角不再切回旧模型")
+	mainland.free()
+	var map: Node = load("res://scene/world_map.gd").new()
+	for nation: String in Nations.CAPTAIN_NAMES:
+		var team: SpriteFrames = map._party_frames(int(map.SKIN_OF_NATION[nation]))
+		chk((team.get_frame_texture(&"idle_down", 0) as AtlasTexture).atlas == npc.named_texture("captain_" + nation), "五国海图队长与对话身份一致: " + nation)
+	# 开场与停步尾迹都可能重合, 用真实地形集合验证分散时不落水或挤成一个人。
+	for y in range(3, 12):
+		for x in range(3, 12):
+			map._land[Vector2i(x, y)] = true
+	var standing: Array[Vector2] = [Vector2(104, 104)]
+	for index in 8:
+		var spot: Vector2 = map._fleet_spot(Vector2(104, 104), false, standing, 1.0)
+		var separated: bool = spot != Vector2.INF and map._land.has(map._cell_at(spot))
+		for other: Vector2 in standing:
+			separated = separated and spot.distance_to(other) >= map.CELL
+		chk(separated, "完整船员停步后各有陆地落点, 不重叠或踩水: %d" % index)
+		standing.append(spot)
+	map._land.clear()
+	var expedition_snapshot: Array = Slaves.expedition.duplicate()
+	Slaves.expedition = [2, 6]
+	var crew: AtlasTexture = map._crew_tex(0)
+	chk(crew.atlas == npc.named_texture("slave_02"), "海图船员读取出征序号对应角色, 不画通用小人")
+	Slaves.expedition = expedition_snapshot
+	var occupied_before: Dictionary = Nations.occupied.duplicate(true)
+	var owner_before: Dictionary = Nations.town_owner.duplicate(true)
+	Nations.occupied.erase("chenxi_cap")
+	Nations.town_owner.erase("chenxi_cap")
+	var host_scene: Variant = load("res://scene/mainland.gd").new()
+	host_scene.town_id = "chenxi_cap"
+	host_scene.world = Node2D.new()
+	host_scene.add_child(host_scene.world)
+	host_scene._setup_host()
+	var host: Node = host_scene.world.get_node_or_null("TownHost")
+	chk(host != null and ((host.get_node("Appearance") as AnimatedSprite2D).sprite_frames.get_frame_texture(&"idle_down", 0) as AtlasTexture).atlas == npc.named_texture("lord_chenxi_cap"), "城镇领主实体和外交头像共用身份")
+	host_scene.free()
+	Nations.occupied["chenxi_cap"] = {}
+	var occupied_scene: Variant = load("res://scene/mainland.gd").new()
+	occupied_scene.town_id = "chenxi_cap"
+	occupied_scene.world = Node2D.new()
+	occupied_scene.add_child(occupied_scene.world)
+	occupied_scene._setup_host()
+	chk(occupied_scene.world.get_node_or_null("TownHost") == null, "城镇被玩家占领后不再出现旧领主")
+	occupied_scene.free()
+	Nations.occupied = occupied_before
+	Nations.town_owner = owner_before
+	map.free()
+
+func _test_first_harvest_guidance() -> void:
+	print("\n=== 110. 第一份收成实时指引 ===")
+	var quest_before: Dictionary = Quests.to_dict()
+	var tasks_before: Array = Quests.active()
+	var tilled_before: Dictionary = Farm.tilled.duplicate(true)
+	var crops_before: Dictionary = Farm.crops.duplicate(true)
+	var water_before: Dictionary = Farm.watered.duplicate(true)
+	var hotbar_before: Array = Inventory.hotbar.duplicate(true)
+	var pack_before: Array = Inventory.backpack.duplicate(true)
+	var can_before: int = Inventory.watering_can_water
+	var count_before: int = Slaves.count
+	var time_before: Array = [TimeManager.year, TimeManager.season, TimeManager.day]
+	Quests.suspend_checks()
+	Quests.reset_all()
+	Quests.start_guide()
+	TimeManager.year = 1
+	TimeManager.season = 0
+	TimeManager.day = 1
+	Slaves.count = 0
+	Inventory.reset_for_new_game()
+	Inventory.hotbar[0] = {"item": load("res://item/watering_can.tres"), "count": 1}
+	Inventory.hotbar[1] = {"item": load("res://item/seed.tres"), "count": 3}
+	Farm.tilled.clear()
+	Farm.crops.clear()
+	Farm.watered.clear()
+	Quests.complete("go_house")
+	chk(Quests.has_active("buy_goblin") and not Quests.has_active("till_first"), "领取工具后先引导购种")
+	Quests.complete("buy_goblin")
+	chk(Quests.has_active("till_first") and not Quests.has_active("buy_goblin"), "购种后开始开田, 不重复购买")
+	Quests.complete("till_first")
+	chk("按 2" in String(Quests.guidance()["detail"]), "播种指引读取当前快捷栏, 不写死种子位置")
+	var cell := Vector2i(3, 4)
+	Farm.tilled[cell] = true
+	chk(cell in Quests.guidance()["cells"], "播种定位已有空耕地")
+	Quests.complete("plant_first")
+	Quests.complete("water_first")
+	Recruits.sync_quests()
+	chk(Quests.has_active("meet_partner") and not Quests.has_active("rq_00"), "咪露相认与来客任务不重复展示")
+	var seed: ItemData = load("res://item/seed.tres")
+	Farm.crops[cell] = {"seed": seed, "stage": 0, "days": 0, "dead": false}
+	var guide: Dictionary = Quests.guidance()
+	chk("按 1" in String(guide["detail"]) and cell in guide["cells"], "缺水幼苗优先提示当前洒水壶键位与田地")
+	Inventory.watering_can_water = 0
+	guide = Quests.guidance()
+	chk("先去补水" in String(guide["action"]) and guide["cells"].is_empty(), "空壶先提示补水, 不要求对干田反复无效点击")
+	Inventory.watering_can_water = 10
+	Farm.watered[cell] = true
+	guide = Quests.guidance()
+	chk(guide["target"] == "campfire" and "今天的田已浇好" in String(guide["detail"]), "照料完幼苗后引导认识首位伙伴")
+	TimeManager.day = Recruits.WINDOW_DAYS + 1
+	guide = Quests.guidance()
+	chk(guide["target"] == "house" and "睡到明早" in String(guide["detail"]), "来客不在时给出休息操作, 不让等待收成变成空转")
+	Farm.crops[cell]["stage"] = seed.grow_days
+	guide = Quests.guidance()
+	chk("成熟" in String(guide["action"]) and cell in guide["cells"], "成熟作物优先于休息与来客指引")
+	Farm.crops[cell]["dead"] = true
+	guide = Quests.guidance()
+	chk("枯苗" in String(guide["detail"]) and "重新播" in String(guide["action"]), "换季枯苗可恢复种植, 不一直等待不会出现的收成")
+	var snapshot: Dictionary = Quests.to_dict()
+	var crops_snapshot: Dictionary = Farm.crops.duplicate(true)
+	for repeat in 3:
+		guide = Quests.guidance()
+	chk(Quests.to_dict() == snapshot and Farm.crops == crops_snapshot, "读取指引不推进任务、不改变农田与存档状态")
+	for id: String in preload("res://scene/first_week_guide.gd").FIRST_STEPS:
+		var sample: Dictionary = preload("res://scene/first_week_guide.gd").describe({"id": id})
+		chk(missing_glyphs(String(sample["caption"]) + String(sample["action"]) + String(sample["detail"])).is_empty(), "实时开局指引文案可显示: " + id)
+	Quests.from_dict(snapshot)
+	chk(Quests.has_active("harvest_first") and not Quests.has_active("buy_goblin"), "新旧完成记录续接收成, 读档不回挂买种子")
+	Quests.from_dict({"version": 3, "guide": true, "done": ["go_house", "till_first", "plant_first", "water_first"]})
+	chk(Quests.has_active("harvest_first") and not Quests.has_active("buy_goblin"), "已有种子的玩家直接播种后, 读档仍续接收成而非购物")
+	Quests.reset_all()
+	Quests.start_guide()
+	Quests.complete("go_house")
+	Quests.complete("buy_goblin")
+	Quests.complete("till_first")
+	Farm.crops.clear()
+	Farm.watered[cell] = true
+	Farm.plant(cell, seed)
+	Quests.note_planted(cell)
+	chk(Quests.has_done("water_first") and Quests.has_active("harvest_first"), "湿田播种直接进入收成指引, 不被已浇水状态卡住")
+	Farm.tilled = tilled_before
+	Farm.crops = crops_before
+	Farm.watered = water_before
+	Inventory.hotbar = hotbar_before
+	Inventory.backpack = pack_before
+	Inventory.watering_can_water = can_before
+	Slaves.count = count_before
+	TimeManager.year = time_before[0]
+	TimeManager.season = time_before[1]
+	TimeManager.day = time_before[2]
+	Quests.from_dict(quest_before)
+	Quests._tasks = tasks_before
+	Quests.resume_checks()
+	Quests.changed.emit()
+
+func _test_dialogue_flow() -> void:
+	print("\n=== 对话连续性回归 ===")
+	var sd: Control = load("res://story_dialogue.gd").new()
+	add_child(sd)
+	var running_before: bool = TimeManager.time_running
+	var stack_before: int = TimeManager._ui_pause_stack.size()
+	var source: Array = [
+		{"name": "主角", "text": "第一句."},
+		{"name": "主角", "text": "第二句."},
+		{"fx": "wait", "t": 0.01},
+		{"name": "主角", "text": "第三句."}]
+	var pages: Array = sd._paragraphs(source)
+	chk(pages.size() == 3 and pages[0]["text"] == "第一句. 第二句.", "同角色连续句合成段落, 指令不跨越")
+	chk(source[0]["text"] == "第一句.", "合段不修改原始剧本")
+	var done: Array = [false]
+	sd.play_directed([{"name": "主角", "text": "演出."}], func(): done[0] = true)
+	var ev := InputEventAction.new()
+	ev.action = "ui_accept"
+	ev.pressed = true
+	sd._input(ev)
+	sd._input(ev)
+	await get_tree().create_timer(0.15).timeout
+	chk(done[0] and not sd.is_open(), "导演演出完成回调并关闭")
+	sd.play([{"name": "哥布林", "text": "来看看种子."}])
+	chk(sd._box.is_visible_in_tree(), "导演演出后普通商店招呼仍显示正文")
+	sd._process(0.06)
+	chk(sd._text_label.visible_characters > 0 and sd._typing, "正文随时间逐字出现")
+	sd._input(ev)
+	sd._input(ev)
+	chk(not sd.is_open() and TimeManager._ui_pause_stack.size() == stack_before and TimeManager.time_running == running_before, "连续播放结束遮罩关闭, 暂停栈恢复")
+	sd.queue_free()
+	if Slaves.count > 0:
+		var dp: Control = g.dialogue_panel
+		dp.open_panel(0)
+		g.story_dialogue_panel.play([{"name": "主角", "text": "短暂插话."}])
+		g.story_dialogue_panel._close()
+		chk(player.frozen, "子剧情关闭后父面板仍开着, 玩家继续冻结")
+		dp._on_chat_pressed()
+		var chat: Control = dp._dialog
+		chk(not dp._box.is_visible_in_tree() and chat.is_visible_in_tree(), "聊天时隐藏选择卡片并保留聊天正文")
+		ev.action = "interact"
+		dp._input(ev)
+		chk(dp.is_open() and chat.is_open(), "翻页键不会关掉聊天父窗口")
+		chat._guard = 0.0
+		chat._input(ev)
+		chk(not chat._typing and dp.is_open(), "聊天首下按键显示完整段落")
+		dp.close_panel()
+		dp.open_panel(0)
+		chk(not chat.is_open() and dp._box.is_visible_in_tree(), "关闭再打开不会留下旧聊天遮罩")
+		dp.close_panel()
+
+func _test_experience_flow() -> void:
+	print("\n=== 108. 经营优先 / 渐进引导 / 旧档兼容 ===")
+	var backup: Dictionary = Quests.to_dict()
+	var tasks: Array = Quests.active()
+	var dock_before: int = Voyage.dock_state
+	Quests.suspend_checks()
+	Quests.reset_all()
+	Quests.start_guide()
+	chk(not Quests.module_unlocked("build") and not Quests.module_unlocked("hero"), "新档不提前展示建造和技能树")
+	Quests.complete("go_house")
+	chk(Quests.module_unlocked("calendar"), "安顿住处后可以查看日历")
+	Quests.complete("buy_goblin")
+	Quests.complete("till_first")
+	chk(not Quests.module_unlocked("hero"), "开第一块田不要求学习技能树")
+	Quests.complete("plant_first")
+	Quests.complete("water_first")
+	chk(Quests.module_unlocked("craft"), "等收成时可做基础加工")
+	chk(Quests.page_for_task("plant_first") == "" and Quests.page_for_task("sail_first") == "", "世界动作不误跳日历或外交")
+	Quests.complete("harvest_first")
+	Quests.complete("sell_first")
+	chk(Quests.module_unlocked("build") and Quests.milestones_enabled() and not Quests.caught_first_fish(), "不钓鱼也能建造并开始长期经营")
+	Quests.complete("build_first")
+	chk(Quests.module_unlocked("grow"), "有设施之后开放科技研究")
+	Quests.complete("mine_first")
+	Quests.complete("tech_first")
+	Quests.complete("sail_first")
+	chk(not Quests.has_active("navy_first") and Quests.peaceful_voyage, "首次出海默认安心贸易, 不强迫战斗")
+	Quests.choose_war_route(true)
+	chk(Quests.has_active("navy_first") and not Quests.peaceful_voyage, "主动开启远征才提供海战指引")
+	Quests.complete("navy_first")
+	chk(Quests.has_active("contract_first"), "可选战争路线正常衔接契约")
+	Quests.choose_war_route(false)
+	chk(not Quests.has_active("contract_first") and Quests.module_unlocked("build"), "暂停远征不影响家园功能")
+	Quests.track("sea_trade_first")
+	var roundtrip: Dictionary = Quests.to_dict()
+	Quests.from_dict(roundtrip)
+	chk(String(Quests.tracked_task().get("id", "")) == "sea_trade_first", "选择的追踪目标在读档后保留")
+	chk(Quests.has_active("sea_trade_first") and not Quests.has_active("go_house"), "读档重建待办, 不丢失指引或重开教程")
+	Quests.choose_war_route(true)
+	Quests.peaceful_voyage = true
+	Quests.from_dict(Quests.to_dict())
+	chk(Quests.war_route and Quests.peaceful_voyage, "读档保留远征指引和单独设置的安心贸易偏好")
+	Quests.choose_war_route(false)
+	Quests.complete("sea_trade_first")
+	Quests.from_dict(Quests.to_dict())
+	chk(not Quests.has_active("sea_trade_first"), "已完成的海外贸易不会读档后重复挂载")
+	Quests.from_dict({"guide": true, "done": ["go_house", "buy_goblin", "till_first", "plant_first", "water_first", "harvest_first", "sell_first", "explore_island", "build_first", "mine_first"]})
+	chk(Quests.module_unlocked("hero") and Quests.module_unlocked("build") and Quests.module_unlocked("grow"), "旧档已开放的功能不会回锁")
+	chk(Quests.has_active("tech_first") and not Quests.has_active("build_first"), "旧档按完成记录续接正确下一步")
+	Quests.reset_all()
+	Quests.complete("build_first")
+	Quests.complete("mine_first")
+	Quests.complete("sell_first")
+	chk(Quests.has_active("tech_first") and not Quests.has_active("build_first") and not Quests.has_active("mine_first"), "先建造再售卖也不回挂旧任务")
+	Quests.reset_all()
+	Voyage.dock_state = Voyage.DOCK_RUIN
+	chk(not Quests.grow_sub_unlocked("battle"), "尚未修码头时不强推战斗编成")
+	Voyage.dock_state = Voyage.DOCK_BUILT
+	chk(Quests.grow_sub_unlocked("battle"), "首次出海前就能准备卡组")
+	var heads_before: int = Slaves.count
+	var crew_before: Array = Slaves.dock_crew.duplicate()
+	Slaves.count = 0
+	chk(Slaves.plan_warnings().is_empty(), "还没有伙伴时不要求玩家处理派活")
+	Slaves.count = maxi(1, heads_before)
+	Slaves.dock_crew.clear()
+	Voyage.dock_state = Voyage.DOCK_FUNDED
+	chk("工地还没人施工, 可按 T 安排伙伴" in Slaves.plan_warnings(), "工地无人时准确提示施工缺口")
+	Slaves.count = heads_before
+	Slaves.dock_crew.assign(crew_before)
+	Voyage.dock_state = dock_before
+	for def in Quests.OPTIONAL_TASKS.values():
+		chk(missing_glyphs(String(def[0]) + String(def[1])).is_empty(), "新增可选指引文案可显示")
+	chk(missing_glyphs(String(Quests.HOME_MILESTONE["title"]) + String(Quests.HOME_MILESTONE["desc"])).is_empty(), "家园终点文案可显示")
+	Quests.from_dict(backup)
+	Quests._tasks = tasks
+	Quests.resume_checks()
+	Quests.changed.emit()

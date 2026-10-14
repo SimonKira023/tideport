@@ -1,0 +1,14 @@
+[
+	{"do": "enter", "who": "阿鲤", "model": 0, "at": [-25, 3], "speed": 36},
+	{"do": "wait", "sec": 0.3},
+	{"do": "cam", "to": "阿鲤", "dur": 0.6},
+	{"do": "emote", "who": "阿鲤", "kind": "!", "dur": 0.9},
+	{"do": "walk", "who": "阿鲤", "to_who": "player", "speed": 36},
+	{"do": "face", "who": "阿鲤", "dir": "down"},
+	{"do": "say", "who": "阿鲤", "portrait": 0, "auto": 1.6,
+	 "lines": ["村长! 我把船桨找回来了.", "今天就出海吗?"]},
+	{"do": "emote", "who": "阿鲤", "kind": "heart", "dur": 1.2},
+	{"do": "wait", "sec": 0.4},
+	{"do": "cam", "to": "player", "dur": 0.5},
+	{"do": "exit", "who": "阿鲤"}
+]

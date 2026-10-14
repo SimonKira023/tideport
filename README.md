@@ -8,8 +8,10 @@
 
 **不用装 Godot、不用克隆仓库**，两步开玩：
 
-1. 到 [Releases](https://github.com/SimonKira023/tideport/releases) 页下载最新版本的 `潮汐港demo_win64.zip`
-2. 解压后双击里面的 `潮汐港demo5.exe`
+1. 到 [Releases](https://github.com/SimonKira023/tideport/releases) 页下载最新版本的 `潮汐港demo6_win64.zip`
+2. 解压后双击里面的 `潮汐港demo6.exe`
+
+这一版相对 Demo 5：菜单按任务逐步开放、战斗/科技/行政收进「发展」页、建筑说明改成鼠标悬停、任务可点「前往」、附近多件事时按 F 弹出选择。头像、卡牌和一批城镇/畜牧建筑也换了新内容。第三方素材包仍不打进压缩包，缺了也能进游戏，相关贴图留空。
 
 > **首次运行提示**：若弹出「Windows 已保护你的电脑」，点 **更多信息 → 仍要运行** 即可。程序没有购买数字签名，属独立游戏正常现象，放心运行。
 >
@@ -77,3 +79,5 @@ soft_res.gd     第三方素材软加载助手（缺失留空不崩）
 ## 许可证
 
 代码与自产素材以 [MIT](LICENSE) 发布。第三方素材包（见上表）版权归各自作者，不入库、不随本项目分发，使用前请阅读其原始许可。
+
+角色原生动画与部分场景素材来自 Farm RPG - Tiny Asset Pack, 作者 [EmanuelleDev](https://emanuelledev.itch.io/). 源素材与修改后的图像均不入库, 使用须遵守原包授权.

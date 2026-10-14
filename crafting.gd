@@ -60,6 +60,31 @@ const RECIPES := [
 		],
 	},
 	{
+		# 2026-10-06 城镇铺装: 石板路 —— 两块石头凿成两块大石板, 铺城镇主干道
+		"result": preload("res://item/slab_path.tres"),
+		"count": 2,
+		"costs": [
+			{"item": preload("res://item/stone.tres"), "count": 2},
+		],
+	},
+	{
+		# 红砖路: 石头 + 木头烧制, 铺广场/港口那种硬化路面
+		"result": preload("res://item/brick_path.tres"),
+		"count": 2,
+		"costs": [
+			{"item": preload("res://item/stone.tres"), "count": 2},
+			{"item": preload("res://item/wood.tres"), "count": 1},
+		],
+	},
+	{
+		# 砾石路: 一块石头砸三份碎石子, 最省料的临时路面
+		"result": preload("res://item/gravel_path.tres"),
+		"count": 3,
+		"costs": [
+			{"item": preload("res://item/stone.tres"), "count": 1},
+		],
+	},
+	{
 		# ❗工作台必须留在基础配方区：它是解锁工作台配方的前提，放工作台区就死锁了
 		"result": preload("res://item/workbench.tres"),
 		"count": 1,
@@ -226,8 +251,38 @@ func near_workbench() -> bool:
 # 制造中/待制造的打铁队列：每项 = {"idx": int, "work": int, "need": int}
 var smith_queue: Array = []
 
+# ---------------- 锻造点（跟建造点同一套：伙伴打铁产点, 玩家手动兑现） ----------------
+# 老流程：每晚按派去打铁的人数直接喂 smith_queue 队首, 攒够当晚自动出件。
+# 新流程：伙伴每晚产出的**锻造点**先进这个池子, 玩家在背包铁匠铺页点
+#         「投入锻造点 · 立即出件」当场打出队首那件。
+# ❗add_smith_work 保持原样（它就是「投入 N 点」的原子操作, 自检在用）。
+var smith_points := 0
+
 func reset() -> void:
 	smith_queue.clear()
+	smith_points = 0      # 锻造点池同理，读档会再填回来
+
+# 每晚结算：伙伴在铁匠铺干一晚产出的锻造点进池。返回池子现在的总数。
+func earn_smith_points(n: int) -> int:
+	if n > 0:
+		smith_points += n
+		smith_changed.emit()
+	return smith_points
+
+# 白天兑现：把池子里的点投进打铁队列（一次只投队首**还差的那部分**，
+# 免得 add_smith_work 的"多出来顺延"把余点吞掉）。返回本次出件的名字数组。
+func invest_smith_points() -> Array:
+	var made: Array = []
+	while smith_points > 0 and not smith_queue.is_empty():
+		var job: Dictionary = smith_queue[0]
+		var need := maxi(1, int(job["need"]))
+		var left := maxi(1, need - int(job["work"]))
+		var give := mini(left, smith_points)
+		smith_points -= give
+		made.append_array(add_smith_work(give))
+	if not made.is_empty():
+		smith_changed.emit()
+	return made
 
 func smith_busy() -> bool:
 	return not smith_queue.is_empty()

@@ -60,6 +60,9 @@ func _build() -> void:
 	_dawn.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_add_prop(_dawn)
 
+	# e53: 序章也从无遮幅拉进电影画框, 开场第一秒就立住画面
+	cinema(true, 1.2)
+
 func _build_banners() -> void:
 	_banners = HBoxContainer.new()
 	_banners.add_theme_constant_override("separation", 34)
@@ -317,10 +320,13 @@ func _scene_sea() -> void:
 	sky_to(SKY_SEA_TOP, SKY_SEA_BOT, 1.4)
 	stars_on(1.0, 1.8)
 	clouds_on(0.35, 2.0)
-	sea_on(0.56, 1.0, 1.8)
-	glow_at(Vector2(0.78, 0.30), Color(0.92, 0.94, 1.0), 300.0, 0.55, 1.6)
+	sea_on(0.56, 1.0, 1.8, 0.78)
+	# 云缝里那颗月亮: 加色冕 + 月牙, 海面还拖一条碎光
+	luminary(Vector2(0.78, 0.30), Color(0.92, 0.94, 1.0), 68.0, true, 1.8)
+	fog_on(0.20, 2.0)
 	vignette_on(0.48, 1.2)
 	fx_off(0.8)
+	dolly(1.06, Vector2(0.55, 0.46), 6.0)
 	var v := _vw()
 	var tw := create_tween()
 	tw.set_parallel(true)
@@ -338,6 +344,7 @@ func _scene_storm() -> void:
 	stars_on(0.0, 0.6)
 	clouds_on(0.9, 0.8)
 	fx_on("rain", 170)
+	fog_on(0.55, 0.8)             # 暴雨里那层压得极低的雨雾
 	glow_at(Vector2(0.30, 0.24), Color(0.78, 0.84, 1.0), 420.0, 0.40, 0.6)
 	vignette_on(0.80, 0.8)
 	flash(Color(0.86, 0.90, 1.0), 0.55, 0.5)
@@ -356,9 +363,11 @@ func _scene_isle() -> void:
 	sky_to(Color(0.10, 0.13, 0.20), Color(0.26, 0.30, 0.36), 1.6)
 	fx_off(1.2)
 	clouds_on(0.55, 1.4)
-	sea_on(0.70, 1.0, 1.6)
-	glow_at(Vector2(0.30, 0.26), Color(0.94, 0.95, 1.0), 380.0, 0.50, 1.4)
+	sea_on(0.70, 1.0, 1.6, 0.30)
+	fog_on(0.32, 1.8)             # 雨后贴在礁石上的那层湿雾
+	luminary(Vector2(0.30, 0.26), Color(0.94, 0.95, 1.0), 74.0, true, 1.6)
 	vignette_on(0.42, 1.2)
+	dolly(1.05, Vector2(0.50, 0.55), 5.0)
 	var v := _vw()
 	var tw := create_tween()
 	tw.set_parallel(true)
@@ -374,8 +383,11 @@ func _scene_isle() -> void:
 func _scene_goblin() -> void:
 	sky_to(Color(0.24, 0.26, 0.30), Color(0.52, 0.50, 0.46), 1.6)
 	clouds_on(0.75, 1.4)
-	glow_at(Vector2(0.88, 0.20), Color(1.0, 0.88, 0.62), 320.0, 0.40, 1.4)
+	luminary(Vector2(0.88, 0.20), Color(1.0, 0.88, 0.62), 88.0, false, 1.6)
+	rays_at(0.88, Color(1.0, 0.86, 0.58), 0.34, 1.6)
+	fog_on(0.34, 1.6)             # 桥头晨雾: 摊上那点暖灯才显得实在
 	vignette_on(0.38, 1.2)
+	birds_on(6, 1.4)
 	fx_on("fireflies", 26)
 	var v := _vw()
 	_goblin.visible = true
@@ -389,10 +401,15 @@ func _scene_dawn() -> void:
 	sky_to(SKY_DAWN_TOP, SKY_DAWN_BOT, 2.2)
 	stars_on(0.0, 1.2)
 	clouds_on(0.45, 1.6)
-	sea_on(0.70, 1.0, 1.0)
+	sea_on(0.70, 1.0, 1.0, 0.50)
+	# 日出: 一轮真太阳压在海平线上, 光柱斜插下来, 海面拖一条金路
+	luminary(Vector2(0.50, 0.60), Color(1.0, 0.82, 0.48), 132.0, false, 2.2)
+	rays_at(0.50, Color(1.0, 0.84, 0.50), 0.46, 2.2)
 	glow_at(Vector2(0.50, 0.66), Color(1.0, 0.82, 0.48), 560.0, 0.90, 2.0)
 	vignette_on(0.34, 1.6)
+	birds_on(9, 2.0)
 	fx_on("fireflies", 40)
+	dolly(1.07, Vector2(0.50, 0.52), 8.0)
 	var tw := create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(_dawn, "color:a", 0.28, 2.2)

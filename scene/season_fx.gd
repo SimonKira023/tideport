@@ -77,9 +77,9 @@ func _build_leaves() -> void:
 	_leaf.preprocess = 9.0
 	_leaf.emission_shape = EMISSION_SHAPE_RECTANGLE
 	_leaf.emission_rect_extents = Vector2(330, 200)
-	_leaf.direction = Vector2(0.3, 1.0)
+	_leaf.direction = Vector2(-0.3, 1.0)   # 全场风往左(与云/烟一致)
 	_leaf.spread = 24.0
-	_leaf.gravity = Vector2(6, 14)
+	_leaf.gravity = Vector2(-6, 14)
 	_leaf.initial_velocity_min = 10.0
 	_leaf.initial_velocity_max = 22.0
 	_leaf.angular_velocity_min = -110.0
@@ -99,7 +99,7 @@ func _build_petals() -> void:
 	_petal.preprocess = 11.0
 	_petal.emission_shape = EMISSION_SHAPE_RECTANGLE
 	_petal.emission_rect_extents = Vector2(330, 200)
-	_petal.direction = Vector2(0.5, 0.35)
+	_petal.direction = Vector2(-0.5, 0.35)
 	_petal.spread = 40.0
 	_petal.gravity = Vector2(0, 2)
 	_petal.initial_velocity_min = 4.0
@@ -151,9 +151,9 @@ func _build_snowdrift() -> void:
 	_snow.preprocess = 10.0
 	_snow.emission_shape = EMISSION_SHAPE_RECTANGLE
 	_snow.emission_rect_extents = Vector2(330, 200)
-	_snow.direction = Vector2(0.2, 1.0)
+	_snow.direction = Vector2(-0.2, 1.0)
 	_snow.spread = 14.0
-	_snow.gravity = Vector2(3, 10)
+	_snow.gravity = Vector2(-3, 10)
 	_snow.initial_velocity_min = 8.0
 	_snow.initial_velocity_max = 16.0
 	_snow.scale_amount_min = 0.6

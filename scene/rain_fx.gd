@@ -85,9 +85,9 @@ func _rain() -> void:
 	amount = 330 if storm else 200
 	lifetime = 0.9
 	preprocess = 1.0        # 开局天上就挂满雨，不用等从零落下
-	direction = Vector2(0.35, 1.0) if storm else Vector2(0.12, 1.0)
+	direction = Vector2(-0.35, 1.0) if storm else Vector2(-0.12, 1.0)   # 全场风往左(与云/烟一致)
 	spread = 4.0
-	gravity = Vector2(40, 380)
+	gravity = Vector2(-40, 380)
 	initial_velocity_min = 240.0
 	initial_velocity_max = 320.0
 	scale_amount_min = 0.8
@@ -100,7 +100,7 @@ func _snow() -> void:
 	amount = 90
 	lifetime = 6.0
 	preprocess = 6.0
-	direction = Vector2(0.15, 1.0)
+	direction = Vector2(-0.15, 1.0)
 	spread = 14.0
 	gravity = Vector2.ZERO
 	initial_velocity_min = 14.0
