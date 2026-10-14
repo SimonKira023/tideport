@@ -8,7 +8,7 @@
 
 **不用装 Godot、不用克隆仓库**，两步开玩：
 
-1. 到 [Releases](https://github.com/SimonKira023/tideport/releases) 页下载最新版本的 `潮汐港demo6_win64.zip`
+1. 到 [Releases](https://github.com/SimonKira023/tideport/releases) 页下载最新版本的 [`demo6_win64.zip`](https://github.com/SimonKira023/tideport/releases/download/v0.2.0-demo6/demo6_win64.zip)
 2. 解压后双击里面的 `潮汐港demo6.exe`
 
 这一版相对 Demo 5：菜单按任务逐步开放、战斗/科技/行政收进「发展」页、建筑说明改成鼠标悬停、任务可点「前往」、附近多件事时按 F 弹出选择。头像、卡牌和一批城镇/畜牧建筑也换了新内容。第三方素材包仍不打进压缩包，缺了也能进游戏，相关贴图留空。
